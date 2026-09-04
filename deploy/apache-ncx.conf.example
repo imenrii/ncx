@@ -1,0 +1,6 @@
+# Enable mod_proxy and mod_proxy_http before you include this file.
+# Debian and Ubuntu: sudo a2enmod proxy proxy_http
+
+RedirectMatch 308 ^/ncx$ /ncx/
+ProxyPass        "/ncx/" "http://127.0.0.1:8765/ncx/"
+ProxyPassReverse "/ncx/" "http://127.0.0.1:8765/ncx/"

@@ -874,7 +874,7 @@ fn hub_application(base_path: &str, state: Arc<HubState>) -> Result<Router, HubE
         .route("/data", get(relay_data))
         .fallback(hub_api_not_found);
     let scoped = server::viewer_routes()
-        .route("/health", get(health))
+        .route("/healthz", get(health))
         .nest("/api", api)
         .with_state(state);
     let base = base_path.to_owned();
@@ -1264,6 +1264,14 @@ mod tests {
         .await;
         assert!(redirect.starts_with("HTTP/1.1 308"));
         assert!(redirect.to_ascii_lowercase().contains("location: /ncx/"));
+
+        let health = raw_http(
+            address,
+            "GET /ncx/healthz HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+        assert!(health.starts_with("HTTP/1.1 200"));
+        assert!(health.ends_with("ok\n"));
 
         let missing = raw_http(
             address,

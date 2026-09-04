@@ -104,6 +104,64 @@ cargo build --release
 
 The resulting executable in `target/release/ncx` is completely self-contained.
 
+### Persistent intranet hosting
+
+The supplied Compose service builds the standalone Linux x86-64 executable and
+runs `ncx hub` on a Docker bridge. Apache keeps ports 80 and 443. Docker
+publishes the hub only on host loopback, and Apache maps `/ncx/` to that port.
+
+Prepare the configuration:
+
+```bash
+cp .env.example .env
+mkdir -p deploy
+ssh-keyscan -H hkss11 > deploy/known_hosts
+# Verify the saved host-key fingerprint through a trusted source.
+$EDITOR .env
+```
+
+Set `NCX_DATA_ROOT` to the host directory that Docker will mount read-only at
+`/data`. UID 10001 in the container must be able to read that directory and the
+`known_hosts` file. Set `NCX_SSH_PASSWORD` to the SSH login password. Do not
+commit `.env` or `deploy/known_hosts`. Docker administrators and processes in
+the container can read environment values, including the password.
+
+Build and start the hub:
+
+```bash
+docker compose build
+docker compose up -d
+```
+
+Enable Apache `mod_proxy` and `mod_proxy_http`. Include
+`deploy/apache-ncx.conf.example` in the active virtual host, verify the Apache
+configuration, and reload Apache. Then visit:
+
+```text
+https://hostname/ncx/
+```
+
+The address field accepts a local absolute path below the configured root, such
+as `/data/run.nc`, or an SSH address, such as
+`user@host:/absolute/path/run.nc`. The Save option stores addresses only in the
+browser. It does not store the SSH password.
+
+The image uses its standalone `/usr/local/bin/ncx` as the remote executable.
+The hub uploads it through SSH to `~/.cache/ncx/<content-id>/ncx` on first use
+and reuses that exact version. The remote host must be Linux x86-64 and must
+provide a writable home directory.
+
+The hub stores session state in memory. It has no database and no file watcher.
+Open a new session to read a newly created file. Stop the deployment with:
+
+```bash
+docker compose down
+```
+
+Run the deployment smoke test with `tests/hosting-smoke.sh`. The script performs
+static checks everywhere and runs the container checks when Docker Compose is
+available.
+
 ### Frontend Development
 
 To work on the web UI with live hot-reloading:

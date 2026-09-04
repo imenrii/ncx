@@ -1,0 +1,13 @@
+.git
+.code-review-graph
+.tmp
+target
+web/node_modules
+.env
+**/.env
+deploy/known_hosts
+*.swp
+res/gorton-perfected-1.02
+res/gen
+res/CommitMono/src
+res/AVHershey/src

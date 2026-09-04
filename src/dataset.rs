@@ -1537,18 +1537,16 @@ mod tests {
             .as_nanos();
         let path = std::env::temp_dir().join(format!("ncx-{unique}.nc"));
         {
-            let mut file = netcdf::create(&path).unwrap();
+            let mut file = netcdf::create_with(&path, netcdf::Options::default()).unwrap();
             file.add_dimension("y", 2).unwrap();
             file.add_dimension("x", 4).unwrap();
             {
                 let mut y = file.add_variable::<f32>("y", &["y"]).unwrap();
                 y.put_attribute("axis", "Y").unwrap();
-                y.put_values(&[23.0, 24.0], ..).unwrap();
             }
             {
                 let mut x = file.add_variable::<f32>("x", &["x"]).unwrap();
                 x.put_attribute("axis", "X").unwrap();
-                x.put_values(&[110.0, 111.0, 112.0, 113.0], ..).unwrap();
             }
             {
                 let mut temperature = file
@@ -1560,10 +1558,20 @@ mod tests {
                 temperature
                     .put_attribute("missing_value", vec![-9998_i16, -9997_i16])
                     .unwrap();
-                temperature
-                    .put_values(&[0, 10, -9999, 30, -9998, -9997, 60, 70], ..)
-                    .unwrap();
             }
+            file.enddef().unwrap();
+            file.variable_mut("y")
+                .unwrap()
+                .put_values(&[23.0_f32, 24.0], ..)
+                .unwrap();
+            file.variable_mut("x")
+                .unwrap()
+                .put_values(&[110.0_f32, 111.0, 112.0, 113.0], ..)
+                .unwrap();
+            file.variable_mut("temperature")
+                .unwrap()
+                .put_values(&[0_i16, 10, -9999, 30, -9998, -9997, 60, 70], ..)
+                .unwrap();
         }
 
         let dataset = Dataset::open(&path).unwrap();
@@ -1616,13 +1624,18 @@ mod tests {
             .as_nanos();
         let path = std::env::temp_dir().join(format!("ncx-precision-{unique}.nc"));
         {
-            let mut file = netcdf::create(&path).unwrap();
+            let mut file = netcdf::create_with(&path, netcdf::Options::default()).unwrap();
             file.add_dimension("time", 3).unwrap();
-            let mut time = file.add_variable::<f64>("time", &["time"]).unwrap();
-            time.put_attribute("axis", "T").unwrap();
-            time.put_attribute("units", "hours since 1900-01-01")
-                .unwrap();
-            time.put_values(&[1_100_000.0, 1_100_000.031_25, 1_100_000.062_5], ..)
+            {
+                let mut time = file.add_variable::<f64>("time", &["time"]).unwrap();
+                time.put_attribute("axis", "T").unwrap();
+                time.put_attribute("units", "hours since 1900-01-01")
+                    .unwrap();
+            }
+            file.enddef().unwrap();
+            file.variable_mut("time")
+                .unwrap()
+                .put_values(&[1_100_000.0, 1_100_000.031_25, 1_100_000.062_5], ..)
                 .unwrap();
         }
 

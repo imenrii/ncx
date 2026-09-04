@@ -585,29 +585,30 @@ try {
   if (document.querySelector(".timeline-zone")?.textContent !== " (HKT)") failures.push("timeline label did not show timezone");
 
   const context = canvas.getContext("2d");
+  await waitFor(() => {
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    const row = Math.floor(canvas.height / 2);
+    const widths = [];
+    let runStart = 0;
+    let previous = "";
+    for (let x = 0; x < canvas.width; x += 1) {
+      const index = (row * canvas.width + x) * 4;
+      const color = pixels[index] + "," + pixels[index + 1] + "," + pixels[index + 2];
+      if (x > 0 && color !== previous) {
+        widths.push(x - runStart);
+        runStart = x;
+      }
+      previous = color;
+    }
+    widths.push(canvas.width - runStart);
+    return widths.length >= 8 && widths[1] >= widths[0] * 1.6 ? widths : undefined;
+  }, "stretched longitude cells did not render with unequal widths");
   const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
   const colors = new Set();
   for (let index = 0; index < pixels.length; index += 4) {
     colors.add([pixels[index], pixels[index + 1], pixels[index + 2]].join(","));
   }
   if (colors.size < 8) failures.push("field canvas does not contain real scalar colours");
-  const row = Math.floor(canvas.height / 2);
-  const runs = [];
-  let runStart = 0;
-  let previous = "";
-  for (let x = 0; x < canvas.width; x += 1) {
-    const index = (row * canvas.width + x) * 4;
-    const color = pixels[index] + "," + pixels[index + 1] + "," + pixels[index + 2];
-    if (x > 0 && color !== previous) {
-      runs.push(x - runStart);
-      runStart = x;
-    }
-    previous = color;
-  }
-  runs.push(canvas.width - runStart);
-  if (runs.length < 8 || runs[1] < runs[0] * 1.6) {
-    failures.push("stretched longitude cells did not render with unequal widths: " + runs.join(","));
-  }
 
   const stableReads = window.__ncxFetches.length;
   await new Promise((resolve) => setTimeout(resolve, 700));
