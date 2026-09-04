@@ -8,12 +8,14 @@ import { tmpdir } from "node:os";
 const ncx = dirname(dirname(fileURLToPath(import.meta.url)));
 const binary = join(ncx, "target/debug/ncx");
 const browserMode = process.argv[2] ?? "rectilinear";
+const benchmark = process.env.NCX_BENCHMARK === "1";
 if (!["rectilinear", "curvilinear", "ugrid", "ugrid_projected", "comparison", "collection", "station"].includes(browserMode)) {
   throw new Error(`unknown browser fixture ${JSON.stringify(browserMode)}`);
 }
 const fixture = join(ncx, `tests/data/${["comparison", "collection"].includes(browserMode) ? "rectilinear" : browserMode}.nc`);
 
 const injected = `<script>
+const collectPerformance = ${JSON.stringify(benchmark)};
 window.__ncxErrors = [];
 window.__ncxStep = "startup";
 window.__ncxFetches = [];
@@ -621,7 +623,20 @@ try {
   );
 }
 failures.push(...window.__ncxErrors);
-await fetch("/__result?payload=" + encodeURIComponent(JSON.stringify({ failures, fetches: window.__ncxFetches.length })));
+const metrics = collectPerformance
+  ? Object.fromEntries([
+      ...performance.getEntriesByType("measure")
+        .filter((entry) => entry.name.startsWith("ncx."))
+        .map((entry) => [entry.name, Number(entry.duration.toFixed(3))]),
+      ...performance.getEntriesByType("resource")
+        .filter((entry) => entry.name.includes("/api/data?"))
+        .flatMap((entry) => entry.serverTiming ?? [])
+        .filter((entry) => entry.name === "read")
+        .slice(-1)
+        .map((entry) => ["ncx.server.read", Number(entry.duration.toFixed(3))]),
+    ])
+  : undefined;
+await fetch("/__result?payload=" + encodeURIComponent(JSON.stringify({ failures, fetches: window.__ncxFetches.length, metrics })));
 </script>`;
 
 const childArguments = browserMode === "comparison"

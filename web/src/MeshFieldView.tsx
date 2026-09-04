@@ -6,6 +6,7 @@ import { finiteRange, formatNumber, type ColorRange,
 } from "./color";
 import { fieldMargin } from "./FieldView";
 import { plotType } from "./plotgeom";
+import { PERFORMANCE_MEASURE, measurePerformance } from "./performance";
 import { Colorbar, PlotAxes, ViewControls, type PlotBounds } from "./plot";
 import { MapOverlay } from "./MapOverlay";
 import {
@@ -492,12 +493,13 @@ async function buildGeometry(
   if (hint.kind === "curvilinear") {
     const xVariable = requiredVariable(metadata, hint.x);
     const yVariable = requiredVariable(metadata, hint.y);
+    const { x: displayX, y: displayY } = display;
     if (
-      display.y === undefined ||
-      display.x === undefined ||
+      displayY === undefined ||
+      displayX === undefined ||
       xVariable.dimensions.length !== 2 ||
-      xVariable.dimensions[0].path !== variable.dimensions[display.y]?.path ||
-      xVariable.dimensions[1].path !== variable.dimensions[display.x]?.path ||
+      xVariable.dimensions[0].path !== variable.dimensions[displayY]?.path ||
+      xVariable.dimensions[1].path !== variable.dimensions[displayX]?.path ||
       yVariable.dimensions.map((dimension) => dimension.path).join("|") !==
         xVariable.dimensions.map((dimension) => dimension.path).join("|")
     ) {
@@ -516,16 +518,19 @@ async function buildGeometry(
       throw new Error("curvilinear coordinates and field must be two-dimensional");
     }
     const strides = slice.request.stride.split(",").map(Number);
-    const geometry = buildCurvilinearGeometry(
-      xSlice.values,
-      ySlice.values,
-      xSlice.shape[0],
-      xSlice.shape[1],
-      slice.shape[0],
-      slice.shape[1],
-      strides[display.y],
-      strides[display.x],
-    );
+    const xValues = xSlice.values;
+    const yValues = ySlice.values;
+    const geometry = measurePerformance(PERFORMANCE_MEASURE.meshGeometry, () =>
+      buildCurvilinearGeometry(
+        xValues,
+        yValues,
+        xSlice.shape[0],
+        xSlice.shape[1],
+        slice.shape[0],
+        slice.shape[1],
+        strides[displayY],
+        strides[displayX],
+      ));
     return addGeographicCoordinates(metadata, variable, xVariable, yVariable, xSlice, ySlice, geometry);
   }
 
@@ -546,19 +551,23 @@ async function buildGeometry(
     ) {
       throw new Error("UGRID requires one-dimensional node coordinates and padded 2-D connectivity");
     }
-    const geometry = buildUgridGeometry(
-      xSlice.values,
-      ySlice.values,
-      connectivitySlice.values,
-      connectivitySlice.shape[0],
-      connectivitySlice.shape[1],
-      attributeNumber(connectivityVariable, "start_index") ?? 0,
-      [
-        ...attributeNumbers(connectivityVariable, "_FillValue"),
-        ...attributeNumbers(connectivityVariable, "missing_value"),
-      ],
-      hint.location === "node" ? "node" : "face",
-    );
+    const xValues = xSlice.values;
+    const yValues = ySlice.values;
+    const connectivity = connectivitySlice.values;
+    const geometry = measurePerformance(PERFORMANCE_MEASURE.meshGeometry, () =>
+      buildUgridGeometry(
+        xValues,
+        yValues,
+        connectivity,
+        connectivitySlice.shape[0],
+        connectivitySlice.shape[1],
+        attributeNumber(connectivityVariable, "start_index") ?? 0,
+        [
+          ...attributeNumbers(connectivityVariable, "_FillValue"),
+          ...attributeNumbers(connectivityVariable, "missing_value"),
+        ],
+        hint.location === "node" ? "node" : "face",
+      ));
     const projected = await addGeographicCoordinates(metadata, variable, xVariable, yVariable, xSlice, ySlice, geometry);
     if (hint.location !== "edge") return projected;
     const topology = requiredVariable(metadata, hint.mesh);

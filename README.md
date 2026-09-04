@@ -102,3 +102,10 @@ node tests/ui-smoke.mjs comparison
 node tests/ui-smoke.mjs collection
 ```
 
+Set `NCX_BENCHMARK=1` to include the latest browser and server timing values in
+the smoke-test JSON. This command is opt-in and is not a CI performance gate:
+
+```bash
+NCX_BENCHMARK=1 node tests/ui-smoke.mjs rectilinear
+```
+

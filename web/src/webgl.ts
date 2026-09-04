@@ -6,6 +6,7 @@ import {
 } from "./color";
 import type { ColorScale } from "./model";
 import type { Bounds, MeshGeometry } from "./mesh";
+import { PERFORMANCE_MEASURE, measurePerformance } from "./performance";
 
 const VERTEX_SHADER = `#version 300 es
 layout(location = 0) in vec2 source_position;
@@ -147,12 +148,14 @@ class MeshRenderer implements MeshSurface {
       gl.bufferData(gl.ARRAY_BUFFER, geometry.positions, gl.STATIC_DRAW);
       this.uploadedGeometry = geometry;
     }
-    const expandedValues = new Float32Array(geometry.scalarIndices.length);
-    for (let index = 0; index < expandedValues.length; index += 1) {
-      expandedValues[index] = sourceValues[geometry.scalarIndices[index]] ?? Number.NaN;
-    }
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.valueBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, expandedValues, gl.DYNAMIC_DRAW);
+    measurePerformance(PERFORMANCE_MEASURE.meshScalarUpload, () => {
+      const expandedValues = new Float32Array(geometry.scalarIndices.length);
+      for (let index = 0; index < expandedValues.length; index += 1) {
+        expandedValues[index] = sourceValues[geometry.scalarIndices[index]] ?? Number.NaN;
+      }
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.valueBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, expandedValues, gl.DYNAMIC_DRAW);
+    });
 
     if (this.uploadedColormap !== settings.colormap) {
       gl.activeTexture(gl.TEXTURE0);
@@ -187,9 +190,11 @@ class MeshRenderer implements MeshSurface {
       required(gl.getUniformLocation(this.program, "scale_mode"), "scale uniform"),
       settings.scale === "linear" ? 0 : settings.scale === "log" ? 1 : 2,
     );
-    gl.clearColor(0.933, 0.933, 0.933, 1);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-    gl.drawArrays(gl.TRIANGLES, 0, geometry.scalarIndices.length);
+    measurePerformance(PERFORMANCE_MEASURE.meshDraw, () => {
+      gl.clearColor(0.933, 0.933, 0.933, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.drawArrays(gl.TRIANGLES, 0, geometry.scalarIndices.length);
+    });
   }
 
   destroy(): void {
@@ -211,6 +216,16 @@ class CanvasMeshRenderer implements MeshSurface {
   }
 
   draw(geometry: MeshGeometry, sourceValues: Float32Array, settings: MeshDrawSettings): void {
+    measurePerformance(PERFORMANCE_MEASURE.meshDraw, () => {
+      this.drawNow(geometry, sourceValues, settings);
+    });
+  }
+
+  private drawNow(
+    geometry: MeshGeometry,
+    sourceValues: Float32Array,
+    settings: MeshDrawSettings,
+  ): void {
     const ratio = Math.min(2, window.devicePixelRatio || 1);
     const width = Math.max(1, Math.round(settings.width * ratio));
     const height = Math.max(1, Math.round(settings.height * ratio));

@@ -20,6 +20,7 @@ import { formatPosition, probeAtPosition } from "./projection";
 import { fieldRequest, type DisplayDimensions } from "./selection";
 import { useElementSize } from "./useElementSize";
 import { plotMargin, plotType, type PlotType } from "./plotgeom";
+import { PERFORMANCE_MEASURE, measurePerformance } from "./performance";
 import { MapOverlay } from "./MapOverlay";
 import { Colorbar, PlotAxes, ViewControls, colorbarWidth } from "./plot";
 import {
@@ -252,30 +253,32 @@ export function FieldView(props: FieldViewProps) {
     if (!context) return;
     const image = rasterImage.current ?? context.createImageData(layout.columns, layout.rows);
     rasterImage.current = image;
-    for (let targetRow = 0; targetRow < layout.rows; targetRow += 1) {
-      const row = layout.flipY ? layout.rows - 1 - targetRow : targetRow;
-      for (let targetColumn = 0; targetColumn < layout.columns; targetColumn += 1) {
-        const column = layout.flipX ? layout.columns - 1 - targetColumn : targetColumn;
-        const target = (targetRow * layout.columns + targetColumn) * 4;
-        const color = colorForValue(
-          layout.valueAt(row, column),
-          renderRange,
-          props.scale,
-          props.colormap,
-        );
-        if (color) {
-          image.data[target] = color[0];
-          image.data[target + 1] = color[1];
-          image.data[target + 2] = color[2];
-        } else {
-          image.data[target] = 238;
-          image.data[target + 1] = 238;
-          image.data[target + 2] = 238;
+    measurePerformance(PERFORMANCE_MEASURE.fieldRaster, () => {
+      for (let targetRow = 0; targetRow < layout.rows; targetRow += 1) {
+        const row = layout.flipY ? layout.rows - 1 - targetRow : targetRow;
+        for (let targetColumn = 0; targetColumn < layout.columns; targetColumn += 1) {
+          const column = layout.flipX ? layout.columns - 1 - targetColumn : targetColumn;
+          const target = (targetRow * layout.columns + targetColumn) * 4;
+          const color = colorForValue(
+            layout.valueAt(row, column),
+            renderRange,
+            props.scale,
+            props.colormap,
+          );
+          if (color) {
+            image.data[target] = color[0];
+            image.data[target + 1] = color[1];
+            image.data[target + 2] = color[2];
+          } else {
+            image.data[target] = 238;
+            image.data[target + 1] = 238;
+            image.data[target + 2] = 238;
+          }
+          image.data[target + 3] = 255;
         }
-        image.data[target + 3] = 255;
       }
-    }
-    context.putImageData(image, 0, 0);
+      context.putImageData(image, 0, 0);
+    });
   }, [
     slice,
     layout,

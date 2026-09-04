@@ -5,6 +5,11 @@ import type {
   SliceRequest,
   Variable,
 } from "./model";
+import {
+  PERFORMANCE_MEASURE,
+  measurePerformance,
+  measurePerformanceAsync,
+} from "./performance";
 
 const staticSliceCache = new Map<string, Promise<DataSlice>>();
 const metadataCache = new Map<string, Promise<Metadata>>();
@@ -65,41 +70,48 @@ export async function fetchSlice(request: SliceRequest, signal?: AbortSignal): P
     stride: request.stride,
   });
   if (request.dataset) query.set("dataset", request.dataset);
-  const response = await fetch(apiUrl(`data?${query}`), { cache: "no-store", signal });
-  if (!response.ok) {
-    throw new Error(await errorMessage(response));
-  }
+  const { response, buffer } = await measurePerformanceAsync(
+    PERFORMANCE_MEASURE.sliceFetch,
+    async () => {
+      const response = await fetch(apiUrl(`data?${query}`), { cache: "no-store", signal });
+      if (!response.ok) {
+        throw new Error(await errorMessage(response));
+      }
+      return { response, buffer: await response.arrayBuffer() };
+    },
+  );
 
-  const dtype = response.headers.get("X-Ncx-Dtype");
-  if (dtype !== "f32" && dtype !== "i32" && dtype !== "u32") {
-    throw new Error(`Unsupported response dtype ${JSON.stringify(dtype)}`);
-  }
-  const shapeHeader = response.headers.get("X-Ncx-Shape");
-  if (shapeHeader === null) {
-    throw new Error("Slice response has no X-Ncx-Shape header");
-  }
-  const shape = shapeHeader === "" ? [] : shapeHeader.split(",").map(Number);
-  if (shape.some((length) => !Number.isSafeInteger(length) || length < 1)) {
-    throw new Error(`Invalid response shape ${JSON.stringify(shapeHeader)}`);
-  }
+  return measurePerformance(PERFORMANCE_MEASURE.sliceDecode, () => {
+    const dtype = response.headers.get("X-Ncx-Dtype");
+    if (dtype !== "f32" && dtype !== "i32" && dtype !== "u32") {
+      throw new Error(`Unsupported response dtype ${JSON.stringify(dtype)}`);
+    }
+    const shapeHeader = response.headers.get("X-Ncx-Shape");
+    if (shapeHeader === null) {
+      throw new Error("Slice response has no X-Ncx-Shape header");
+    }
+    const shape = shapeHeader === "" ? [] : shapeHeader.split(",").map(Number);
+    if (shape.some((length) => !Number.isSafeInteger(length) || length < 1)) {
+      throw new Error(`Invalid response shape ${JSON.stringify(shapeHeader)}`);
+    }
 
-  const buffer = await response.arrayBuffer();
-  const samples = shape.reduce((total, length) => {
-    if (total > Number.MAX_SAFE_INTEGER / length) throw new Error("Slice shape is too large");
-    return total * length;
-  }, 1);
-  if (samples > Number.MAX_SAFE_INTEGER / 4) throw new Error("Slice byte count is too large");
-  const expectedBytes = samples * 4;
-  if (buffer.byteLength !== expectedBytes) {
-    throw new Error(`Slice body is ${buffer.byteLength} bytes; expected ${expectedBytes}`);
-  }
-  const values =
-    dtype === "f32"
-      ? new Float32Array(buffer)
-      : dtype === "i32"
-        ? new Int32Array(buffer)
-        : new Uint32Array(buffer);
-  return { dtype, shape, values, request };
+    const samples = shape.reduce((total, length) => {
+      if (total > Number.MAX_SAFE_INTEGER / length) throw new Error("Slice shape is too large");
+      return total * length;
+    }, 1);
+    if (samples > Number.MAX_SAFE_INTEGER / 4) throw new Error("Slice byte count is too large");
+    const expectedBytes = samples * 4;
+    if (buffer.byteLength !== expectedBytes) {
+      throw new Error(`Slice body is ${buffer.byteLength} bytes; expected ${expectedBytes}`);
+    }
+    const values =
+      dtype === "f32"
+        ? new Float32Array(buffer)
+        : dtype === "i32"
+          ? new Int32Array(buffer)
+          : new Uint32Array(buffer);
+    return { dtype, shape, values, request };
+  });
 }
 
 export function fetchCoordinate(variable: Variable): Promise<Float32Array> {

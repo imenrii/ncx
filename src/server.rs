@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::future::Future;
 use std::sync::{Arc, LazyLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use axum::body::Body;
 use axum::extract::rejection::QueryRejection;
@@ -257,26 +257,22 @@ async fn data(
     let maximum = state.limits.max_response_bytes;
     let read = tokio::task::spawn_blocking(move || {
         let started = Instant::now();
-        let result = state.select(query.dataset.as_deref())?.dataset.read_data(
-            &query.path,
-            &query.selection,
-            &query.stride,
-            maximum,
-        );
-        if started.elapsed().as_millis() >= 100 {
-            eprintln!(
-                "ncx: read {} in {} ms",
-                query.path,
-                started.elapsed().as_millis()
-            );
+        let result = state.select(query.dataset.as_deref()).and_then(|source| {
+            source
+                .dataset
+                .read_data(&query.path, &query.selection, &query.stride, maximum)
+        });
+        let elapsed = started.elapsed();
+        if elapsed.as_millis() >= 100 {
+            eprintln!("ncx: read {} in {} ms", query.path, elapsed.as_millis());
         }
-        result
+        (result, elapsed)
     })
     .await;
 
     match read {
-        Ok(Ok(data)) => data_response(data),
-        Ok(Err(error)) => error_response(error),
+        Ok((Ok(data), elapsed)) => data_response(data, elapsed),
+        Ok((Err(error), _)) => error_response(error),
         Err(error) => error_response(DataError {
             status: 500,
             code: "read_task_failed",
@@ -331,7 +327,7 @@ fn invalid_query(error: QueryRejection) -> Response {
     })
 }
 
-fn data_response(data: DataResponse) -> Response {
+fn data_response(data: DataResponse, read_time: Duration) -> Response {
     let shape = data
         .shape
         .iter()
@@ -356,6 +352,14 @@ fn data_response(data: DataResponse) -> Response {
     headers.insert(
         HeaderName::from_static("x-ncx-endian"),
         HeaderValue::from_static("little"),
+    );
+    headers.insert(
+        HeaderName::from_static("server-timing"),
+        HeaderValue::from_str(&format!(
+            "read;dur={:.3}",
+            read_time.as_secs_f64() * 1_000.0
+        ))
+        .expect("a finite duration is a valid Server-Timing header"),
     );
     response
 }
@@ -490,6 +494,19 @@ mod tests {
             response.headers()[CACHE_CONTROL],
             "public, max-age=31536000, immutable"
         );
+    }
+
+    #[test]
+    fn data_response_reports_complete_read_time() {
+        let response = data_response(
+            DataResponse {
+                dtype: "f32",
+                shape: vec![1],
+                body: 1.0_f32.to_le_bytes().to_vec(),
+            },
+            std::time::Duration::from_micros(1_250),
+        );
+        assert_eq!(response.headers()["server-timing"], "read;dur=1.250");
     }
 
     #[test]
