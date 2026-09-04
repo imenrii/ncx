@@ -189,7 +189,7 @@ impl Dataset {
             ));
         }
         let wire = wire.unwrap_or(WireType::F32);
-        selection.check_response_size(
+        let read_size = selection.check_response_size(
             max_response_bytes,
             summary.source_element_bytes,
             if connectivity {
@@ -210,11 +210,11 @@ impl Dataset {
             .ok_or_else(|| DataError::new(404, "variable_not_found", "unknown variable path"))?;
 
         let (dtype, body) = if connectivity {
-            read_connectivity(&variable, &selection)?
+            read_connectivity(&variable, &selection, read_size.response_bytes)?
         } else {
             (
                 wire.dtype(),
-                read_display_values(&variable, &selection, wire)?,
+                read_display_values(&variable, &selection, wire, read_size.response_bytes)?,
             )
         };
 
@@ -603,8 +603,8 @@ fn join_path(group_path: &str, name: &str) -> String {
 
 #[derive(Debug, PartialEq)]
 struct ReadSize {
-    response_bytes: u64,
-    peak_bytes: u64,
+    response_bytes: usize,
+    peak_bytes: usize,
 }
 
 #[derive(Debug)]
@@ -716,24 +716,24 @@ impl ReadSelection {
         source_element_bytes: usize,
         wire_element_bytes: usize,
     ) -> Result<ReadSize, DataError> {
-        let elements = u64::try_from(self.elements)
-            .map_err(|_| DataError::oversized("response size overflows u64".to_owned(), None))?;
-        let source_element_bytes = u64::try_from(source_element_bytes).map_err(|_| {
-            DataError::oversized("source element size overflows u64".to_owned(), None)
-        })?;
-        let wire_element_bytes = u64::try_from(wire_element_bytes).map_err(|_| {
-            DataError::oversized("wire element size overflows u64".to_owned(), None)
-        })?;
-        let source_bytes = elements.checked_mul(source_element_bytes).ok_or_else(|| {
-            DataError::oversized("source buffer size overflows u64".to_owned(), None)
-        })?;
-        let response_bytes = elements
+        let source_bytes = self
+            .elements
+            .checked_mul(source_element_bytes)
+            .ok_or_else(|| {
+                DataError::oversized("source buffer size overflows usize".to_owned(), None)
+            })?;
+        let response_bytes = self
+            .elements
             .checked_mul(wire_element_bytes)
-            .ok_or_else(|| DataError::oversized("response size overflows u64".to_owned(), None))?;
+            .ok_or_else(|| {
+                DataError::oversized("response size overflows usize".to_owned(), None)
+            })?;
         let peak_bytes = source_bytes.checked_add(response_bytes).ok_or_else(|| {
-            DataError::oversized("read memory estimate overflows u64".to_owned(), None)
+            DataError::oversized("read memory estimate overflows usize".to_owned(), None)
         })?;
-        if response_bytes <= maximum {
+        let response_bytes_u64 = u64::try_from(response_bytes)
+            .map_err(|_| DataError::oversized("response size overflows u64".to_owned(), None))?;
+        if response_bytes_u64 <= maximum {
             return Ok(ReadSize {
                 response_bytes,
                 peak_bytes,
@@ -758,7 +758,11 @@ impl ReadSelection {
         ))
     }
 
-    fn suggested_stride(&self, maximum: u64, wire_element_bytes: u64) -> Option<Vec<usize>> {
+    fn suggested_stride(&self, maximum: u64, wire_element_bytes: usize) -> Option<Vec<usize>> {
+        let wire_element_bytes = u64::try_from(wire_element_bytes).ok()?;
+        if wire_element_bytes == 0 {
+            return None;
+        }
         let budget = usize::try_from(maximum / wire_element_bytes).ok()?;
         if budget == 0 || !self.ranged_dimensions.contains(&true) {
             return None;
@@ -853,19 +857,56 @@ fn parse_range(item: &str, dimension: &VariableDimension) -> Result<(usize, usiz
 
 fn validate_decode_attributes(variable: &VariableSummary) -> Result<(), DataError> {
     for attribute in &variable.attributes {
-        if !attribute.truncated {
-            continue;
+        match attribute.name.as_str() {
+            "scale_factor" | "add_offset" => {
+                let AttributeData::Scalar(value) = &attribute.value else {
+                    return Err(DataError::new(
+                        422,
+                        "invalid_packing",
+                        format!("{} must be one numeric scalar", attribute.name),
+                    ));
+                };
+                if !matches!(
+                    value,
+                    AttributeScalar::Unsigned(_)
+                        | AttributeScalar::Signed(_)
+                        | AttributeScalar::Float(_)
+                ) {
+                    return Err(DataError::new(
+                        422,
+                        "invalid_packing",
+                        format!("{} must be one finite numeric scalar", attribute.name),
+                    ));
+                }
+            }
+            "missing_value" => {
+                if attribute.truncated {
+                    return Err(DataError::new(
+                        422,
+                        "invalid_missing_value",
+                        format!("missing_value has more than {MAX_ATTRIBUTE_VALUES} values"),
+                    ));
+                }
+                if attribute.dtype != variable.dtype {
+                    return Err(DataError::new(
+                        422,
+                        "invalid_missing_value",
+                        "missing_value does not match the variable's stored type",
+                    ));
+                }
+            }
+            "_FillValue"
+                if attribute.dtype != variable.dtype
+                    || !matches!(attribute.value, AttributeData::Scalar(_)) =>
+            {
+                return Err(DataError::new(
+                    422,
+                    "invalid_fill_value",
+                    "_FillValue must be one value of the variable's stored type",
+                ));
+            }
+            _ => {}
         }
-        let (code, label) = match attribute.name.as_str() {
-            "missing_value" => ("invalid_missing_value", "missing_value"),
-            "scale_factor" | "add_offset" => ("invalid_packing", attribute.name.as_str()),
-            _ => continue,
-        };
-        return Err(DataError::new(
-            422,
-            code,
-            format!("{label} has more than {MAX_ATTRIBUTE_VALUES} values"),
-        ));
     }
     Ok(())
 }
@@ -874,18 +915,39 @@ fn read_display_values(
     variable: &netcdf::Variable<'_>,
     selection: &ReadSelection,
     wire: WireType,
+    response_bytes: usize,
 ) -> Result<Vec<u8>, DataError> {
     match variable.vartype() {
-        NcVariableType::Int(IntType::U8) => read_numeric::<u8>(variable, selection, wire),
-        NcVariableType::Int(IntType::U16) => read_numeric::<u16>(variable, selection, wire),
-        NcVariableType::Int(IntType::U32) => read_numeric::<u32>(variable, selection, wire),
-        NcVariableType::Int(IntType::U64) => read_numeric::<u64>(variable, selection, wire),
-        NcVariableType::Int(IntType::I8) => read_numeric::<i8>(variable, selection, wire),
-        NcVariableType::Int(IntType::I16) => read_numeric::<i16>(variable, selection, wire),
-        NcVariableType::Int(IntType::I32) => read_numeric::<i32>(variable, selection, wire),
-        NcVariableType::Int(IntType::I64) => read_numeric::<i64>(variable, selection, wire),
-        NcVariableType::Float(FloatType::F32) => read_numeric::<f32>(variable, selection, wire),
-        NcVariableType::Float(FloatType::F64) => read_numeric::<f64>(variable, selection, wire),
+        NcVariableType::Int(IntType::U8) => {
+            read_numeric::<u8>(variable, selection, wire, response_bytes)
+        }
+        NcVariableType::Int(IntType::U16) => {
+            read_numeric::<u16>(variable, selection, wire, response_bytes)
+        }
+        NcVariableType::Int(IntType::U32) => {
+            read_numeric::<u32>(variable, selection, wire, response_bytes)
+        }
+        NcVariableType::Int(IntType::U64) => {
+            read_numeric::<u64>(variable, selection, wire, response_bytes)
+        }
+        NcVariableType::Int(IntType::I8) => {
+            read_numeric::<i8>(variable, selection, wire, response_bytes)
+        }
+        NcVariableType::Int(IntType::I16) => {
+            read_numeric::<i16>(variable, selection, wire, response_bytes)
+        }
+        NcVariableType::Int(IntType::I32) => {
+            read_numeric::<i32>(variable, selection, wire, response_bytes)
+        }
+        NcVariableType::Int(IntType::I64) => {
+            read_numeric::<i64>(variable, selection, wire, response_bytes)
+        }
+        NcVariableType::Float(FloatType::F32) => {
+            read_numeric::<f32>(variable, selection, wire, response_bytes)
+        }
+        NcVariableType::Float(FloatType::F64) => {
+            read_numeric::<f64>(variable, selection, wire, response_bytes)
+        }
         _ => Err(DataError::new(
             422,
             "unsupported_dtype",
@@ -898,6 +960,7 @@ fn read_numeric<T>(
     variable: &netcdf::Variable<'_>,
     selection: &ReadSelection,
     wire: WireType,
+    response_bytes: usize,
 ) -> Result<Vec<u8>, DataError>
 where
     T: PackedNumber,
@@ -921,7 +984,7 @@ where
         ));
     }
 
-    let mut bytes = Vec::with_capacity(values.len() * wire.element_bytes());
+    let mut bytes = Vec::with_capacity(response_bytes);
     for value in values {
         let unpacked = if missing.contains(&value) {
             f64::NAN
@@ -1142,16 +1205,33 @@ impl PackedNumber for f64 {
 fn read_connectivity(
     variable: &netcdf::Variable<'_>,
     selection: &ReadSelection,
+    response_bytes: usize,
 ) -> Result<(&'static str, Vec<u8>), DataError> {
     match variable.vartype() {
-        NcVariableType::Int(IntType::U8) => read_unsigned_connectivity::<u8>(variable, selection),
-        NcVariableType::Int(IntType::U16) => read_unsigned_connectivity::<u16>(variable, selection),
-        NcVariableType::Int(IntType::U32) => read_unsigned_connectivity::<u32>(variable, selection),
-        NcVariableType::Int(IntType::U64) => read_unsigned_connectivity::<u64>(variable, selection),
-        NcVariableType::Int(IntType::I8) => read_signed_connectivity::<i8>(variable, selection),
-        NcVariableType::Int(IntType::I16) => read_signed_connectivity::<i16>(variable, selection),
-        NcVariableType::Int(IntType::I32) => read_signed_connectivity::<i32>(variable, selection),
-        NcVariableType::Int(IntType::I64) => read_signed_connectivity::<i64>(variable, selection),
+        NcVariableType::Int(IntType::U8) => {
+            read_unsigned_connectivity::<u8>(variable, selection, response_bytes)
+        }
+        NcVariableType::Int(IntType::U16) => {
+            read_unsigned_connectivity::<u16>(variable, selection, response_bytes)
+        }
+        NcVariableType::Int(IntType::U32) => {
+            read_unsigned_connectivity::<u32>(variable, selection, response_bytes)
+        }
+        NcVariableType::Int(IntType::U64) => {
+            read_unsigned_connectivity::<u64>(variable, selection, response_bytes)
+        }
+        NcVariableType::Int(IntType::I8) => {
+            read_signed_connectivity::<i8>(variable, selection, response_bytes)
+        }
+        NcVariableType::Int(IntType::I16) => {
+            read_signed_connectivity::<i16>(variable, selection, response_bytes)
+        }
+        NcVariableType::Int(IntType::I32) => {
+            read_signed_connectivity::<i32>(variable, selection, response_bytes)
+        }
+        NcVariableType::Int(IntType::I64) => {
+            read_signed_connectivity::<i64>(variable, selection, response_bytes)
+        }
         _ => Err(DataError::new(
             422,
             "unsupported_connectivity",
@@ -1163,12 +1243,13 @@ fn read_connectivity(
 fn read_unsigned_connectivity<T>(
     variable: &netcdf::Variable<'_>,
     selection: &ReadSelection,
+    response_bytes: usize,
 ) -> Result<(&'static str, Vec<u8>), DataError>
 where
     T: NcTypeDescriptor + Copy + Into<u64>,
 {
     let values = read_values::<T>(variable, selection)?;
-    let mut bytes = Vec::with_capacity(values.len() * 4);
+    let mut bytes = Vec::with_capacity(response_bytes);
     for value in values {
         let value = u32::try_from(value.into()).map_err(|_| {
             DataError::new(
@@ -1185,12 +1266,13 @@ where
 fn read_signed_connectivity<T>(
     variable: &netcdf::Variable<'_>,
     selection: &ReadSelection,
+    response_bytes: usize,
 ) -> Result<(&'static str, Vec<u8>), DataError>
 where
     T: NcTypeDescriptor + Copy + Into<i64>,
 {
     let values = read_values::<T>(variable, selection)?;
-    let mut bytes = Vec::with_capacity(values.len() * 4);
+    let mut bytes = Vec::with_capacity(response_bytes);
     for value in values {
         let value = i32::try_from(value.into()).map_err(|_| {
             DataError::new(
@@ -1280,6 +1362,7 @@ mod tests {
         let selection = ReadSelection::parse(&variable, ":,:", "1,1").unwrap();
 
         let size = selection.check_response_size(64, 2, 8).unwrap();
+        let _: usize = size.response_bytes;
         assert_eq!(size.response_bytes, 64);
         assert_eq!(size.peak_bytes, 80);
 
@@ -1348,6 +1431,96 @@ mod tests {
         assert_eq!(error.code, "invalid_missing_value");
     }
 
+    #[test]
+    fn bounded_malformed_packing_fails_before_the_dataset_lock() {
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data");
+        let mut dataset = Dataset::open(&fixtures.join("rectilinear.nc")).unwrap();
+        dataset
+            .metadata
+            .variables
+            .iter_mut()
+            .find(|variable| variable.path == "/temperature")
+            .unwrap()
+            .attributes
+            .push(AttributeSummary {
+                name: "scale_factor".to_owned(),
+                dtype: "f32".to_owned(),
+                value: AttributeData::Array(vec![AttributeScalar::Float(0.5)]),
+                truncated: false,
+            });
+        poison_dataset_lock(&dataset);
+
+        let error = dataset
+            .read_data("/temperature", "0,:,:", "1,1,1", None, 1024)
+            .err()
+            .unwrap();
+        assert_eq!(error.status, 422);
+        assert_eq!(error.code, "invalid_packing");
+    }
+
+    #[test]
+    fn decode_attribute_preflight_validates_shape_and_type() {
+        let mut variable = test_variable();
+        variable.attributes = vec![
+            AttributeSummary {
+                name: "scale_factor".to_owned(),
+                dtype: "f32".to_owned(),
+                value: AttributeData::Scalar(AttributeScalar::Float(0.5)),
+                truncated: false,
+            },
+            AttributeSummary {
+                name: "add_offset".to_owned(),
+                dtype: "i32".to_owned(),
+                value: AttributeData::Scalar(AttributeScalar::Signed(270)),
+                truncated: false,
+            },
+            AttributeSummary {
+                name: "missing_value".to_owned(),
+                dtype: "i16".to_owned(),
+                value: AttributeData::Array(vec![
+                    AttributeScalar::Signed(-9999),
+                    AttributeScalar::Signed(-9998),
+                ]),
+                truncated: false,
+            },
+            AttributeSummary {
+                name: "_FillValue".to_owned(),
+                dtype: "i16".to_owned(),
+                value: AttributeData::Scalar(AttributeScalar::Signed(-9999)),
+                truncated: false,
+            },
+        ];
+        assert!(validate_decode_attributes(&variable).is_ok());
+
+        variable.attributes[0].value = AttributeData::Array(vec![AttributeScalar::Float(0.5)]);
+        assert_eq!(
+            validate_decode_attributes(&variable).unwrap_err().code,
+            "invalid_packing"
+        );
+        variable.attributes[0].value = AttributeData::Scalar(AttributeScalar::Float(0.5));
+
+        variable.attributes[1].value =
+            AttributeData::Scalar(AttributeScalar::Text("270".to_owned()));
+        assert_eq!(
+            validate_decode_attributes(&variable).unwrap_err().code,
+            "invalid_packing"
+        );
+        variable.attributes[1].value = AttributeData::Scalar(AttributeScalar::Signed(270));
+
+        variable.attributes[2].dtype = "i32".to_owned();
+        assert_eq!(
+            validate_decode_attributes(&variable).unwrap_err().code,
+            "invalid_missing_value"
+        );
+        variable.attributes[2].dtype = "i16".to_owned();
+
+        variable.attributes[3].value = AttributeData::Array(vec![AttributeScalar::Signed(-9999)]);
+        assert_eq!(
+            validate_decode_attributes(&variable).unwrap_err().code,
+            "invalid_fill_value"
+        );
+    }
+
     fn poison_dataset_lock(dataset: &Dataset) {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _guard = dataset.file.lock().unwrap();
@@ -1385,7 +1558,10 @@ mod tests {
                 temperature.put_attribute("scale_factor", 0.5_f32).unwrap();
                 temperature.put_attribute("add_offset", 270.0_f32).unwrap();
                 temperature
-                    .put_values(&[0, 10, -9999, 30, 40, 50, 60, 70], ..)
+                    .put_attribute("missing_value", vec![-9998_i16, -9997_i16])
+                    .unwrap();
+                temperature
+                    .put_values(&[0, 10, -9999, 30, -9998, -9997, 60, 70], ..)
                     .unwrap();
             }
         }
@@ -1413,7 +1589,8 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(values[0], 270.0);
         assert!(values[1].is_nan());
-        assert_eq!(values[2..], [290.0, 300.0]);
+        assert!(values[2].is_nan());
+        assert_eq!(values[3], 300.0);
 
         let precise = dataset
             .read_data("/temperature", ":,:", "1,2", Some(WireType::F64), 1024)
@@ -1425,7 +1602,8 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(precise[0], 270.0);
         assert!(precise[1].is_nan());
-        assert_eq!(precise[2..], [290.0, 300.0]);
+        assert!(precise[2].is_nan());
+        assert_eq!(precise[3], 300.0);
 
         std::fs::remove_file(path).unwrap();
     }
