@@ -10,7 +10,7 @@ import { FieldView } from "./FieldView";
 import { MeshFieldView } from "./MeshFieldView";
 import type { ColormapChoice, ColorRange } from "./color";
 import type { ColorScale, DatasetSummary, Metadata, Probe, Variable } from "./model";
-import { variableLabel } from "./model";
+import { derivedValueLabel, variableLabel } from "./model";
 import { defaultDisplayDimensions, defaultIndices, type DisplayDimensions } from "./selection";
 import { describeTime, formatTimestamp, timeInZone, type DisplayTimeZone } from "./time";
 import type { ViewBounds } from "./view";
@@ -135,11 +135,17 @@ export function ComparisonFieldView({
     }
   }, [paneVersion, panes, onFrameLoaded]);
   const selectedCount = fieldComparisonDatasets(datasets, primaryMetadata.dataset_id).length;
+  const derivation = [variable, ...panes.map((pane) => pane.variable)]
+    .map(derivedValueLabel)
+    .find(Boolean);
   return (
     <section className="figure comparison-field-figure">
       <header className="figure-head">
         <h1>{variableLabel(variable)} fields</h1>
-        <span>{panes.filter((pane) => !pane.unavailable).length} / {selectedCount} panes · shared range</span>
+        <span>{[
+          `${panes.filter((pane) => !pane.unavailable).length} / ${selectedCount} panes · shared range`,
+          derivation,
+        ].filter(Boolean).join(" · ")}</span>
       </header>
       <div className="field-comparison" data-count={panes.length}>
         {panes.map((pane) => (

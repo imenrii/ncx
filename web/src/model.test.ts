@@ -5,6 +5,7 @@ import type { Metadata, Variable } from "./model.ts";
 import {
   coordinateVariablePaths,
   defaultVariable,
+  derivedValueLabel,
   formatUnit,
   isTimeCoordinate,
   meshGeometryPaths,
@@ -18,6 +19,23 @@ const variable = (name: string, attributes: Variable["attributes"] = []): Variab
   dimensions: [],
   attributes,
   view_hint: { kind: "plain" },
+});
+
+test("labels only the face mean derived from edge-located UGRID values", () => {
+  const edge = variable("edge_current");
+  edge.view_hint = {
+    kind: "ugrid2d",
+    mesh: "/mesh",
+    x: "/node_x",
+    y: "/node_y",
+    face_node_connectivity: "/face_nodes",
+    location: "edge",
+  };
+  const face = { ...edge, view_hint: { ...edge.view_hint, location: "face" as const } };
+
+  assert.equal(derivedValueLabel(edge), "incident-edge mean");
+  assert.equal(derivedValueLabel(face), undefined);
+  assert.equal(derivedValueLabel(variable("raw_edge_metadata")), undefined);
 });
 
 test("identifies UGRID geometry without hiding mesh data fields", () => {

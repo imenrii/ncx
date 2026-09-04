@@ -28,6 +28,7 @@ import type {
 import {
   attributeText,
   defaultVariable,
+  derivedValueLabel,
   displayUnit,
   isNumeric,
   isTimeCoordinate,
@@ -328,11 +329,17 @@ export function App() {
   // The title carries the label whenever there is no timestamp to show, so
   // repeating it in the subtitle would just be the same words twice.
   const titleIsLabel = figureTitle === variableLabel(variable);
-  const figureSubtitle = [
+  const figureDetails = [
     titleIsLabel ? undefined : variableLabel(variable),
     displayUnit(variable),
     fieldVariable.view_hint.kind,
     probePosition ? `probe ${probePosition}` : undefined,
+  ].filter(Boolean).join(" · ");
+  const derivation = derivedValueLabel(fieldVariable);
+  const figureSubtitle = [figureDetails, derivation].filter(Boolean).join(" · ");
+  const curveSubtitle = [
+    probePosition ? `at ${probePosition}` : figureDetails,
+    probe?.average ? derivation : undefined,
   ].filter(Boolean).join(" · ");
   const meshField = hasCompatibleMeshCoordinates(metadata, fieldVariable, display);
   const xCoordinates = compatibleCoordinates(metadata, variable, display, "x");
@@ -785,7 +792,7 @@ export function App() {
                   scale={scale}
                   range={colorRange}
                   rangeLocked={rangeLocked}
-                  subtitle={probePosition ? `at ${probePosition}` : figureSubtitle}
+                  subtitle={curveSubtitle}
                   timeZone={displayTimeZone}
                   comparisonGeneration={comparisonGeneration}
                   onFrameLoaded={markFrameLoaded}

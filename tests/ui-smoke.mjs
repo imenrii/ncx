@@ -391,10 +391,26 @@ try {
       [...document.querySelectorAll(".variable-row")]
         .find((button) => button.textContent.includes("face_depth"))?.click();
       await waitFor(() => document.querySelector(".mesh-canvas[data-rendered='true']")?.getAttribute("aria-label")?.includes("face_depth"), "UGRID face field did not render");
+      if (document.querySelector(".figure-head span")?.textContent.includes("incident-edge mean")) {
+        failures.push("native UGRID face field was labelled as a derived edge mean");
+      }
       window.__ncxStep = "UGRID edge field";
       [...document.querySelectorAll(".variable-row")]
         .find((button) => button.textContent.includes("edge_current"))?.click();
       await waitFor(() => document.querySelector(".mesh-canvas[data-rendered='true']")?.getAttribute("aria-label")?.includes("edge_current"), "UGRID edge field did not render");
+      await waitFor(
+        () => document.querySelector(".figure-head span")?.textContent.includes("incident-edge mean"),
+        "UGRID edge field did not disclose the incident-edge mean",
+      );
+      document.querySelector(".screenshot-button")?.click();
+      const saveDialog = await waitFor(() => document.querySelector(".save-dialog[open]"), "edge export dialog did not open");
+      const subtitleLabel = [...saveDialog.querySelectorAll("label")]
+        .find((label) => label.textContent.trim() === "Subtitle");
+      const exportSubtitle = subtitleLabel && document.getElementById(subtitleLabel.htmlFor);
+      if (!exportSubtitle?.value.includes("incident-edge mean")) {
+        failures.push("edge export metadata did not disclose the incident-edge mean");
+      }
+      [...saveDialog.querySelectorAll("button")].find((button) => button.textContent === "Cancel")?.click();
       const edgeCanvas = document.querySelector(".mesh-canvas");
       const edgeBounds = edgeCanvas.getBoundingClientRect();
       for (const type of ["pointerdown", "pointerup"]) {
@@ -411,6 +427,10 @@ try {
         () => document.querySelector(".curve-axis")?.dataset.yDomain === "4.25,6.25",
         "UGRID edge probe curve did not average the face's adjacent edges",
       );
+      const edgeCurveSubtitle = document.querySelector(".figure-head span")?.textContent ?? "";
+      if (!edgeCurveSubtitle.includes("incident-edge mean") || !edgeCurveSubtitle.includes("at ")) {
+        failures.push("UGRID edge probe curve lost its position or derivation label");
+      }
     }
     if (shell !== document.querySelector(".shell")) failures.push("mesh interactions replaced the application shell");
   } else {

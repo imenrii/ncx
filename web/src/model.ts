@@ -133,6 +133,13 @@ export function variableLabel(variable: Variable): string {
   );
 }
 
+/** Name the face value that the viewer derives from native UGRID edge values. */
+export function derivedValueLabel(variable: Variable): string | undefined {
+  return variable.view_hint.kind === "ugrid2d" && variable.view_hint.location === "edge"
+    ? "incident-edge mean"
+    : undefined;
+}
+
 export function variableUnit(variable: Variable): string {
   return attributeText(variable, "units") ?? "1";
 }
