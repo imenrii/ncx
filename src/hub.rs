@@ -1,6 +1,9 @@
 use std::collections::HashMap;
+use std::fs::File;
 use std::future::Future;
 use std::net::SocketAddrV4;
+#[cfg(target_os = "linux")]
+use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::Stdio;
@@ -21,11 +24,13 @@ use serde::{Deserialize, Serialize};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
-use tokio::time::{Instant, sleep, timeout};
+use tokio::time::{Instant, sleep, timeout, timeout_at};
 
 use crate::NcxResult;
 use crate::dataset::Dataset;
 use crate::server::{self, Limits};
+
+pub(crate) const MAX_HUB_SESSIONS: usize = 10;
 
 #[derive(Debug)]
 struct HubError {
@@ -61,15 +66,15 @@ struct HubErrorDetail {
     message: String,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 enum Target {
     Local(LocalTarget),
     Remote(RemoteTarget),
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 struct LocalTarget {
-    path: PathBuf,
+    file: File,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -110,15 +115,31 @@ fn resolve_target(address: &str, roots: &[PathBuf]) -> Result<Target, HubError> 
     resolve_local_target(path, roots).map(Target::Local)
 }
 
+#[cfg(target_os = "linux")]
 fn resolve_local_target(path: &Path, roots: &[PathBuf]) -> Result<LocalTarget, HubError> {
-    let path = path.canonicalize().map_err(|error| HubError {
+    use std::os::unix::fs::FileExt;
+
+    let file = File::open(path).map_err(|error| HubError {
         status: 404,
         code: "target_not_found",
-        message: format!("cannot find {}: {error}", path.display()),
+        message: format!("cannot open {}: {error}", path.display()),
+    })?;
+    if !file.metadata().is_ok_and(|metadata| metadata.is_file()) {
+        return Err(HubError {
+            status: 422,
+            code: "target_not_file",
+            message: "the target must be a regular file".to_owned(),
+        });
+    }
+    let capability = PathBuf::from(format!("/proc/self/fd/{}", file.as_raw_fd()));
+    let opened_path = capability.canonicalize().map_err(|error| HubError {
+        status: 422,
+        code: "target_unreadable",
+        message: format!("cannot inspect the opened target: {error}"),
     })?;
     let allowed = roots.iter().any(|root| {
         root.canonicalize()
-            .is_ok_and(|canonical_root| path.starts_with(canonical_root))
+            .is_ok_and(|canonical_root| opened_path.starts_with(canonical_root))
     });
     if !allowed {
         return Err(HubError {
@@ -127,45 +148,37 @@ fn resolve_local_target(path: &Path, roots: &[PathBuf]) -> Result<LocalTarget, H
             message: "the target is outside the configured local roots".to_owned(),
         });
     }
-    if !path.is_file() {
-        return Err(HubError {
-            status: 422,
-            code: "target_not_file",
-            message: "the target must be a regular file".to_owned(),
-        });
-    }
-    if !has_netcdf_magic(&path)? {
+    let mut bytes = [0_u8; 8];
+    let length = file.read_at(&mut bytes, 0).map_err(|error| HubError {
+        status: 422,
+        code: "target_unreadable",
+        message: format!("cannot read the target: {error}"),
+    })?;
+    if !matches!(
+        &bytes[..length],
+        [b'C', b'D', b'F', 1 | 2 | 5, ..] | [0x89, b'H', b'D', b'F', b'\r', b'\n', 0x1a, b'\n', ..]
+    ) {
         return Err(HubError {
             status: 422,
             code: "invalid_dataset",
             message: "the target is not a NetCDF file".to_owned(),
         });
     }
-    Dataset::open(&path).map_err(|_| HubError {
+    Dataset::open(&capability).map_err(|_| HubError {
         status: 422,
         code: "invalid_dataset",
         message: "the target is not a readable NetCDF dataset".to_owned(),
     })?;
-    Ok(LocalTarget { path })
+    Ok(LocalTarget { file })
 }
 
-fn has_netcdf_magic(path: &Path) -> Result<bool, HubError> {
-    use std::io::Read;
-    let mut file = std::fs::File::open(path).map_err(|error| HubError {
-        status: 422,
-        code: "target_unreadable",
-        message: format!("cannot read the target: {error}"),
-    })?;
-    let mut bytes = [0_u8; 8];
-    let length = file.read(&mut bytes).map_err(|error| HubError {
-        status: 422,
-        code: "target_unreadable",
-        message: format!("cannot read the target: {error}"),
-    })?;
-    Ok(matches!(
-        &bytes[..length],
-        [b'C', b'D', b'F', 1 | 2 | 5, ..] | [0x89, b'H', b'D', b'F', b'\r', b'\n', 0x1a, b'\n', ..]
-    ))
+#[cfg(not(target_os = "linux"))]
+fn resolve_local_target(_path: &Path, _roots: &[PathBuf]) -> Result<LocalTarget, HubError> {
+    Err(HubError {
+        status: 501,
+        code: "local_hub_unsupported",
+        message: "local hub sessions require Linux file capabilities".to_owned(),
+    })
 }
 
 type LaunchFuture<'a> =
@@ -173,7 +186,8 @@ type LaunchFuture<'a> =
 type StopFuture<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
 
 trait SessionLauncher: Send + Sync {
-    fn launch<'a>(&'a self, target: Target, timeout: Duration) -> LaunchFuture<'a>;
+    /// Stop and reap launched processes when this absolute deadline expires.
+    fn launch<'a>(&'a self, target: Target, deadline: Instant) -> LaunchFuture<'a>;
 }
 
 trait SessionProcess: Send {
@@ -237,7 +251,8 @@ impl SessionManager {
             state.starting += 1;
         }
 
-        let launched = self.launcher.launch(target, self.startup_timeout).await;
+        let deadline = Instant::now() + self.startup_timeout;
+        let launched = self.launcher.launch(target, deadline).await;
         let mut state = self.state.lock().await;
         state.starting -= 1;
         let mut launched = launched?;
@@ -340,6 +355,14 @@ fn random_session_id() -> Result<SessionId, HubError> {
     Ok(SessionId(id))
 }
 
+fn session_start_timeout() -> HubError {
+    HubError {
+        status: 504,
+        code: "session_start_timeout",
+        message: "the ncx session did not start before its deadline".to_owned(),
+    }
+}
+
 fn unknown_session() -> HubError {
     HubError {
         status: 404,
@@ -367,6 +390,27 @@ struct ProcessLauncher {
     remote: Option<RemoteRuntime>,
 }
 
+#[cfg(target_os = "linux")]
+const LOCAL_DATASET_FD: libc::c_int = 100;
+
+#[cfg(target_os = "linux")]
+fn configure_local_dataset(command: &mut Command, target: &LocalTarget) {
+    let source_fd = target.file.as_raw_fd();
+    // The child opens this duplicate after exec, so a later pathname replacement
+    // cannot change the already-authorized file.
+    unsafe {
+        command.pre_exec(move || {
+            if libc::dup2(source_fd, LOCAL_DATASET_FD) == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    command
+        .arg("--")
+        .arg(format!("/proc/self/fd/{LOCAL_DATASET_FD}"));
+}
+
 #[derive(Clone)]
 struct RemoteRuntime {
     binary: PathBuf,
@@ -376,7 +420,7 @@ struct RemoteRuntime {
 }
 
 impl SessionLauncher for ProcessLauncher {
-    fn launch<'a>(&'a self, target: Target, startup_timeout: Duration) -> LaunchFuture<'a> {
+    fn launch<'a>(&'a self, target: Target, deadline: Instant) -> LaunchFuture<'a> {
         let executable = self.executable.clone();
         let limits = self.limits;
         let remote = self.remote.clone();
@@ -389,20 +433,18 @@ impl SessionLauncher for ProcessLauncher {
                         code: "remote_sessions_disabled",
                         message: "this hub has no remote ncx executable".to_owned(),
                     })?;
-                    return launch_remote_session(
-                        &executable,
-                        limits,
-                        remote,
-                        target,
-                        startup_timeout,
-                    )
-                    .await;
+                    return launch_remote_session(&executable, limits, remote, target, deadline)
+                        .await;
                 }
             };
             let mut last_error = String::new();
             for attempt in 1..=3 {
+                if Instant::now() >= deadline {
+                    return Err(session_start_timeout());
+                }
                 let port = candidate_loopback_port()?;
-                let mut child = Command::new(&executable)
+                let mut command = Command::new(&executable);
+                command
                     .arg("serve")
                     .arg("--exit-on-stdin-eof")
                     .arg("--port")
@@ -410,9 +452,10 @@ impl SessionLauncher for ProcessLauncher {
                     .arg("--max-response-bytes")
                     .arg(limits.max_response_bytes.to_string())
                     .arg("--ugrid-warn-faces")
-                    .arg(limits.ugrid_warn_faces.to_string())
-                    .arg("--")
-                    .arg(&target.path)
+                    .arg(limits.ugrid_warn_faces.to_string());
+                #[cfg(target_os = "linux")]
+                configure_local_dataset(&mut command, &target);
+                let mut child = command
                     .stdin(Stdio::piped())
                     .stdout(Stdio::null())
                     .stderr(Stdio::inherit())
@@ -425,7 +468,7 @@ impl SessionLauncher for ProcessLauncher {
                         code: "session_start_failed",
                         message: format!("cannot start ncx serve: {error}"),
                     })?;
-                match wait_for_server(&mut child, port, startup_timeout).await {
+                match wait_for_server(&mut child, port, deadline).await {
                     Ok(()) => {
                         return Ok(LaunchedSession {
                             upstream: SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, port),
@@ -458,11 +501,14 @@ async fn launch_remote_session(
     limits: Limits,
     remote: RemoteRuntime,
     target: RemoteTarget,
-    startup_timeout: Duration,
+    deadline: Instant,
 ) -> Result<LaunchedSession, HubError> {
-    ensure_remote_binary(askpass_executable, &remote, &target.destination).await?;
+    ensure_remote_binary(askpass_executable, &remote, &target.destination, deadline).await?;
     let mut last_error = String::new();
     for attempt in 1..=3 {
+        if Instant::now() >= deadline {
+            return Err(session_start_timeout());
+        }
         let port = candidate_loopback_port()?;
         let forward = format!("127.0.0.1:{port}:127.0.0.1:{port}");
         let remote_command = remote_serve_command(&remote.cache_key, &target.path, port, limits);
@@ -485,7 +531,7 @@ async fn launch_remote_session(
                 code: "ssh_start_failed",
                 message: format!("cannot start ssh: {error}"),
             })?;
-        match wait_for_server(&mut child, port, startup_timeout).await {
+        match wait_for_server(&mut child, port, deadline).await {
             Ok(()) => {
                 return Ok(LaunchedSession {
                     upstream: SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, port),
@@ -513,23 +559,25 @@ async fn ensure_remote_binary(
     askpass_executable: &Path,
     remote: &RemoteRuntime,
     destination: &str,
+    deadline: Instant,
 ) -> Result<(), HubError> {
     let cache = remote_cache_path(&remote.cache_key);
     let check = format!("test -x \"{cache}\"");
-    let status = ssh_command(askpass_executable, remote)
+    let mut command = ssh_command(askpass_executable, remote);
+    command
         .arg("--")
         .arg(destination)
         .arg(check)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .await
-        .map_err(|error| HubError {
-            status: 500,
-            code: "ssh_start_failed",
-            message: format!("cannot check the remote ncx cache: {error}"),
-        })?;
+        .stderr(Stdio::null());
+    let status = command_status_until(
+        command,
+        deadline,
+        "ssh_start_failed",
+        "cannot check the remote ncx cache",
+    )
+    .await?;
     if status.success() {
         return Ok(());
     }
@@ -544,20 +592,21 @@ async fn ensure_remote_binary(
          tmp=\"$cache.tmp.$$\" && trap 'rm -f \"$tmp\"' EXIT HUP INT TERM && \
          cat > \"$tmp\" && chmod 700 \"$tmp\" && mv -f \"$tmp\" \"$cache\""
     );
-    let status = ssh_command(askpass_executable, remote)
+    let mut command = ssh_command(askpass_executable, remote);
+    command
         .arg("--")
         .arg(destination)
         .arg(install)
         .stdin(Stdio::from(binary))
         .stdout(Stdio::null())
-        .stderr(Stdio::inherit())
-        .status()
-        .await
-        .map_err(|error| HubError {
-            status: 500,
-            code: "remote_binary_upload_failed",
-            message: format!("cannot upload the remote ncx binary: {error}"),
-        })?;
+        .stderr(Stdio::inherit());
+    let status = command_status_until(
+        command,
+        deadline,
+        "remote_binary_upload_failed",
+        "cannot upload the remote ncx binary",
+    )
+    .await?;
     if !status.success() {
         return Err(HubError {
             status: 502,
@@ -566,6 +615,34 @@ async fn ensure_remote_binary(
         });
     }
     Ok(())
+}
+
+async fn command_status_until(
+    mut command: Command,
+    deadline: Instant,
+    code: &'static str,
+    message: &'static str,
+) -> Result<std::process::ExitStatus, HubError> {
+    let mut child = command
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|error| HubError {
+            status: 500,
+            code,
+            message: format!("{message}: {error}"),
+        })?;
+    match timeout_at(deadline, child.wait()).await {
+        Ok(result) => result.map_err(|error| HubError {
+            status: 500,
+            code,
+            message: format!("{message}: {error}"),
+        }),
+        Err(_) => {
+            let _ = child.start_kill();
+            let _ = child.wait().await;
+            Err(session_start_timeout())
+        }
+    }
 }
 
 fn ssh_command(askpass_executable: &Path, remote: &RemoteRuntime) -> Command {
@@ -658,12 +735,7 @@ fn candidate_loopback_port() -> Result<u16, HubError> {
         })
 }
 
-async fn wait_for_server(
-    child: &mut Child,
-    port: u16,
-    startup_timeout: Duration,
-) -> Result<(), HubError> {
-    let deadline = Instant::now() + startup_timeout;
+async fn wait_for_server(child: &mut Child, port: u16, deadline: Instant) -> Result<(), HubError> {
     loop {
         if let Some(status) = child.try_wait().map_err(|error| HubError {
             status: 502,
@@ -676,18 +748,14 @@ async fn wait_for_server(
                 message: format!("ncx serve exited before it was ready ({status})"),
             });
         }
-        if server_is_ready(port).await {
-            return Ok(());
-        }
         if Instant::now() >= deadline {
-            return Err(HubError {
-                status: 504,
-                code: "session_start_timeout",
-                message: format!(
-                    "ncx serve did not start within {} seconds",
-                    startup_timeout.as_secs()
-                ),
-            });
+            return Err(session_start_timeout());
+        }
+        if timeout_at(deadline, server_is_ready(port))
+            .await
+            .unwrap_or(false)
+        {
+            return Ok(());
         }
         sleep(Duration::from_millis(100)).await;
     }
@@ -756,8 +824,13 @@ impl HubConfig {
                 return Err(format!("local root {} is not a directory", root.display()));
             }
         }
-        if self.session_limit == 0 || self.startup_timeout.is_zero() || self.idle_ttl.is_zero() {
-            return Err("hub limits and timeouts must be greater than zero".to_owned());
+        if !(1..=MAX_HUB_SESSIONS).contains(&self.session_limit) {
+            return Err(format!(
+                "hub session limit must be between 1 and {MAX_HUB_SESSIONS}"
+            ));
+        }
+        if self.startup_timeout.is_zero() || self.idle_ttl.is_zero() {
+            return Err("hub timeouts must be greater than zero".to_owned());
         }
         match (&mut self.remote_ncx, &self.ssh_password) {
             (Some(binary), Some(password)) if !password.is_empty() => {
@@ -1089,7 +1162,7 @@ mod tests {
     }
 
     impl SessionLauncher for FakeLauncher {
-        fn launch<'a>(&'a self, _target: Target, _timeout: Duration) -> LaunchFuture<'a> {
+        fn launch<'a>(&'a self, _target: Target, deadline: Instant) -> LaunchFuture<'a> {
             let upstream = self.upstream;
             let stopped = self.stopped.clone();
             let started = self.started.clone();
@@ -1098,8 +1171,10 @@ mod tests {
                 if let Some(started) = started {
                     started.notify_one();
                 }
-                if let Some(release) = release {
-                    release.notified().await;
+                if let Some(release) = release
+                    && timeout_at(deadline, release.notified()).await.is_err()
+                {
+                    return Err(session_start_timeout());
                 }
                 Ok(LaunchedSession {
                     upstream,
@@ -1162,8 +1237,9 @@ mod tests {
     }
 
     fn fake_target() -> Target {
-        Target::Local(LocalTarget {
-            path: PathBuf::from("/test.nc"),
+        Target::Remote(RemoteTarget {
+            destination: "test".to_owned(),
+            path: "/test.nc".to_owned(),
         })
     }
 
@@ -1216,6 +1292,32 @@ mod tests {
         manager.close(&id).await.unwrap();
         assert_eq!(stopped.load(Ordering::SeqCst), 1);
         assert_eq!(manager.upstream(&id).await.unwrap_err().status, 404);
+    }
+
+    #[tokio::test]
+    async fn startup_deadline_releases_the_starting_session_slot() {
+        let release = Arc::new(Notify::new());
+        let stopped = Arc::new(AtomicUsize::new(0));
+        let manager = SessionManager::new(
+            Arc::new(FakeLauncher {
+                upstream: SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, 43210),
+                stopped: stopped.clone(),
+                started: None,
+                release: Some(release.clone()),
+            }),
+            1,
+            Duration::from_millis(20),
+            Duration::from_secs(1),
+        );
+
+        let error = manager.open(fake_target()).await.unwrap_err();
+        assert_eq!(error.status, 504);
+        assert_eq!(error.code, "session_start_timeout");
+
+        release.notify_one();
+        let id = manager.open(fake_target()).await.unwrap();
+        manager.close(&id).await.unwrap();
+        assert_eq!(stopped.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
@@ -1424,15 +1526,65 @@ mod tests {
             ssh_program: ssh,
         };
 
-        ensure_remote_binary(Path::new("/bin/false"), &remote, "host")
-            .await
-            .unwrap();
-        ensure_remote_binary(Path::new("/bin/false"), &remote, "host")
-            .await
-            .unwrap();
+        ensure_remote_binary(
+            Path::new("/bin/false"),
+            &remote,
+            "host",
+            Instant::now() + Duration::from_secs(1),
+        )
+        .await
+        .unwrap();
+        ensure_remote_binary(
+            Path::new("/bin/false"),
+            &remote,
+            "host",
+            Instant::now() + Duration::from_secs(1),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(std::fs::read(installed).unwrap(), b"standalone ncx bytes");
         assert_eq!(std::fs::read_to_string(log).unwrap().lines().count(), 3);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn remote_cache_check_stops_and_reaps_at_the_session_deadline() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = TestDirectory::new();
+        let binary = directory.0.join("remote-ncx");
+        let pid_file = directory.0.join("ssh.pid");
+        std::fs::write(&binary, b"standalone ncx bytes").unwrap();
+        let ssh = directory.0.join("fake-ssh");
+        std::fs::write(
+            &ssh,
+            format!(
+                "#!/bin/sh\nprintf '%s' \"$$\" > {}\nexec sleep 30\n",
+                shell_quote(pid_file.to_str().unwrap()),
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let remote = RemoteRuntime {
+            binary: binary.clone(),
+            cache_key: binary_fingerprint(&binary).unwrap(),
+            password: "secret".to_owned(),
+            ssh_program: ssh,
+        };
+
+        let error = ensure_remote_binary(
+            Path::new("/bin/false"),
+            &remote,
+            "host",
+            Instant::now() + Duration::from_millis(50),
+        )
+        .await
+        .unwrap_err();
+        let pid = std::fs::read_to_string(pid_file).unwrap();
+
+        assert_eq!(error.status, 504);
+        assert_eq!(error.code, "session_start_timeout");
+        assert!(!Path::new(&format!("/proc/{pid}")).exists());
     }
 
     #[test]
@@ -1467,6 +1619,28 @@ mod tests {
     }
 
     #[test]
+    fn hub_config_accepts_ten_sessions_and_rejects_eleven() {
+        let directory = TestDirectory::new();
+        let config = |session_limit| HubConfig {
+            base_path: "/ncx".to_owned(),
+            local_roots: vec![directory.0.clone()],
+            session_limit,
+            startup_timeout: Duration::from_secs(1),
+            idle_ttl: Duration::from_secs(1),
+            limits: Limits::default(),
+            remote_ncx: None,
+            ssh_password: None,
+        };
+
+        assert_eq!(config(10).validate().unwrap().session_limit, 10);
+        assert_eq!(
+            config(11).validate().err().unwrap(),
+            "hub session limit must be between 1 and 10"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
     fn local_target_stays_in_an_allowed_root_and_is_netcdf() {
         let directory = TestDirectory::new();
         let root = directory.0.join("root");
@@ -1479,10 +1653,51 @@ mod tests {
         .unwrap();
 
         let resolved = resolve_local_target(&target, std::slice::from_ref(&root)).unwrap();
-
-        assert_eq!(resolved.path, target.canonicalize().unwrap());
+        let capability = PathBuf::from(format!("/proc/self/fd/{}", resolved.file.as_raw_fd()));
+        assert_eq!(
+            capability.canonicalize().unwrap(),
+            target.canonicalize().unwrap()
+        );
+        assert_eq!(
+            Dataset::open(&capability).unwrap().metadata().dataset.name,
+            "classic.nc"
+        );
     }
 
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn local_child_opens_the_authorized_file_after_the_path_is_replaced() {
+        let directory = TestDirectory::new();
+        let root = directory.0.join("root");
+        std::fs::create_dir(&root).unwrap();
+        let inside = root.join("inside.nc");
+        let outside = directory.0.join("outside.nc");
+        std::fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/classic.nc"),
+            &inside,
+        )
+        .unwrap();
+        std::fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/rectilinear.nc"),
+            &outside,
+        )
+        .unwrap();
+        let selected = root.join("selected.nc");
+        std::os::unix::fs::symlink(&inside, &selected).unwrap();
+        let target = resolve_local_target(&selected, std::slice::from_ref(&root)).unwrap();
+
+        std::fs::remove_file(&selected).unwrap();
+        std::os::unix::fs::symlink(&outside, &selected).unwrap();
+        let mut child = Command::new("cat");
+        configure_local_dataset(&mut child, &target);
+        let output = child.output().await.unwrap();
+
+        assert!(output.status.success());
+        assert_eq!(output.stdout, std::fs::read(&inside).unwrap());
+        assert_ne!(output.stdout, std::fs::read(&outside).unwrap());
+    }
+
+    #[cfg(target_os = "linux")]
     #[test]
     fn local_target_rejects_traversal_directory_symlink_escape_and_non_netcdf() {
         let directory = TestDirectory::new();

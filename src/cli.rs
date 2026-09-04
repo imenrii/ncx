@@ -14,7 +14,7 @@ use tokio::time::{Instant, sleep, timeout};
 
 use crate::NcxResult;
 use crate::dataset::Dataset;
-use crate::hub::{self, HubConfig};
+use crate::hub::{self, HubConfig, MAX_HUB_SESSIONS};
 use crate::server::{self, Limits};
 
 const USAGE: &str = "\
@@ -33,7 +33,7 @@ Options:
   --base-path PATH                  Hub URL path (default: /ncx)
   --local-root DIRECTORY            Allow hub files below this directory
   --remote-ncx FILE                 Standalone ncx binary for SSH sessions
-  --session-limit COUNT             Hub sessions, including starts (default: 10)
+  --session-limit COUNT             Hub sessions, including starts (1-10; default: 10)
   --startup-timeout-seconds SECONDS Child startup timeout (default: 30)
   --session-ttl-seconds SECONDS     Hub idle timeout (default: 90)
   --max-response-bytes BYTES        Maximum binary response (default: 67108864)
@@ -185,6 +185,11 @@ fn parse_arguments(arguments: Vec<String>) -> NcxResult<ParsedCommand> {
                     return Err("--session-limit is only valid with `ncx hub`".to_owned());
                 }
                 session_limit = parse_value(&arguments, &mut index, "--session-limit")?;
+                if !(1..=MAX_HUB_SESSIONS).contains(&session_limit) {
+                    return Err(format!(
+                        "--session-limit must be between 1 and {MAX_HUB_SESSIONS}"
+                    ));
+                }
             }
             "--startup-timeout-seconds" => {
                 if command != "hub" {
@@ -773,6 +778,21 @@ mod tests {
         assert_eq!(config.session_limit, 10);
         assert_eq!(config.startup_timeout, Duration::from_secs(5));
         assert_eq!(config.idle_ttl, Duration::from_secs(90));
+    }
+
+    #[test]
+    fn rejects_hub_session_limits_above_ten() {
+        let error = parse_arguments(vec![
+            "hub".into(),
+            "--local-root".into(),
+            "/data".into(),
+            "--session-limit".into(),
+            "11".into(),
+        ])
+        .err()
+        .unwrap();
+
+        assert_eq!(error, "--session-limit must be between 1 and 10");
     }
 
     #[test]

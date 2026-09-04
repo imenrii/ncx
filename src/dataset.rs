@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use netcdf::AttributeValue;
@@ -127,6 +127,33 @@ fn is_false(value: &bool) -> bool {
     !value
 }
 
+fn dataset_paths(path: &Path) -> NcxResult<(PathBuf, PathBuf)> {
+    #[cfg(target_os = "linux")]
+    if is_proc_fd_path(path) {
+        let display_path = std::fs::read_link(path)
+            .map_err(|error| format!("cannot inspect {}: {error}", path.display()))?;
+        return Ok((path.to_owned(), display_path));
+    }
+
+    let path = path
+        .canonicalize()
+        .map_err(|error| format!("cannot find {}: {error}", path.display()))?;
+    Ok((path.clone(), path))
+}
+
+#[cfg(target_os = "linux")]
+fn is_proc_fd_path(path: &Path) -> bool {
+    use std::path::Component;
+
+    let mut components = path.components();
+    matches!(components.next(), Some(Component::RootDir))
+        && matches!(components.next(), Some(Component::Normal(value)) if value == "proc")
+        && matches!(components.next(), Some(Component::Normal(value)) if value == "self")
+        && matches!(components.next(), Some(Component::Normal(value)) if value == "fd")
+        && matches!(components.next(), Some(Component::Normal(value)) if value.to_str().is_some_and(|value| !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit())))
+        && components.next().is_none()
+}
+
 /// The one read-only NetCDF file owned by this ncx process.
 pub struct Dataset {
     metadata: DatasetMetadata,
@@ -136,22 +163,20 @@ pub struct Dataset {
 
 impl Dataset {
     pub fn open(path: &Path) -> NcxResult<Self> {
-        let absolute_path = path
-            .canonicalize()
-            .map_err(|error| format!("cannot find {}: {error}", path.display()))?;
-        let file = netcdf::open(&absolute_path).map_err(|error| {
+        let (open_path, display_path) = dataset_paths(path)?;
+        let file = netcdf::open(&open_path).map_err(|error| {
             format!(
                 "cannot open {} as a read-only NetCDF file: {error}",
-                absolute_path.display()
+                display_path.display()
             )
         })?;
-        let name = absolute_path
+        let name = display_path
             .file_name()
-            .unwrap_or(absolute_path.as_os_str())
+            .unwrap_or(display_path.as_os_str())
             .to_string_lossy()
             .into_owned();
         let mut metadata = discover_metadata(&file, name)
-            .map_err(|error| format!("cannot inspect {}: {error}", absolute_path.display()))?;
+            .map_err(|error| format!("cannot inspect {}: {error}", display_path.display()))?;
         let connectivity_variables = cf::add_view_hints(&mut metadata);
 
         Ok(Self {
