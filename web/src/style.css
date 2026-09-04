@@ -154,6 +154,13 @@
   --line: #dcdfe3;
   --line-faint: #ecedef;
 
+  /* State as texture, not as colour: a 2px checkerboard of the ink already in
+     the palette. It survives greyscale, it is legible next to a colour bar
+     without claiming to mean a value, and it leaves the accent and the amber
+     free to keep meaning what they mean. */
+  --dither: repeating-conic-gradient(rgb(16 20 24 / 7%) 0% 25%, transparent 0% 50%) 0 0 / 2px 2px;
+  --dither-strong: repeating-conic-gradient(rgb(16 20 24 / 14%) 0% 25%, transparent 0% 50%) 0 0 / 2px 2px;
+
   /* The accent is cycle()[3] -- the blue the Python style binds to reference
      data. Not a UI colour picked separately: an app and its figures that
      disagree about blue look like two products. */
@@ -425,6 +432,13 @@ input:hover:not(:disabled) {
   border-color: var(--ink-weak);
 }
 
+/* Only :focus-visible carries a ring. A pointer press already tells the reader
+   what it hit, so the ring there is noise; keyboard focus still has to be
+   visible (WCAG 2.2 SC 2.4.11), so it is not turned off, only narrowed. */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
 button:focus-visible,
 select:focus-visible,
 input:focus-visible {
@@ -639,13 +653,36 @@ button:disabled {
   gap: 4px;
   margin-top: 8px;
   color: var(--ink-medium);
+  font: var(--mono);
   font-size: var(--size-micro);
   letter-spacing: var(--track-small);
 }
 
-.variable-filter input[type="checkbox"] {
+.variable-filter input[type="checkbox"],
+.series-control input[type="checkbox"],
+.save-dialog input[type="checkbox"] {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  place-items: center;
   margin: 0;
-  accent-color: var(--accent);
+  padding: 0;
+  border: 1px solid var(--ink);
+  appearance: none;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
+
+/* A cross, not a tick: the tick glyph is not in either subset this binary
+   ships, and a background image would not follow the ink colour. */
+.variable-filter input[type="checkbox"]:checked::before,
+.series-control input[type="checkbox"]:checked::before,
+.save-dialog input[type="checkbox"]:checked::before {
+  content: "\00d7";
+  font-size: 14px;
+  line-height: 1;
 }
 
 .tree {
@@ -750,12 +787,14 @@ button:disabled {
 }
 
 .variable-row:hover {
-  background: var(--ink-faint);
+  background: var(--dither), transparent;
 }
 
+/* Marker and texture answer different questions -- which row is open, and
+   which row is under the pointer -- so they must not share a channel. */
 .variable-row[aria-selected="true"] {
-  box-shadow: inset 3px 0 var(--accent);
-  background: var(--accent-pale);
+  box-shadow: inset 3px 0 var(--ink);
+  background: var(--dither), transparent;
 }
 
 .variable-row span {
@@ -868,6 +907,14 @@ button:disabled {
 
 .control-group:last-child {
   margin-right: 0;
+}
+
+/* Dimension and its coordinate read as one axis, so they sit tighter to each
+   other than to the next axis. */
+.axis-control {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .toolbar-actions {
@@ -993,7 +1040,7 @@ button:disabled {
   white-space: nowrap;
 }
 
-.figure-head span {
+.figure-head > span {
   flex: none;
   max-width: 55%;
   overflow: hidden;
@@ -1009,6 +1056,10 @@ button:disabled {
   grid-template-rows: auto auto minmax(0, 1fr);
 }
 
+.curve-figure {
+  grid-template-rows: minmax(0, 1fr);
+}
+
 .single-curve {
   display: grid;
   min-width: 0;
@@ -1016,11 +1067,45 @@ button:disabled {
   grid-template-rows: auto minmax(0, 1fr);
 }
 
+.curve-head {
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.curve-head > span {
+  margin-left: auto;
+}
+
+.curve-head .curve-offset-controls {
+  flex: 0 1 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.curve-head .series-control {
+  padding: 0 12px;
+}
+
+/* The heading already names the primary series. Repeating it inside the same
+   row wastes the width needed by its datum and offset control. */
+.curve-head .curve-offset-controls > .series-control:first-child > strong {
+  display: none;
+}
+
+.curve-range-reset {
+  flex: none;
+  font-family: var(--label-face);
+  font-size: var(--size-micro);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+}
+
 .comparison-controls {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   overflow-x: auto;
   padding: 4px 8px;
   border-bottom: 1px solid var(--line);
@@ -1031,8 +1116,10 @@ button:disabled {
 .series-control {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding-right: 8px;
+  /* A key, a name, a datum and a spinner are four different things: they need
+     more air between them than the 4px that held a label to its own input. */
+  gap: 12px;
+  padding: 0 16px;
   border-right: 1px solid var(--line);
   font-size: var(--size-tick);
   letter-spacing: var(--track-small);
@@ -1070,13 +1157,6 @@ button:disabled {
 .series-control input {
   width: 8ch;
   padding: 0 4px;
-}
-
-.series-control input[type="checkbox"] {
-  width: auto;
-  margin: 0;
-  padding: 0;
-  accent-color: var(--accent);
 }
 
 .comparison-warning {
@@ -1236,13 +1316,22 @@ button:disabled {
   fill: color-mix(in srgb, var(--paper) 18%, transparent);
 }
 
+.curve-svg {
+  cursor: crosshair;
+}
+
+.curve-zoom-box {
+  pointer-events: none;
+}
+
 /* Sits in the plot's top margin, not over the data: a control that hides the
    thing it controls is worse than one more pixel of chrome. */
 .view-controls {
   position: absolute;
   z-index: 5;
   top: 3px;
-  left: 4px;
+  /* Same left margin as `.figure-head`: the panel reads on one edge. */
+  left: 12px;
   display: flex;
   gap: 2px;
 }
@@ -1251,10 +1340,24 @@ button:disabled {
   min-width: 24px;
   min-height: 24px;
   padding: 0 8px;
+  border-color: var(--ink);
+  /* A hairline cast below the box, not a blur: the button has a thickness, and
+     pressing it takes the thickness away. */
+  box-shadow: 0 2px 0 var(--ink);
   background: var(--paper);
   font-size: var(--size-micro);
   letter-spacing: var(--track-small);
   font-weight: 600;
+}
+
+.view-controls button:hover {
+  background: var(--dither), var(--paper);
+}
+
+.view-controls button:active {
+  box-shadow: none;
+  transform: translateY(2px);
+  background: var(--dither-strong), var(--paper);
 }
 
 .mesh-warning {
@@ -1561,15 +1664,32 @@ button:disabled {
 
 .playback {
   display: flex;
-  gap: 2px;
+  border: 1px solid var(--ink);
 }
 
+/* One outer hairline with shared dividers: a transport is a single instrument,
+   and five loose boxes read as five unrelated commands. */
 .playback button {
   width: 29px;
   height: 28px;
   padding: 0;
+  border: 0;
+  border-left: 1px solid var(--ink);
+  background: var(--paper);
   font-size: var(--size-tick);
   letter-spacing: var(--track-small);
+}
+
+.playback button:first-child {
+  border-left: 0;
+}
+
+.playback button:hover {
+  background: var(--dither), var(--paper);
+}
+
+.playback button:focus-visible {
+  outline-offset: -2px;
 }
 
 .playback button::before {
@@ -1599,9 +1719,7 @@ button:disabled {
 }
 
 .playback button[aria-pressed="true"] {
-  border-color: var(--accent);
-  background: var(--accent-pale);
-  color: var(--accent);
+  background: var(--dither-strong), var(--paper);
 }
 
 .timeline strong {
@@ -1624,8 +1742,35 @@ button:disabled {
   top: 0;
   left: 0;
   width: 100%;
+  height: 24px;
   margin: 0;
-  accent-color: var(--accent);
+  appearance: none;
+  background: transparent;
+}
+
+.timeline input[type="range"]::-moz-range-track,
+.timeline input[type="range"]::-webkit-slider-runnable-track {
+  height: 24px;
+  background: transparent;
+}
+
+/* The thumb is the read head of the fishbone below it: a 2px rule dropped onto
+   the axis, the same weight as the axis ticks it lands between. */
+.timeline input[type="range"]::-moz-range-thumb {
+  width: 2px;
+  height: 20px;
+  border: 0;
+  border-radius: 0;
+  background: var(--ink);
+}
+
+.timeline input[type="range"]::-webkit-slider-thumb {
+  width: 2px;
+  height: 20px;
+  border: 0;
+  border-radius: 0;
+  appearance: none;
+  background: var(--ink);
 }
 
 .timeline-fishbone {
@@ -1711,12 +1856,12 @@ button:disabled {
 }
 
 @container (max-width: 560px) {
-  .figure-head {
+  .figure-head:not(.curve-head) {
     display: grid;
     gap: 2px;
   }
 
-  .figure-head span {
+  .figure-head > span {
     max-width: 100%;
   }
 }
@@ -1868,27 +2013,49 @@ i .value {
   background: rgb(16 20 24 / 38%);
 }
 
+/* One datum. Every control's left edge lands on it, every label is flush
+   right of it across a fixed gutter, and the rows below a control hang from it
+   too -- so the dialog is read down a single line rather than scanned.
+
+   One vertical unit as well: 1s between rows, 0.5s from a control to the line
+   that reports on it, 2s between sections. Nothing here picks its own gap. */
 .save-dialog form {
+  --s: 8px;
   display: grid;
-  gap: 12px;
-  padding: 16px 20px 20px;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  row-gap: var(--s);
+  column-gap: calc(var(--s) * 1.5);
+  /* Right padding runs wider than left because the left is not empty: the
+     label column is ragged, and its short rows already read as white. Equal
+     numbers here look like a block pushed against the right wall. */
+  padding: calc(var(--s) * 2) calc(var(--s) * 4) calc(var(--s) * 2.5) calc(var(--s) * 2.5);
+  font-family: var(--mono);
+}
+
+.save-dialog form > * {
+  grid-column: 2;
+}
+
+/* Both cells of a row carry the section rule, or the row centres them against
+   each other and the datum breaks. */
+.save-dialog form > .section {
+  margin-top: var(--s);
 }
 
 .save-dialog h2 {
-  margin: 0;
+  grid-column: 1 / -1;
+  margin: 0 0 calc(var(--s) / 2);
+  font-family: var(--ui-face);
   font-size: var(--size-title);
   font-weight: 700;
   letter-spacing: var(--track-small);
 }
 
-.save-dialog fieldset {
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-.save-dialog legend {
-  padding: 0 0 4px;
+.save-dialog .row-label,
+.save-dialog form > label:not(.switch) {
+  grid-column: 1;
+  justify-self: end;
   color: var(--ink-quiet);
   font-size: var(--size-micro);
   letter-spacing: var(--track-small);
@@ -1898,49 +2065,112 @@ i .value {
 .save-dialog .chip-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: calc(var(--s) / 2);
 }
 
-/* The radio stays in the accessibility tree and keeps keyboard operation; the
-   chip is its label, so the whole target is clickable and clears 24px. */
+/* One toggle per row: a single box with a thickness, divided into segments.
+   The reader compares the choices inside one object instead of three loose
+   ones, and the chosen segment is pressed into it. The radio keeps the
+   keyboard and the accessibility tree; the dot beside the words would only
+   repeat that state in a second, weaker channel. */
+.save-dialog .toggle {
+  display: inline-flex;
+  border: 1px solid var(--ink);
+  box-shadow: 0 2px 0 var(--ink);
+  background: var(--paper);
+}
+
 .save-dialog .chip {
   display: inline-flex;
   min-height: var(--hit);
   align-items: center;
-  gap: 4px;
-  padding: 0 8px;
-  border: 1px solid var(--line);
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--ink);
+  box-shadow: 0 2px 0 var(--ink);
   background: var(--paper);
+  font-family: var(--mono);
   font-size: var(--size-tick);
 }
 
-.save-dialog .chip:has(input:checked) {
-  border-color: var(--ink);
-  background: var(--amber-pale);
+.save-dialog .toggle .chip {
+  border: 0;
+  border-left: 1px solid var(--ink);
+  box-shadow: none;
+}
+
+.save-dialog .toggle .chip:first-child {
+  border-left: 0;
+}
+
+/* A segment cannot fall away from the box it is cut into, so the chosen one
+   darkens where a lone key would drop. */
+.save-dialog .toggle .chip:has(input:checked) {
+  transform: none;
+}
+
+/* A two-state answer is a box and a cross, not a key: pressing a key means
+   "do it", ticking a box means "it is so". The row keeps the height of a
+   control so the vertical rhythm does not break around it. */
+.save-dialog .switch {
+  display: flex;
+  min-height: var(--hit);
+  align-items: center;
+  gap: 8px;
+  font-size: var(--size-tick);
+}
+
+.save-dialog .chip input[type="radio"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.save-dialog .chip:hover {
+  background: var(--dither), var(--paper);
+}
+
+.save-dialog .chip:has(input:checked),
+.save-dialog .chip[data-on="true"] {
+  box-shadow: none;
+  transform: translateY(2px);
+  background: var(--dither-strong), var(--paper);
   font-weight: 600;
 }
 
-.save-dialog .chip:has(input:focus-visible) {
+.save-dialog .chip:has(input:focus-visible),
+.save-dialog .chip:focus-within {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 
+/* Spinner and unit are one control, so they share one border and the unit sits
+   inside it. Padding is asymmetric because the number is centred against the
+   unit, not against the box. */
+.save-dialog .chip.custom {
+  gap: 4px;
+  padding: 0 8px 0 0;
+}
+
 .save-dialog .chip.custom input {
-  width: 64px;
+  width: 68px;
+  height: calc(var(--hit) - 2px);
+  padding: 0 0 0 8px;
   border: 0;
   background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: center;
 }
 
-.save-dialog .field {
-  display: grid;
-  gap: 4px;
-  font-size: var(--size-micro);
+.save-dialog .chip.custom .unit {
   color: var(--ink-quiet);
-  letter-spacing: var(--track-small);
-  text-transform: uppercase;
+  font-size: var(--size-micro);
 }
 
-.save-dialog .field input {
+.save-dialog form > input {
   min-height: var(--hit);
   padding: 0 8px;
   border: 1px solid var(--line);
@@ -1948,14 +2178,28 @@ i .value {
   color: var(--ink);
   font-family: var(--mono);
   font-size: var(--size-body);
-  letter-spacing: normal;
-  text-transform: none;
 }
 
 .save-dialog .hint {
   margin: 0;
   color: var(--ink-quiet);
   font-size: var(--size-micro);
+}
+
+/* Reported, not entered: half a unit under the control it derives from, and
+   indented onto that control's own text edge so it cannot be mistaken for one
+   more thing to fill in. */
+.save-dialog .hint.derived {
+  margin-top: calc(var(--s) / -2);
+  padding-left: 8px;
+  font-size: 0.6875rem;
+}
+
+/* The syntax note belongs to no single field, so it opens its own section. */
+.save-dialog .hint.syntax {
+  margin-top: var(--s);
+  padding-left: 8px;
+  font-size: 0.6875rem;
 }
 
 .save-dialog .hint .preview {
@@ -1968,12 +2212,13 @@ i .value {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 4px;
+  margin-top: 8px;
 }
 
 .save-dialog .dialog-actions button {
   min-height: var(--hit);
   padding: 0 16px;
+  font-family: var(--mono);
 }
 
 .save-dialog .dialog-actions .primary {

@@ -13,3 +13,23 @@ test("caps and positions OSM tiles over a longitude/latitude field", () => {
   assert.ok(tiles.every((tile) => tile.url.startsWith("https://tile.openstreetmap.org/")));
   assert.ok(tiles.every((tile) => [tile.left, tile.top, tile.width, tile.height].every(Number.isFinite)));
 });
+
+test("raises OSM tile resolution as the visible map scale increases", () => {
+  const zoom = (longitudeSpan: number, width = 1000) => {
+    const tile = mapTiles(
+      {
+        minimumX: 114,
+        maximumX: 114 + longitudeSpan,
+        minimumY: 22,
+        maximumY: 22 + longitudeSpan,
+      },
+      width,
+      width * 0.6,
+    )[0];
+    return Number(new URL(tile.url).pathname.split("/")[1]);
+  };
+
+  assert.ok(zoom(0.005) > zoom(5));
+  assert.ok(zoom(5, 1000) > zoom(5, 500));
+  assert.equal(zoom(0.00001), 19);
+});

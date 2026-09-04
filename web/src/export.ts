@@ -137,6 +137,8 @@ export interface ExportOptions {
   subtitle: string;
   xTitle: string;
   yTitle: string;
+  /** Keep the on-screen gridlines. Off: a plate carries its own ladder. */
+  grid: boolean;
 }
 
 export function defaultExportOptions(): ExportOptions {
@@ -149,6 +151,7 @@ export function defaultExportOptions(): ExportOptions {
     subtitle: heading.subtitle,
     xTitle: axes.x,
     yTitle: axes.y,
+    grid: false,
   };
 }
 
@@ -273,6 +276,7 @@ export async function exportPlotPng(name: string, options?: ExportOptions): Prom
   inlineComputedStyle(source, furniture);
   retitleAxis(furniture, 0, settings.xTitle);
   retitleAxis(furniture, 1, settings.yTitle);
+  if (!settings.grid) for (const line of furniture.querySelectorAll(".gridline")) line.remove();
   for (const child of Array.from(furniture.childNodes)) body.append(child);
 
   // The output is a faithful scaled copy of the panel: one factor takes the

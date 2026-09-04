@@ -263,3 +263,33 @@ export function tickLadder(
   );
   return { minor, major, step, format: (value: number) => formatTick(value, labelStep) };
 }
+
+/**
+ * Decade ladder for a log axis: majors on the powers of ten, minors on the 2
+ * and the 5 between them.
+ *
+ * The linear ladder cannot be reused here. Spaced evenly along a log axis it
+ * lands on 1.58 and 2.51, which is a set of numbers no reader recognises as a
+ * ladder. Ticks on a log axis have to be round in the data, not on the page.
+ */
+export function logLadder(minimum: number, maximum: number): TickLadder {
+  const low = Math.min(minimum, maximum);
+  const high = Math.max(minimum, maximum);
+  if (!(low > 0) || !(high > low)) {
+    return { minor: [], major: [], step: 1, format: (value) => formatTick(value, 1) };
+  }
+  const major: number[] = [];
+  const minor: number[] = [];
+  for (
+    let power = Math.floor(Math.log10(low));
+    power <= Math.ceil(Math.log10(high));
+    power += 1
+  ) {
+    for (const multiple of [1, 2, 5]) {
+      const value = multiple * 10 ** power;
+      if (value < low || value > high) continue;
+      (multiple === 1 ? major : minor).push(value);
+    }
+  }
+  return { minor, major, step: 1, format: (value) => formatTick(value, value) };
+}

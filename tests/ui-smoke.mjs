@@ -127,7 +127,7 @@ try {
     if (!cd || !cd.parentElement.textContent.includes("CD")) {
       failures.push("CD offset preset is missing");
     }
-    const modelY = controls[0].querySelectorAll("input")[1];
+    const modelY = controls[0].querySelector('input[type="number"]');
     cd?.click();
     await waitFor(() => modelY?.value === "1.45", "CD preset did not set the primary Y offset");
     await waitFor(
@@ -362,8 +362,12 @@ try {
     [...document.querySelectorAll(".view-tabs button")].find((button) => button.textContent === "Curve").click();
     await waitFor(() => document.querySelector(".curve-line")?.getAttribute("d"), "mesh probe curve did not render");
     if (!document.querySelector(".axis-label")?.textContent.includes("Time (HKT)")) failures.push("mesh curve lost CF time");
-    const offsetInputs = [...document.querySelectorAll(".curve-offset-controls input")];
-    if (offsetInputs.length !== 2) failures.push("single-case time curve offsets are missing");
+    const offsetControls = document.querySelector(".curve-offset-controls");
+    if (offsetControls?.parentElement !== document.querySelector(".figure-head")) {
+      failures.push("curve offsets are not in the figure heading");
+    }
+    const offsetInputs = [...(offsetControls?.querySelectorAll("input") ?? [])];
+    if (offsetInputs.length !== 1) failures.push("single-case time curve Y offset is missing");
     if (offsetInputs[0]) {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")
         .set.call(offsetInputs[0], "15");
@@ -373,7 +377,7 @@ try {
           .some((label) => label.textContent.includes("display offsets")) &&
           offsetInputs[0].value === "15" &&
           !document.querySelector(".curve-offset-controls button")?.disabled,
-        "single-case X offset was not applied",
+        "single-case Y offset was not applied",
       );
     }
     [...document.querySelectorAll(".view-tabs button")].find((button) => button.textContent === "Field").click();
@@ -466,7 +470,7 @@ try {
       if (widths.length !== 3) failures.push("save dialog is missing its width presets");
       if (dpis.length !== 3) failures.push("save dialog is missing its dpi presets");
       if (!widths.some((input) => input.checked)) failures.push("no width preset is selected");
-      const fields = [...dialog.querySelectorAll(".field input")];
+      const fields = [...dialog.querySelectorAll("form > input")];
       if (fields.length !== 4) failures.push("save dialog is missing its lettering fields");
       // Prefilled from the live figure, not blank.
       if (!fields.some((input) => input.value.trim())) {
@@ -552,6 +556,10 @@ try {
     return line?.getAttribute("d") ? document.querySelector(".curve-svg") : null;
   }, "probe curve did not render");
   if (!document.querySelector(".axis-label")?.textContent.includes("Time (HKT)")) failures.push("valid CF time did not produce an HKT axis");
+  const offsetControls = document.querySelector(".curve-offset-controls");
+  if (offsetControls?.parentElement !== document.querySelector(".figure-head")) {
+    failures.push("curve offsets are not in the figure heading");
+  }
 
   const curveBounds = curve.getBoundingClientRect();
   curve.dispatchEvent(new PointerEvent("pointermove", {
@@ -564,6 +572,23 @@ try {
   if (document.querySelectorAll(".hover-crosshair").length !== 1) failures.push("curve has duplicate crosshairs");
   if (Math.abs(Number(crosshair.getAttribute("x1")) - Number(marker?.getAttribute("cx"))) < 0.2) failures.push("crosshair did not move continuously between samples");
   if (!document.querySelector(".curve-tooltip")) failures.push("curve tooltip did not appear");
+
+  window.__ncxStep = "curve X range";
+  const curvePointer = (type, x, options = {}) => curve.dispatchEvent(new PointerEvent(type, {
+    bubbles: true,
+    clientX: curveBounds.left + curveBounds.width * x,
+    clientY: curveBounds.top + curveBounds.height * 0.45,
+    button: 0,
+    buttons: options.buttons ?? 0,
+  }));
+  const fullCurveExtent = axisExtent();
+  curvePointer("pointerdown", 0.25, { buttons: 1 });
+  curvePointer("pointermove", 0.75, { buttons: 1 });
+  await waitFor(() => document.querySelector(".curve-zoom-box"), "curve drag did not show its X selection");
+  curvePointer("pointerup", 0.75);
+  await waitFor(() => axisExtent() !== fullCurveExtent, "curve drag did not restrict the X range");
+  document.querySelector(".curve-range-reset")?.click();
+  await waitFor(() => axisExtent() === fullCurveExtent, "curve X range reset did not restore the extent");
 
   window.__ncxStep = "field return";
   [...document.querySelectorAll(".view-tabs button")].find((button) => button.textContent === "Field").click();

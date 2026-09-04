@@ -442,38 +442,45 @@ export function App() {
             )}
             {view === "field" && variable.view_hint.kind !== "ugrid2d" && variable.dimensions.length >= 2 && (
               <div className="control-group" role="group" aria-label="Displayed axes">
-                <label>Y <DimensionSelect variable={variable} value={display.y} onChange={(y) => {
-                  setCoordinatePaths({});
-                  setProbe(undefined);
-                  setDisplay((current) => changeDisplayDimension(current, "y", y));
-                }} /></label>
-                <label>X <DimensionSelect variable={variable} value={display.x} onChange={(x) => {
-                  setCoordinatePaths({});
-                  setProbe(undefined);
-                  setDisplay((current) => changeDisplayDimension(current, "x", x));
-                }} /></label>
-                <label>
-                  Y coord
-                  <CoordinateSelect
-                    candidates={yCoordinates}
-                    value={coordinatePaths.y}
-                    onChange={(y) => {
-                      setCoordinatePaths((current) => ({ ...current, y }));
-                      setProbe(undefined);
-                    }}
-                  />
-                </label>
-                <label>
-                  X coord
-                  <CoordinateSelect
-                    candidates={xCoordinates}
-                    value={coordinatePaths.x}
-                    onChange={(x) => {
-                      setCoordinatePaths((current) => ({ ...current, x }));
-                      setProbe(undefined);
-                    }}
-                  />
-                </label>
+                {/* One coordinate candidate is no choice: the dimension select
+                    beside it already names what is plotted, so the second
+                    select only repeats it. */}
+                <div className="axis-control">
+                  <label>Y <DimensionSelect variable={variable} value={display.y} onChange={(y) => {
+                    setCoordinatePaths({});
+                    setProbe(undefined);
+                    setDisplay((current) => changeDisplayDimension(current, "y", y));
+                  }} /></label>
+                  {yCoordinates.length > 1 && (
+                    <CoordinateSelect
+                      label="Y coordinate"
+                      candidates={yCoordinates}
+                      value={coordinatePaths.y}
+                      onChange={(y) => {
+                        setCoordinatePaths((current) => ({ ...current, y }));
+                        setProbe(undefined);
+                      }}
+                    />
+                  )}
+                </div>
+                <div className="axis-control">
+                  <label>X <DimensionSelect variable={variable} value={display.x} onChange={(x) => {
+                    setCoordinatePaths({});
+                    setProbe(undefined);
+                    setDisplay((current) => changeDisplayDimension(current, "x", x));
+                  }} /></label>
+                  {xCoordinates.length > 1 && (
+                    <CoordinateSelect
+                      label="X coordinate"
+                      candidates={xCoordinates}
+                      value={coordinatePaths.x}
+                      onChange={(x) => {
+                        setCoordinatePaths((current) => ({ ...current, x }));
+                        setProbe(undefined);
+                      }}
+                    />
+                  )}
+                </div>
               </div>
             )}
             {view === "curve" && variable.dimensions.length > 1 && (
@@ -524,6 +531,56 @@ export function App() {
                       <option key={zone.label} value={zone.label}>{zone.label}</option>
                     ))}
                   </select>
+                </label>
+              </div>
+            )}
+            {/* The same three controls in both views, because they are the same
+                axis: what the colour bar maps in a field is what the y axis
+                spans in a curve. Only the colourmap is field-only. */}
+            {view === "curve" && variable.dimensions.length >= 1 && (
+              <div className="control-group" role="group" aria-label="Value axis">
+                <label>
+                  Scale
+                  <select value={scale} onChange={(event) => setScale(event.target.value as ColorScale)}>
+                    <option value="linear">linear</option>
+                    <option value="log">log</option>
+                  </select>
+                </label>
+                <label>
+                  Range
+                  <select
+                    value={rangeLocked ? "locked" : "auto"}
+                    onChange={(event) => setRangeLocked(event.target.value === "locked")}
+                  >
+                    <option value="auto">auto</option>
+                    <option value="locked">locked</option>
+                  </select>
+                </label>
+                <label className="range-values">
+                  Min
+                  <input
+                    aria-label="Value axis minimum"
+                    type="number"
+                    step="any"
+                    readOnly={!rangeLocked}
+                    value={colorRange.minimum}
+                    onChange={(event) => setColorRange((current) => ({
+                      ...current,
+                      minimum: Math.min(Number(event.target.value), current.maximum - Number.EPSILON),
+                    }))}
+                  />
+                  Max
+                  <input
+                    aria-label="Value axis maximum"
+                    type="number"
+                    step="any"
+                    readOnly={!rangeLocked}
+                    value={colorRange.maximum}
+                    onChange={(event) => setColorRange((current) => ({
+                      ...current,
+                      maximum: Math.max(Number(event.target.value), current.minimum + Number.EPSILON),
+                    }))}
+                  />
                 </label>
               </div>
             )}
@@ -668,11 +725,13 @@ export function App() {
               onStatus={updateStatus}
             />
           ) : (
-            <section className="figure">
-              <header className="figure-head">
-                <h1>{view === "field" ? figureTitle : variableLabel(variable)}</h1>
-                <span>{view === "curve" && probePosition ? `at ${probePosition}` : figureSubtitle}</span>
-              </header>
+            <section className={`figure${view === "curve" ? " curve-figure" : ""}`}>
+              {view === "field" && (
+                <header className="figure-head">
+                  <h1>{figureTitle}</h1>
+                  <span>{figureSubtitle}</span>
+                </header>
+              )}
               {view === "field" && meshField ? (
                 <MeshFieldView
                   key={fieldViewKey}
@@ -723,6 +782,10 @@ export function App() {
                   curveDimension={curveDimension}
                   indices={curveIndices}
                   average={probe?.average}
+                  scale={scale}
+                  range={colorRange}
+                  rangeLocked={rangeLocked}
+                  subtitle={probePosition ? `at ${probePosition}` : figureSubtitle}
                   timeZone={displayTimeZone}
                   comparisonGeneration={comparisonGeneration}
                   onFrameLoaded={markFrameLoaded}
@@ -1027,16 +1090,18 @@ function DimensionSelect({
 }
 
 function CoordinateSelect({
+  label,
   candidates,
   value,
   onChange,
 }: {
+  label: string;
   candidates: Variable[];
   value: string | undefined;
   onChange: (path: string | undefined) => void;
 }) {
   return (
-    <select value={value ?? ""} onChange={(event) => onChange(event.target.value || undefined)}>
+    <select aria-label={label} value={value ?? ""} onChange={(event) => onChange(event.target.value || undefined)}>
       <option value="">index</option>
       {candidates.map((candidate) => (
         <option key={candidate.path} value={candidate.path}>{candidate.path}</option>

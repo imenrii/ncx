@@ -1,5 +1,8 @@
 import type { Bounds } from "./mesh";
 
+const TILE_SIZE = 256;
+const MAX_TILE_ZOOM = 19;
+
 export interface Tile {
   key: string;
   url: string;
@@ -13,21 +16,29 @@ export function mapTiles(bounds: Bounds, width: number, height: number): Tile[] 
   const longitudeSpan = bounds.maximumX - bounds.minimumX;
   const minimumLatitude = clampLatitude(bounds.minimumY);
   const maximumLatitude = clampLatitude(bounds.maximumY);
+  const mercatorSpan = tileY(minimumLatitude, 0) - tileY(maximumLatitude, 0);
   if (
     !Number.isFinite(longitudeSpan) ||
     longitudeSpan <= 0 ||
     longitudeSpan > 360 ||
-    maximumLatitude <= minimumLatitude
+    maximumLatitude <= minimumLatitude ||
+    !Number.isFinite(width) || width <= 0 ||
+    !Number.isFinite(height) || height <= 0 ||
+    mercatorSpan <= 0
   ) {
     return [];
   }
 
-  let zoom = Math.max(
-    0,
-    Math.min(12, Math.floor(Math.log2((Math.max(256, width) * 360) / (256 * longitudeSpan)))),
+  // Pick enough source pixels for both screen axes. Ceil avoids stretching a
+  // tile when the view falls between OSM zoom levels; the request cap below
+  // still backs off for a pathologically stretched viewport.
+  const scale = Math.max(
+    width / (TILE_SIZE * longitudeSpan / 360),
+    height / (TILE_SIZE * mercatorSpan),
   );
+  let zoom = Math.max(0, Math.min(MAX_TILE_ZOOM, Math.ceil(Math.log2(scale))));
   let range = tileRange(bounds, zoom);
-  while ((range.columns * range.rows > 36 || range.rows * 256 > height * 2.5) && zoom > 0) {
+  while ((range.columns * range.rows > 36 || range.rows * TILE_SIZE > height * 2.5) && zoom > 0) {
     zoom -= 1;
     range = tileRange(bounds, zoom);
   }

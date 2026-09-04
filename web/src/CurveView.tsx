@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type PointerEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type PointerEvent } from "react";
 
 import { fetchCoordinate, fetchSlice } from "./api";
 import { formatNumber } from "./color";
@@ -8,10 +8,11 @@ import {
   requestHostComparison,
   verticalDatum,
 } from "./comparison";
-import type { ComparisonSeries, DataSlice, Metadata, Probe, Variable } from "./model";
+import type { ColorRange } from "./color";
+import type { ColorScale, ComparisonSeries, DataSlice, Metadata, Probe, Variable } from "./model";
 import { attributeText, displayUnit, quantityLabel, variableLabel } from "./model";
 import { curveRequest } from "./selection";
-import { tickLadder } from "./ticks";
+import { logLadder, tickLadder } from "./ticks";
 import {
   describeTime,
   formatTimestamp,
@@ -44,6 +45,11 @@ const REFERENCE_DASH = "7 3";
 interface CurveViewProps {
   metadata: Metadata;
   variable: Variable;
+  /** The value axis, shared with the field view's colour controls. */
+  scale: ColorScale;
+  range: ColorRange;
+  rangeLocked: boolean;
+  subtitle: string;
   curveDimension: number;
   indices: Record<string, number>;
   average?: Probe["average"];
@@ -51,6 +57,15 @@ interface CurveViewProps {
   comparisonGeneration?: number;
   onFrameLoaded: () => void;
   onStatus: (status: string) => void;
+}
+
+interface CurveDrag {
+  startX: number;
+}
+
+interface CurveRange {
+  minimum: number;
+  maximum: number;
 }
 
 interface Hover {
@@ -78,10 +93,13 @@ export function CurveView(props: CurveViewProps) {
   const [hover, setHover] = useState<Hover>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
-  const [xOffsetMinutes, setXOffsetMinutes] = useState(0);
   const [yOffset, setYOffset] = useState(0);
   const [comparison, setComparison] = useState<ComparisonSeries>();
   const [comparisonError, setComparisonError] = useState<string>();
+  const [xRange, setXRange] = useState<CurveRange>();
+  const [dragEndX, setDragEndX] = useState<number>();
+  const drag = useRef<CurveDrag | undefined>(undefined);
+  const clipId = `curve-clip-${useId().replaceAll(":", "")}`;
   const requests = useMemo(
     () => !props.average?.indices.length ||
       props.variable.dimensions[props.curveDimension]?.path === props.average.dimension
@@ -123,6 +141,7 @@ export function CurveView(props: CurveViewProps) {
   }, [requests, props.onFrameLoaded, props.onStatus]);
 
   const dimension = props.variable.dimensions[props.curveDimension];
+  useEffect(() => setXRange(undefined), [dimension?.path]);
   const coordinate = props.metadata.variables.find(
     (variable) =>
       variable.path === dimension?.path &&
@@ -204,15 +223,7 @@ export function CurveView(props: CurveViewProps) {
     return () => { active = false; };
   }, [comparisonExtent, locationId, props.comparisonGeneration, quantity, units]);
 
-  const displayedX = useMemo(
-    () => time && xValues && xOffsetMinutes
-      ? Float64Array.from(
-          xValues,
-          (value) => value + xOffsetMinutes * 60_000 / time.multiplierMs,
-        )
-      : xValues,
-    [time, xValues, xOffsetMinutes],
-  );
+  const displayedX = xValues;
   const displayedValues = useMemo(
     () => time && yOffset && slice?.values instanceof Float32Array
       ? Float32Array.from(slice.values, (value) => value + yOffset)
@@ -242,6 +253,14 @@ export function CurveView(props: CurveViewProps) {
     [comparisonValues, comparisonX, displayedValues, displayedX],
   );
 
+  const geometryOptions = useMemo(
+    () => ({
+      log: props.scale === "log",
+      xRange,
+      yRange: props.rangeLocked ? props.range : undefined,
+    }),
+    [props.scale, props.rangeLocked, props.range, xRange],
+  );
   const geometry = useMemo(
     () => curveGeometry(
       displayedValues,
@@ -250,8 +269,9 @@ export function CurveView(props: CurveViewProps) {
       size.height,
       domain,
       plotType(frame.current),
+      geometryOptions,
     ),
-    [displayedValues, displayedX, domain, size],
+    [displayedValues, displayedX, domain, size, geometryOptions],
   );
   const comparisonGeometry = useMemo(
     () => curveGeometry(
@@ -261,17 +281,14 @@ export function CurveView(props: CurveViewProps) {
       size.height,
       domain,
       plotType(frame.current),
+      geometryOptions,
     ),
-    [comparisonValues, comparisonX, domain, size],
+    [comparisonValues, comparisonX, domain, size, geometryOptions],
   );
 
   const trackPointer = (event: PointerEvent<SVGSVGElement>) => {
     if (!geometry) return;
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const pointerX = Math.max(
-      geometry.plot.left,
-      Math.min(geometry.plot.left + geometry.plot.width, event.clientX - bounds.left),
-    );
+    const pointerX = curvePointerX(event, geometry);
     const fraction = (pointerX - geometry.plot.left) / geometry.plot.width;
     const targetX = geometry.xMinimum + fraction * (geometry.xMaximum - geometry.xMinimum);
     const index = nearestXIndex(geometry.xValues, targetX);
@@ -309,94 +326,165 @@ export function CurveView(props: CurveViewProps) {
     });
   };
 
+  const finishPointer = (event: PointerEvent<SVGSVGElement>) => {
+    const active = drag.current;
+    if (!active || !geometry) return;
+    const endX = curvePointerX(event, geometry);
+    drag.current = undefined;
+    setDragEndX(undefined);
+    const selected = curveSelectionRange(
+      active.startX,
+      endX,
+      geometry.plot.left,
+      geometry.plot.width,
+      geometry.xMinimum,
+      geometry.xMaximum,
+    );
+    if (selected) setXRange(selected);
+    else trackPointer(event);
+  };
+
+  const selection = drag.current && dragEndX !== undefined
+    ? {
+        left: Math.min(drag.current.startX, dragEndX),
+        width: Math.abs(dragEndX - drag.current.startX),
+      }
+    : undefined;
+
   return (
     <div className="single-curve">
-      {time && (
-        <div className="comparison-controls curve-offset-controls">
-          <div className="series-control">
-            <svg className="series-key" viewBox="0 0 18 4" aria-hidden="true">
-              <line x1="0" y1="2" x2="18" y2="2" style={{ stroke: MODEL_COLOR }} />
-            </svg>
-            <strong>{variableLabel(props.variable)}</strong>
-            <span>{modelDatum ?? "datum unspecified"}</span>
-            <label>X offset [min]
-              <input
-                type="number"
-                step="any"
-                value={xOffsetMinutes}
-                onChange={(event) => setXOffsetMinutes(finiteInput(event.currentTarget))}
-              />
-            </label>
-            <label>Y offset [{displayUnit(props.variable) || "1"}]
-              <input
-                type="number"
-                step="any"
-                value={yOffset}
-                onChange={(event) => setYOffset(finiteInput(event.currentTarget))}
-              />
-            </label>
-          </div>
-          {comparison && (
+      <header className="figure-head curve-head">
+        <h1>{variableLabel(props.variable)}</h1>
+        <span>{props.subtitle}</span>
+        {time && (
+          <div className="comparison-controls curve-offset-controls">
             <div className="series-control">
               <svg className="series-key" viewBox="0 0 18 4" aria-hidden="true">
-                <line x1="0" y1="2" x2="18" y2="2" style={{
-                  stroke: REFERENCE_COLOR,
-                  strokeDasharray: REFERENCE_DASH,
-              }} />
+                <line x1="0" y1="2" x2="18" y2="2" style={{ stroke: MODEL_COLOR }} />
               </svg>
-              <strong>{comparison.label}</strong>
-              {comparison.primary_y_offset === undefined ? (
-                <span>{comparison.vertical_datum ?? "datum unspecified"}</span>
-              ) : (
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={yOffset === comparison.primary_y_offset}
-                    onChange={(event) => setYOffset(
-                      event.currentTarget.checked ? comparison.primary_y_offset! : 0,
-                    )}
-                  />
-                  {comparison.vertical_datum}
-                </label>
-              )}
+              <strong>{variableLabel(props.variable)}</strong>
+              <span>{modelDatum ?? "datum unspecified"}</span>
+              <label>Y offset [{displayUnit(props.variable) || "1"}]
+                <input
+                  type="number"
+                  step="any"
+                  value={yOffset}
+                  onChange={(event) => setYOffset(finiteInput(event.currentTarget))}
+                />
+              </label>
             </div>
-          )}
-          <button
-            disabled={!xOffsetMinutes && !yOffset}
-            onClick={() => {
-              setXOffsetMinutes(0);
-              setYOffset(0);
-            }}
-          >
-            Reset offsets
-          </button>
-          {comparisonError && <span className="comparison-warning">{comparisonError}</span>}
-        </div>
-      )}
+            {comparison && (
+              <div className="series-control">
+                <svg className="series-key" viewBox="0 0 18 4" aria-hidden="true">
+                  <line x1="0" y1="2" x2="18" y2="2" style={{
+                    stroke: REFERENCE_COLOR,
+                    strokeDasharray: REFERENCE_DASH,
+                  }} />
+                </svg>
+                <strong>{comparison.label}</strong>
+                {comparison.primary_y_offset === undefined ? (
+                  <span>{comparison.vertical_datum ?? "datum unspecified"}</span>
+                ) : (
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={yOffset === comparison.primary_y_offset}
+                      onChange={(event) => setYOffset(
+                        event.currentTarget.checked ? comparison.primary_y_offset! : 0,
+                      )}
+                    />
+                    {comparison.vertical_datum}
+                  </label>
+                )}
+              </div>
+            )}
+            <button
+              aria-label="Reset Y offset"
+              title="Reset Y offset"
+              disabled={!yOffset}
+              onClick={() => setYOffset(0)}
+            >0</button>
+            {comparisonError && <span className="comparison-warning">{comparisonError}</span>}
+          </div>
+        )}
+        {xRange && <button className="curve-range-reset" onClick={() => setXRange(undefined)}>Reset X</button>}
+      </header>
       <div className="plot-frame curve-frame" ref={frame}>
       <svg
         className="curve-svg"
         width={size.width}
         height={size.height}
-        onPointerMove={trackPointer}
-        onPointerLeave={() => setHover(undefined)}
+        onDoubleClick={() => setXRange(undefined)}
+        onPointerDown={(event) => {
+          if (!geometry || event.button !== 0) return;
+          const bounds = event.currentTarget.getBoundingClientRect();
+          const localX = event.clientX - bounds.left;
+          const localY = event.clientY - bounds.top;
+          if (
+            localX < geometry.plot.left || localX > geometry.plot.left + geometry.plot.width ||
+            localY < geometry.plot.top || localY > geometry.plot.top + geometry.plot.height
+          ) return;
+          event.preventDefault();
+          drag.current = { startX: localX };
+          setDragEndX(undefined);
+          setHover(undefined);
+          if (event.pointerId) event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          if (drag.current && geometry) {
+            const endX = curvePointerX(event, geometry);
+            setDragEndX(Math.abs(endX - drag.current.startX) > 10 ? endX : undefined);
+          } else {
+            trackPointer(event);
+          }
+        }}
+        onPointerUp={finishPointer}
+        onPointerCancel={() => {
+          drag.current = undefined;
+          setDragEndX(undefined);
+        }}
+        onPointerLeave={() => !drag.current && setHover(undefined)}
         aria-label={`${variableLabel(props.variable)} curve along ${dimension?.name ?? "dimension"}`}
       >
         {geometry && (
           <>
+            <defs>
+              <clipPath id={clipId}>
+                <rect
+                  x={geometry.plot.left}
+                  y={geometry.plot.top}
+                  width={geometry.plot.width}
+                  height={geometry.plot.height}
+                />
+              </clipPath>
+            </defs>
             <CurveAxes
               geometry={geometry}
               dimension={dimension?.name ?? "index"}
               time={time}
-              timeNote={xOffsetMinutes ? "display offsets" : undefined}
               valueLabel={`${quantityLabel(props.variable)}${yOffset ? "; display offsets" : ""}`}
             />
-            <path className="curve-line total" style={{ stroke: MODEL_COLOR }} d={geometry.path} />
+            <path
+              className="curve-line total"
+              clipPath={`url(#${clipId})`}
+              style={{ stroke: MODEL_COLOR }}
+              d={geometry.path}
+            />
             {comparisonGeometry && (
               <path
                 className="curve-line comparison-line"
+                clipPath={`url(#${clipId})`}
                 style={{ stroke: REFERENCE_COLOR, strokeDasharray: REFERENCE_DASH }}
                 d={comparisonGeometry.path}
+              />
+            )}
+            {selection && (
+              <rect
+                className="zoom-box curve-zoom-box"
+                x={selection.left}
+                y={geometry.plot.top}
+                width={selection.width}
+                height={geometry.plot.height}
               />
             )}
             {hover && (
@@ -447,11 +535,53 @@ export function CurveView(props: CurveViewProps) {
   );
 }
 
+function curvePointerX(event: PointerEvent<SVGSVGElement>, geometry: CurveGeometry): number {
+  const bounds = event.currentTarget.getBoundingClientRect();
+  return Math.max(
+    geometry.plot.left,
+    Math.min(geometry.plot.left + geometry.plot.width, event.clientX - bounds.left),
+  );
+}
+
+function curveSelectionRange(
+  startX: number,
+  endX: number,
+  plotLeft: number,
+  plotWidth: number,
+  domainMinimum: number,
+  domainMaximum: number,
+): CurveRange | undefined {
+  // Highcharts Pointer.drag creates its selection marker only after 10 px. The
+  // threshold keeps a normal probe movement from becoming an accidental zoom.
+  if (Math.abs(endX - startX) <= 10 || plotWidth <= 0) return undefined;
+  const valueAt = (x: number) =>
+    domainMinimum + ((x - plotLeft) / plotWidth) * (domainMaximum - domainMinimum);
+  const start = valueAt(startX);
+  const end = valueAt(endX);
+  return { minimum: Math.min(start, end), maximum: Math.max(start, end) };
+}
+
 export interface CurveDomain {
   xMinimum: number;
   xMaximum: number;
   yMinimum: number;
   yMaximum: number;
+}
+
+/** Value to page, on a linear or a log y axis. Shared so the curve and the
+ *  ladder beside it cannot disagree about where a value sits. */
+export function curveYScale(
+  log: boolean,
+  minimum: number,
+  maximum: number,
+  top: number,
+  height: number,
+) {
+  const at = log ? Math.log10 : (value: number) => value;
+  const low = at(minimum);
+  const span = at(maximum) - low;
+  return (value: number) =>
+    top + (1 - (span === 0 ? 0.5 : (at(value) - low) / span)) * height;
 }
 
 export function curveGeometry(
@@ -461,6 +591,11 @@ export function curveGeometry(
   height: number,
   fixedDomain?: CurveDomain,
   type: PlotType = DEFAULT_TYPE,
+  {
+    log = false,
+    xRange,
+    yRange,
+  }: { log?: boolean; xRange?: CurveRange; yRange?: { minimum: number; maximum: number } } = {},
 ) {
   if (!values?.length) return undefined;
   const xValues = coordinate?.length === values.length
@@ -494,6 +629,23 @@ export function curveGeometry(
     xMaximum += 0.5;
   }
   if (fixedDomain) ({ xMinimum, xMaximum, yMinimum, yMaximum } = fixedDomain);
+  if (
+    xRange && Number.isFinite(xRange.minimum) && Number.isFinite(xRange.maximum) &&
+    xRange.minimum < xRange.maximum
+  ) {
+    xMinimum = xRange.minimum;
+    xMaximum = xRange.maximum;
+  }
+  // The reader's own limits win over both, because a locked range is the one
+  // thing on this axis that was asked for rather than measured.
+  if (yRange && yRange.minimum < yRange.maximum) {
+    yMinimum = yRange.minimum;
+    yMaximum = yRange.maximum;
+  }
+  // A log axis has no room for zero or a negative, so the floor climbs to the
+  // smallest decade the data still reaches rather than silently dropping the
+  // whole curve.
+  if (log && !(yMinimum > 0)) yMinimum = yMaximum > 0 ? yMaximum / 1000 : 1;
   const margin = curveMargin(type);
   const plot = {
     left: margin.left,
@@ -503,8 +655,7 @@ export function curveGeometry(
   };
   const xFor = (index: number) =>
     plot.left + ((xValues[index] - xMinimum) / (xMaximum - xMinimum)) * plot.width;
-  const yFor = (value: number) =>
-    plot.top + (1 - (value - yMinimum) / (yMaximum - yMinimum)) * plot.height;
+  const yFor = curveYScale(log, yMinimum, yMaximum, plot.top, plot.height);
   let path = "";
   let drawing = false;
   for (let index = 0; index < values.length; index += 1) {
@@ -523,6 +674,7 @@ export function curveGeometry(
     xMaximum,
     yMinimum,
     yMaximum,
+    log,
     plot,
     type,
     xFor,
@@ -594,13 +746,17 @@ export function CurveAxes({
     : [];
   const xAt = (value: number) =>
     plot.left + (xSpan === 0 ? 0.5 : (value - geometry.xMinimum) / xSpan) * plot.width;
-  const y = tickLadder(geometry.yMinimum, geometry.yMaximum, plot.height, type.tick, {
-    across: true,
-  });
+  const y = geometry.log
+    ? logLadder(geometry.yMinimum, geometry.yMaximum)
+    : tickLadder(geometry.yMinimum, geometry.yMaximum, plot.height, type.tick, { across: true });
   const tick = tickLength(type);
-  const ySpan = geometry.yMaximum - geometry.yMinimum;
-  const yAt = (value: number) =>
-    plot.top + (1 - (ySpan === 0 ? 0.5 : (value - geometry.yMinimum) / ySpan)) * plot.height;
+  const yAt = curveYScale(
+    geometry.log,
+    geometry.yMinimum,
+    geometry.yMaximum,
+    plot.top,
+    plot.height,
+  );
   const offset = axisOffsets(type, widestLabel(y.major, y.format), time ? 2 : 1);
   const minorTick = tickLength(type, true);
   return (

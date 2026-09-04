@@ -9,7 +9,7 @@
  * re-laid-out. The lettering fields override only the words, and accept the
  * LaTeX subset in `mathtext.ts`.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import {
   DPI_CHOICES,
@@ -30,6 +30,7 @@ export function SaveDialog({
   onError: (message: string) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const id = useId();
   const [options, setOptions] = useState<ExportOptions>(defaultExportOptions);
   const [busy, setBusy] = useState(false);
 
@@ -53,86 +54,106 @@ export function SaveDialog({
     }
   };
 
+  const field = (key: "title" | "subtitle" | "xTitle" | "yTitle", label: string, section = false) => (
+    <>
+      <label className={section ? "section" : undefined} htmlFor={`${id}-${key}`}>{label}</label>
+      <input
+        className={section ? "section" : undefined}
+        id={`${id}-${key}`}
+        value={options[key]}
+        onChange={(event) => set(key, event.target.value)}
+      />
+    </>
+  );
+
+  /** The lettering as the figure will letter it, in the figure's own face. */
+  const preview = (key: "xTitle" | "yTitle") => (
+    <p className="hint derived">
+      <span aria-hidden="true">→ </span>
+      <span className="preview">{mathToText(options[key]) || "…"}</span>
+    </p>
+  );
+
   return (
     <dialog className="save-dialog" ref={dialog} onClose={onClose}>
       <form method="dialog" onSubmit={(event) => event.preventDefault()}>
         <h2>Save figure</h2>
 
-        <fieldset>
-          <legend>Width</legend>
-          <div className="chip-row">
-            {WIDTHS_MM.map((millimetres) => (
-              <label key={millimetres} className="chip">
-                <input
-                  type="radio"
-                  name="width"
-                  checked={options.widthMm === millimetres}
-                  onChange={() => set("widthMm", millimetres)}
-                />
-                {millimetres} mm
-              </label>
-            ))}
-            <label className="chip custom">
+        <span className="row-label" id={`${id}-width`}>Width</span>
+        <div className="chip-row" role="group" aria-labelledby={`${id}-width`}>
+          <span className="toggle">
+          {WIDTHS_MM.map((millimetres) => (
+            <label key={millimetres} className="chip">
               <input
-                type="number"
-                min={20}
-                max={1000}
-                step={1}
-                value={options.widthMm}
-                aria-label="Custom width in millimetres"
-                onChange={(event) => {
-                  const value = Number(event.target.value);
-                  if (Number.isFinite(value) && value > 0) set("widthMm", value);
-                }}
+                type="radio"
+                name="width"
+                checked={options.widthMm === millimetres}
+                onChange={() => set("widthMm", millimetres)}
               />
-              mm
+              {millimetres} mm
             </label>
-          </div>
-        </fieldset>
+          ))}
+          </span>
+          {/* No fourth radio: the spinner and the presets set the same
+              number, so the spinner *is* the custom choice and shows pressed
+              whenever the width is not one of the three. */}
+          <span
+            className="chip custom"
+            data-on={!WIDTHS_MM.some((millimetres) => millimetres === options.widthMm)}
+          >
+            <input
+              type="number"
+              min={20}
+              max={1000}
+              step={1}
+              value={options.widthMm}
+              aria-label="Custom width in millimetres"
+              onChange={(event) => {
+                const value = Number(event.target.value);
+                if (Number.isFinite(value) && value > 0) set("widthMm", value);
+              }}
+            />
+            <span className="unit">mm</span>
+          </span>
+        </div>
 
-        <fieldset>
-          <legend>Resolution</legend>
-          <div className="chip-row">
-            {DPI_CHOICES.map((dpi) => (
-              <label key={dpi} className="chip">
-                <input
-                  type="radio"
-                  name="dpi"
-                  checked={options.dpi === dpi}
-                  onChange={() => set("dpi", dpi)}
-                />
-                {dpi} dpi
-              </label>
-            ))}
-          </div>
-          <p className="hint">
-            {Math.round((options.widthMm / 25.4) * options.dpi)} px wide
-          </p>
-        </fieldset>
+        <span className="row-label" id={`${id}-dpi`}>Resolution</span>
+        <div className="chip-row" role="group" aria-labelledby={`${id}-dpi`}>
+          <span className="toggle">
+          {DPI_CHOICES.map((dpi) => (
+            <label key={dpi} className="chip">
+              <input
+                type="radio"
+                name="dpi"
+                checked={options.dpi === dpi}
+                onChange={() => set("dpi", dpi)}
+              />
+              {dpi} dpi
+            </label>
+          ))}
+          </span>
+        </div>
 
-        <label className="field">
-          Title
-          <input value={options.title} onChange={(event) => set("title", event.target.value)} />
-        </label>
-        <label className="field">
-          Subtitle
+        <p className="hint derived">= {Math.round((options.widthMm / 25.4) * options.dpi)} px wide</p>
+
+        <span className="row-label section">Grid</span>
+        <label className="switch section">
           <input
-            value={options.subtitle}
-            onChange={(event) => set("subtitle", event.target.value)}
+            type="checkbox"
+            checked={options.grid}
+            onChange={(event) => set("grid", event.target.checked)}
           />
+          Show grid
         </label>
-        <label className="field">
-          X axis
-          <input value={options.xTitle} onChange={(event) => set("xTitle", event.target.value)} />
-        </label>
-        <label className="field">
-          Y axis
-          <input value={options.yTitle} onChange={(event) => set("yTitle", event.target.value)} />
-        </label>
-        <p className="hint">
-          {"Accepts ^{ } _{ } and \\alpha \\times \\degree — "}
-          <span className="preview">{mathToText(options.yTitle) || "…"}</span>
-        </p>
+
+        {field("title", "Title", true)}
+        {field("subtitle", "Subtitle")}
+        {field("xTitle", "X axis")}
+        {preview("xTitle")}
+        {field("yTitle", "Y axis")}
+        {preview("yTitle")}
+
+        <p className="hint syntax">{"Accepts LaTeX: ^{ } _{ } \\alpha \\times \\degree"}</p>
 
         <div className="dialog-actions">
           <button type="button" onClick={() => dialog.current?.close()}>

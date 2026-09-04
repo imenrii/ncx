@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  logLadder,
   axisTicks,
   blockGe,
   blockLe,
@@ -100,4 +101,11 @@ test("limitsOnTick grows a domain outward onto whole small ticks", () => {
   assert.deepEqual(limitsOnTick(0, 30, 1), [0, 30]);
   const [low, high] = limitsOnTick(-0.37, 0.94, 0.1);
   assert.ok(low <= -0.37 && high >= 0.94);
+});
+
+test("a log axis ladders on decades, not on even spacing", () => {
+  const ladder = logLadder(0.4, 300);
+  assert.deepEqual(ladder.major, [1, 10, 100]);
+  assert.deepEqual(ladder.minor, [0.5, 2, 5, 20, 50, 200]);
+  assert.deepEqual(logLadder(-1, 10).major, []);
 });

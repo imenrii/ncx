@@ -69,6 +69,15 @@ export const TICK_PAD = 0.38;
  */
 export const PITCH = { along: 6, across: 4.2, time: 2 };
 
+/**
+ * Gap from the tick label row to the axis title centre, in title heights.
+ *
+ * PAD alone (plus the half-height to reach the centre) reads as one block of
+ * text with the tick ladder rather than as the axis caption: a title carries a
+ * quantity and a unit, so it needs to separate from the numbers it labels.
+ */
+export const TITLE_PAD = PAD + 1;
+
 /** Tick length for a given type size. */
 export function tickLength(type: PlotType, minor = false): number {
   return type.tick * (minor ? TICK_MINOR : TICK_MAJOR);
@@ -132,9 +141,9 @@ export function axisOffsets(type: PlotType, yLabelChars = 0, xRows = 1) {
     /** Tick label baseline left of the frame; the text is end-anchored. */
     yLabel: tick + type.tick * TICK_PAD,
     /** Axis title centre, below the frame, clear of the label row. */
-    xTitle: tick + labelRow * xRows + type.axis * (PAD + 0.5),
+    xTitle: tick + labelRow * xRows + type.axis * TITLE_PAD,
     /** Axis title centre, left of the frame, clear of the label column. */
-    yTitle: tick + type.tick * TICK_PAD + column + type.axis * (PAD + 0.5),
+    yTitle: tick + type.tick * TICK_PAD + column + type.axis * TITLE_PAD,
   };
 }
 

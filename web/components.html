@@ -1,0 +1,314 @@
+<!doctype html>
+<!-- Component mockups, not shipped. Vite builds `index.html` only, and the
+     Rust binary embeds `dist/` -- this file is never in either.
+
+     Open it under `npm run dev` (http://localhost:5173/components.html) with
+     `ncx serve --port 8765` beside it, so `/fonts/` answers and the type is the
+     real type. Opened from the filesystem it falls back to the platform sans
+     and the letterforms are then not the thing being judged. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ncx component approaches</title>
+<style>
+@font-face { font-family: "Gorton Perfected"; src: url("/fonts/gorton-400.woff2") format("woff2"); font-weight: 400 }
+@font-face { font-family: "Gorton Perfected"; src: url("/fonts/gorton-600.woff2") format("woff2"); font-weight: 600 }
+@font-face { font-family: "Commit Mono"; src: url("/fonts/commit-400.woff2") format("woff2"); font-weight: 400 }
+@font-face { font-family: "Commit Mono"; src: url("/fonts/commit-700.woff2") format("woff2"); font-weight: 700 }
+
+:root {
+  color-scheme: light;
+  --paper: #fff;
+  --stock: #fffcf4;
+  --panel: #fbfaf7;
+  --ink: #101418;
+  --ink-medium: #4a5058;
+  --ink-quiet: #6e747d;
+  --ink-weak: #9aa0a8;
+  --line: #dcdfe3;
+  --amber: #f0b323;
+  --amber-pale: #fdf0d0;
+  --accent: #114160;
+  --ui: "Gorton Perfected", ui-sans-serif, system-ui, sans-serif;
+  --mono: "Commit Mono", ui-monospace, monospace;
+  --size-micro: 0.75rem;
+  --size-tick: 0.8125rem;
+  --size-body: 0.875rem;
+
+  /* The one effect this sheet is exploring. A 2px checkerboard at 6-10% ink:
+     it reads as a texture change, not a colour change, so it survives
+     greyscale, it never competes with plotted data, and it says "pressed"
+     without borrowing a hue the palette reserves for meaning. */
+  --dither: repeating-conic-gradient(rgb(16 20 24 / 7%) 0% 25%, transparent 0% 50%) 0 0 / 2px 2px;
+  --dither-strong: repeating-conic-gradient(rgb(16 20 24 / 14%) 0% 25%, transparent 0% 50%) 0 0 / 2px 2px;
+  --dither-line: repeating-linear-gradient(45deg, rgb(16 20 24 / 8%) 0 1px, transparent 1px 3px);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .approach * { transition: background-position 0s, background-color 80ms linear }
+}
+
+* { box-sizing: border-box }
+
+body {
+  margin: 0;
+  padding: 24px 32px 64px;
+  background: var(--stock);
+  color: var(--ink);
+  font-family: var(--ui);
+  font-size: var(--size-body);
+}
+
+h1 { margin: 0 0 4px; font-size: 1.25rem; letter-spacing: 0.02em }
+h2 {
+  margin: 40px 0 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--ink);
+  font-size: 0.875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+p.note { max-width: 68ch; margin: 4px 0 0; color: var(--ink-medium); font-size: var(--size-tick) }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-top: 16px }
+
+.approach { display: grid; align-content: start; gap: 10px; padding: 14px; border: 1px solid var(--line); background: var(--paper) }
+.approach > h3 { margin: 0; font-family: var(--mono); font-size: var(--size-micro); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-quiet) }
+.approach > .spec { margin: 0; font-family: var(--mono); font-size: var(--size-micro); line-height: 1.5; color: var(--ink-medium) }
+.stage { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px; background: var(--panel) }
+
+/* ---------------------------------------------------------------- buttons */
+
+/* A. Plain gridbox: one hairline box, square corners, no fill until touched. */
+.box-a { display: inline-flex; min-width: 28px; min-height: 28px; align-items: center; justify-content: center; padding: 0 10px; border: 1px solid var(--ink); background: var(--paper); color: var(--ink); font-family: var(--mono); font-size: var(--size-micro); font-weight: 400; letter-spacing: 0.04em }
+.box-a:hover { background: var(--dither), var(--paper) }
+.box-a:active, .box-a[aria-pressed="true"] { background: var(--dither-strong), var(--paper) }
+.box-a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px }
+
+/* B. Shared spine: buttons butt against each other and share one hairline, so
+      a control strip is one object rather than three loose boxes. */
+.rack { display: inline-flex; border: 1px solid var(--ink); background: var(--paper) }
+.rack > button { min-width: 28px; min-height: 28px; padding: 0 10px; border: 0; border-left: 1px solid var(--ink); background: transparent; color: var(--ink); font-family: var(--mono); font-size: var(--size-micro) }
+.rack > button:first-child { border-left: 0 }
+.rack > button:hover { background: var(--dither) }
+.rack > button:active, .rack > button[aria-pressed="true"] { background: var(--dither-strong) }
+.rack > button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
+
+/* C. Ledger rule: no box at all until hover; the control is named by its
+      baseline rule, the way a form field is. Lightest of the three. */
+.rule-c { min-height: 28px; padding: 0 8px; border: 0; border-bottom: 1px solid var(--ink-weak); background: transparent; color: var(--ink); font-family: var(--mono); font-size: var(--size-micro) }
+.rule-c:hover { border-bottom-color: var(--ink); background: var(--dither) }
+.rule-c:active, .rule-c[aria-pressed="true"] { background: var(--dither-strong) }
+.rule-c:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px }
+
+/* -------------------------------------------------------------- playback */
+
+.transport { display: inline-flex; border: 1px solid var(--ink) }
+.transport > button { display: grid; width: 30px; height: 28px; place-items: center; border: 0; border-left: 1px solid var(--ink); background: var(--paper); color: var(--ink) }
+.transport > button:first-child { border-left: 0 }
+.transport > button:hover { background: var(--dither), var(--paper) }
+.transport > button[aria-pressed="true"] { background: var(--dither-strong), var(--amber-pale) }
+.transport svg { display: block; fill: currentColor }
+
+/* Amber is the state colour here, dither is the touch response: the two do not
+   overlap, so "playing" is never confused with "under the pointer". */
+.transport.amber > button[aria-pressed="true"] { background: var(--amber) }
+
+/* -------------------------------------------------------------- timeline */
+
+.track-a { position: relative; width: 100%; height: 28px; border-bottom: 1px solid var(--ink) }
+.track-a::before { content: ""; position: absolute; inset: auto 0 0 0; height: 10px; background: var(--dither-line) }
+.track-a > .head { position: absolute; bottom: 0; left: 38%; width: 2px; height: 20px; background: var(--ink) }
+.track-a > .head::after { content: "12:40"; position: absolute; bottom: 100%; left: -1px; font-family: var(--mono); font-size: var(--size-micro); white-space: nowrap }
+.track-a > .tick { position: absolute; bottom: 0; width: 1px; height: 5px; background: var(--ink-weak) }
+
+.track-b { display: flex; width: 100%; height: 20px; border: 1px solid var(--ink) }
+.track-b > span { flex: 1 1 0; border-left: 1px solid var(--line) }
+.track-b > span:first-child { border-left: 0 }
+.track-b > span:hover { background: var(--dither) }
+.track-b > span.on { background: var(--dither-strong) }
+
+/* --------------------------------------------------------------- toggles */
+
+.switch-a { display: inline-flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: var(--size-micro) }
+.switch-a > i { display: grid; width: 16px; height: 16px; place-items: center; border: 1px solid var(--ink); font-style: normal; font-size: 11px; line-height: 1 }
+.switch-a[data-on="true"] > i { background: var(--dither-strong) }
+.switch-a[data-on="false"] > i::before { content: "" }
+.switch-a[data-on="true"] > i::before { content: "\00d7" }
+
+.switch-b { display: inline-flex; border: 1px solid var(--ink); font-family: var(--mono); font-size: var(--size-micro) }
+.switch-b > span { padding: 4px 10px; border-left: 1px solid var(--ink) }
+.switch-b > span:first-child { border-left: 0 }
+.switch-b > span[aria-selected="true"] { background: var(--dither-strong) }
+
+.switch-c { padding: 4px 10px; border: 1px solid var(--ink-weak); background: transparent; font-family: var(--mono); font-size: var(--size-micro); color: var(--ink-quiet) }
+.switch-c[data-on="true"] { border-color: var(--ink); color: var(--ink); background: var(--dither) }
+
+/* ---------------------------------------------------------- variable row */
+
+.list { display: grid; border-top: 1px solid var(--line) }
+.list > .row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; padding: 6px 10px; border-bottom: 1px solid var(--line) }
+.list > .row:hover { background: var(--dither) }
+.list > .row[aria-current="true"] { background: var(--dither-strong) }
+.list > .row > .name { font-family: var(--mono); font-size: var(--size-tick) }
+.list > .row > .shape { grid-column: 2; align-self: center; font-family: var(--mono); font-size: var(--size-micro); color: var(--ink-quiet) }
+.list > .row > .meta { grid-column: 1 / -1; font-family: var(--mono); font-size: var(--size-micro); color: var(--ink-quiet) }
+
+/* Marker variant: the current row is called out by a solid left bar instead of
+   a fill, so the dither stays free to mean "under the pointer" only. */
+.list.marker > .row { border-left: 3px solid transparent }
+.list.marker > .row[aria-current="true"] { border-left-color: var(--ink); background: transparent }
+</style>
+</head>
+<body>
+
+<h1>ncx component approaches</h1>
+<p class="note">
+  Brutalist reading: plain grid boxes, hairline rules, square corners, no
+  shadow and no radius. State is carried by texture — a 2&nbsp;px checkerboard
+  at 7&nbsp;% ink for hover and 14&nbsp;% for pressed — so every state survives
+  greyscale and colour stays reserved for data. Type is Commit Mono inside
+  controls (it lines up in a column and it never re-flows when a value
+  changes) and Gorton Perfected for prose around them.
+</p>
+
+<h2>View controls</h2>
+<div class="grid">
+  <div class="approach">
+    <h3>A — loose gridboxes</h3>
+    <div class="stage">
+      <button class="box-a">+</button>
+      <button class="box-a">−</button>
+      <button class="box-a">Reset</button>
+    </div>
+    <p class="spec">Commit Mono 12px / +0.04em · box 28px, pad 0 10px, gap 8px<br>hover dither 7% · active dither 14% · focus 2px accent</p>
+  </div>
+  <div class="approach">
+    <h3>B — shared spine (recommended)</h3>
+    <div class="stage">
+      <span class="rack"><button>+</button><button>−</button><button>Reset</button></span>
+    </div>
+    <p class="spec">One outer hairline, 1px dividers · reads as one instrument<br>focus inset so the outline never breaks the spine</p>
+  </div>
+  <div class="approach">
+    <h3>C — ledger rule</h3>
+    <div class="stage">
+      <button class="rule-c">+</button>
+      <button class="rule-c">−</button>
+      <button class="rule-c">Reset</button>
+    </div>
+    <p class="spec">No box until hover · lightest over a plot<br>weakest affordance: only use where the target is obvious</p>
+  </div>
+</div>
+
+<h2>Playback</h2>
+<div class="grid">
+  <div class="approach">
+    <h3>A — dither state</h3>
+    <div class="stage">
+      <span class="transport">
+        <button aria-label="First"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 1h1.5v8H2zM9 1v8L4 5z"/></svg></button>
+        <button aria-label="Back"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M9 1v8L2 5z"/></svg></button>
+        <button aria-label="Stop" aria-pressed="true"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 2h6v6H2z"/></svg></button>
+        <button aria-label="Play"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 1v8l7-4z"/></svg></button>
+        <button aria-label="Last"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M8 1h-1.5v8H8zM1 1v8l5-4z"/></svg></button>
+      </span>
+    </div>
+    <p class="spec">Glyphs on a 10px grid, currentColor · 30×28 cells<br>state = 14% dither, hover = 7% · no hue at all</p>
+  </div>
+  <div class="approach">
+    <h3>B — amber state, dither touch</h3>
+    <div class="stage">
+      <span class="transport amber">
+        <button aria-label="First"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 1h1.5v8H2zM9 1v8L4 5z"/></svg></button>
+        <button aria-label="Back"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M9 1v8L2 5z"/></svg></button>
+        <button aria-label="Stop" aria-pressed="true"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 2h6v6H2z"/></svg></button>
+        <button aria-label="Play"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 1v8l7-4z"/></svg></button>
+        <button aria-label="Last"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M8 1h-1.5v8H8zM1 1v8l5-4z"/></svg></button>
+      </span>
+    </div>
+    <p class="spec">Amber = signage standard: an identity, never a magnitude<br>state and pointer response never share a channel</p>
+  </div>
+</div>
+
+<h2>Timeline</h2>
+<div class="grid">
+  <div class="approach">
+    <h3>A — ruled track</h3>
+    <div class="stage" style="display:block">
+      <div class="track-a">
+        <span class="tick" style="left:0"></span><span class="tick" style="left:25%"></span>
+        <span class="tick" style="left:50%"></span><span class="tick" style="left:75%"></span>
+        <span class="tick" style="left:100%"></span>
+        <span class="head"></span>
+      </div>
+    </div>
+    <p class="spec">Axis, not a slider: baseline rule + 5px ticks + 2px head<br>value set in Commit Mono above the head, never centred in a bubble</p>
+  </div>
+  <div class="approach">
+    <h3>B — sample cells</h3>
+    <div class="stage" style="display:block">
+      <div class="track-b">
+        <span></span><span></span><span></span><span class="on"></span><span></span>
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+    </div>
+    <p class="spec">One cell per step · honest when steps are few<br>hover 7%, current 14% · degrades badly past ~60 steps</p>
+  </div>
+</div>
+
+<h2>Toggles</h2>
+<div class="grid">
+  <div class="approach">
+    <h3>A — box and cross</h3>
+    <div class="stage">
+      <span class="switch-a" data-on="true"><i></i>Show grid</span>
+      <span class="switch-a" data-on="false"><i></i>Coastline</span>
+    </div>
+    <p class="spec">16px box, hairline, cross when on · label right, 8px gap<br>never a sliding pill: it implies motion this interface has none of</p>
+  </div>
+  <div class="approach">
+    <h3>B — two-state segment</h3>
+    <div class="stage">
+      <span class="switch-b"><span aria-selected="true">on</span><span aria-selected="false">off</span></span>
+    </div>
+    <p class="spec">Both states always readable · costs twice the width<br>use where the off state needs naming (index vs coordinate)</p>
+  </div>
+  <div class="approach">
+    <h3>C — pressed word</h3>
+    <div class="stage">
+      <button class="switch-c" data-on="true">grid</button>
+      <button class="switch-c" data-on="false">coast</button>
+    </div>
+    <p class="spec">Cheapest in a crowded strip · off is quiet, on is ink + dither<br>needs aria-pressed; texture alone is not the state for a screen reader</p>
+  </div>
+</div>
+
+<h2>Variable row</h2>
+<div class="grid">
+  <div class="approach">
+    <h3>A — dither selection</h3>
+    <div class="stage" style="display:block;padding:0">
+      <div class="list">
+        <div class="row" aria-current="true"><span class="name">temperature</span><span class="shape">4×6×8</span><span class="meta">i16 · K · potential temperature</span></div>
+        <div class="row"><span class="name">reference_pressure</span><span class="shape">scalar</span><span class="meta">f32 · Pa</span></div>
+        <div class="row"><span class="name">mesh2d_face_nodes</span><span class="shape">1024×3</span><span class="meta">i32 · connectivity</span></div>
+      </div>
+    </div>
+    <p class="spec">Name Commit Mono 13px, shape and meta 12px quiet<br>shape right-aligned on its own column so the eye scans one edge</p>
+  </div>
+  <div class="approach">
+    <h3>B — left marker</h3>
+    <div class="stage" style="display:block;padding:0">
+      <div class="list marker">
+        <div class="row" aria-current="true"><span class="name">temperature</span><span class="shape">4×6×8</span><span class="meta">i16 · K · potential temperature</span></div>
+        <div class="row"><span class="name">reference_pressure</span><span class="shape">scalar</span><span class="meta">f32 · Pa</span></div>
+        <div class="row"><span class="name">mesh2d_face_nodes</span><span class="shape">1024×3</span><span class="meta">i32 · connectivity</span></div>
+      </div>
+    </div>
+    <p class="spec">3px ink bar marks the current row · fill left free for hover<br>the only variant where hover and selection can be seen at once</p>
+  </div>
+</div>
+
+</body>
+</html>

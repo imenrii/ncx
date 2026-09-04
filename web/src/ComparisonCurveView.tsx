@@ -28,7 +28,6 @@ interface Series {
 }
 
 interface Offset {
-  xMinutes: number;
   y: number;
 }
 
@@ -124,12 +123,9 @@ export function ComparisonCurveView({
     dash: SERIES_DASHES[index],
   })), [currentSeries]);
   const adjusted = useMemo(() => styled.map((item) => {
-    const offset = offsets[item.id] ?? { xMinutes: 0, y: 0 };
+    const offset = offsets[item.id] ?? { y: 0 };
     return {
       ...item,
-      x: item.absoluteTime
-        ? Float64Array.from(item.x, (value) => value + offset.xMinutes * 60_000)
-        : item.x,
       y: Float32Array.from(item.y, (value) => value + offset.y),
       offset,
     };
@@ -142,9 +138,6 @@ export function ComparisonCurveView({
   const time: TimeDescription | undefined = adjusted[0]?.absoluteTime
     ? timeInZone({ multiplierMs: 1, originMs: 0, offsetMinutes: 0, zoneLabel: "UTC" }, timeZone)
     : undefined;
-  const hasXOffset = styled.some(
-    (item) => item.absoluteTime && (offsets[item.id]?.xMinutes ?? 0) !== 0,
-  );
   const hasYOffset = Object.values(offsets).some((offset) => offset.y !== 0);
 
   return (
@@ -155,7 +148,7 @@ export function ComparisonCurveView({
       </header>
       <div className="comparison-controls">
         {styled.map((item) => {
-          const offset = offsets[item.id] ?? { xMinutes: 0, y: 0 };
+          const offset = offsets[item.id] ?? { y: 0 };
           return (
             <div className="series-control" key={item.id}>
               <svg className="series-key" viewBox="0 0 18 4" aria-hidden="true">
@@ -166,13 +159,6 @@ export function ComparisonCurveView({
               </svg>
               <strong>{item.label}</strong>
               <span>{displayUnit(item.variable)} {item.datum ?? "datum unspecified"} · {item.quantity ?? item.basis}{item.locationId ? ` · ${item.locationId}` : ""}</span>
-              {item.absoluteTime && (
-                <label>X offset [min]
-                  <input type="number" step="any" value={offset.xMinutes} onChange={(event) =>
-                    setOffsets((current) => ({ ...current, [item.id]: { ...offset, xMinutes: finiteInput(event.currentTarget) } }))
-                  } />
-                </label>
-              )}
               <label>Y offset [{displayUnit(item.variable) || "1"}]
                 <input type="number" step="any" value={offset.y} onChange={(event) =>
                   setOffsets((current) => ({ ...current, [item.id]: { ...offset, y: finiteInput(event.currentTarget) } }))
@@ -191,7 +177,6 @@ export function ComparisonCurveView({
               geometry={geometries[0].geometry}
               dimension={time ? "time" : geometries[0].item.xUnit || "index"}
               time={time}
-              timeNote={hasXOffset ? "display offsets" : undefined}
               valueLabel={`${quantityLabel(variable)}${hasYOffset ? "; display offsets" : ""}`}
             />
           )}
