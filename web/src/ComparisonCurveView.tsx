@@ -158,7 +158,7 @@ export function ComparisonCurveView({
                 }} />
               </svg>
               <strong>{item.label}</strong>
-              <span>{displayUnit(item.variable)} {item.datum ?? "datum unspecified"} · {item.quantity ?? item.basis}{item.locationId ? ` · ${item.locationId}` : ""}</span>
+              <span>{displayUnit(item.variable)} · {item.quantity ?? item.basis}{item.locationId ? ` · ${item.locationId}` : ""}</span>
               <label>Y offset [{displayUnit(item.variable) || "1"}]
                 <input type="number" step="any" value={offset.y} onChange={(event) =>
                   setOffsets((current) => ({ ...current, [item.id]: { ...offset, y: finiteInput(event.currentTarget) } }))
