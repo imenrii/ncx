@@ -1,6 +1,7 @@
 mod cf;
 mod cli;
 mod dataset;
+mod hub;
 mod server;
 
 pub type NcxResult<T> = Result<T, String>;

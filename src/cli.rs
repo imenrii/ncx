@@ -14,6 +14,7 @@ use tokio::time::{Instant, sleep, timeout};
 
 use crate::NcxResult;
 use crate::dataset::Dataset;
+use crate::hub::{self, HubConfig};
 use crate::server::{self, Limits};
 
 const USAGE: &str = "\
@@ -24,14 +25,21 @@ Usage:
   ncx open [OPTIONS] SSH_DESTINATION:/absolute/path
   ncx serve [OPTIONS] FILE_OR_DIRECTORY
   ncx serve [OPTIONS] --dataset ID=FILE [--dataset ID=FILE ...]
+  ncx hub [OPTIONS] --local-root DIRECTORY [--local-root DIRECTORY ...]
 
 Options:
-  --port PORT                 Loopback port for `serve` (default: 0)
-  --max-response-bytes BYTES  Maximum binary response (default: 67108864)
-  --ugrid-warn-faces FACES    UGRID confirmation threshold (default: 2000000)
-  --dataset ID=FILE           Add one named read-only dataset to `serve`
-  --exit-on-stdin-eof         Stop `serve` when its owner pipe closes
-  -h, --help                  Show this help
+  --port PORT                       Loopback port for `serve` (default: 0)
+  --listen ADDRESS                  IPv4 hub listener (default: 127.0.0.1:8765)
+  --base-path PATH                  Hub URL path (default: /ncx)
+  --local-root DIRECTORY            Allow hub files below this directory
+  --session-limit COUNT             Hub sessions, including starts (default: 10)
+  --startup-timeout-seconds SECONDS Child startup timeout (default: 30)
+  --session-ttl-seconds SECONDS     Hub idle timeout (default: 90)
+  --max-response-bytes BYTES        Maximum binary response (default: 67108864)
+  --ugrid-warn-faces FACES          UGRID confirmation threshold (default: 2000000)
+  --dataset ID=FILE                 Add one named read-only dataset to `serve`
+  --exit-on-stdin-eof               Stop `serve` when its owner pipe closes
+  -h, --help                        Show this help
 ";
 
 enum ParsedCommand {
@@ -45,6 +53,10 @@ enum ParsedCommand {
         port: u16,
         limits: Limits,
         exit_on_stdin_eof: bool,
+    },
+    Hub {
+        listen: SocketAddrV4,
+        config: HubConfig,
     },
 }
 
@@ -81,6 +93,7 @@ pub async fn run() -> NcxResult<()> {
             limits,
             exit_on_stdin_eof,
         } => serve_local(sources, port, limits, false, exit_on_stdin_eof).await,
+        ParsedCommand::Hub { listen, config } => serve_hub(listen, config.validate()?).await,
         ParsedCommand::Open { target, limits } => match classify_target(&target)? {
             OpenTarget::Local(path) => {
                 serve_local(single_source(path), 0, limits, true, false).await
@@ -99,12 +112,18 @@ fn parse_arguments(arguments: Vec<String>) -> NcxResult<ParsedCommand> {
     if matches!(command, "-h" | "--help") {
         return Ok(ParsedCommand::Help);
     }
-    if command != "open" && command != "serve" {
+    if !matches!(command, "open" | "serve" | "hub") {
         return Err(format!("unknown command {command:?}\n\n{USAGE}"));
     }
 
     let mut limits = Limits::default();
     let mut port = 0;
+    let mut listen = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 8765);
+    let mut base_path = "/ncx".to_owned();
+    let mut local_roots = Vec::new();
+    let mut session_limit = 10_usize;
+    let mut startup_timeout = Duration::from_secs(30);
+    let mut idle_ttl = Duration::from_secs(90);
     let mut exit_on_stdin_eof = false;
     let mut sources = Vec::new();
     let mut target = None;
@@ -117,6 +136,54 @@ fn parse_arguments(arguments: Vec<String>) -> NcxResult<ParsedCommand> {
                     return Err("--port is only valid with `ncx serve`".to_owned());
                 }
                 port = parse_value(&arguments, &mut index, "--port")?;
+            }
+            "--listen" => {
+                if command != "hub" {
+                    return Err("--listen is only valid with `ncx hub`".to_owned());
+                }
+                listen = parse_value(&arguments, &mut index, "--listen")?;
+            }
+            "--base-path" => {
+                if command != "hub" {
+                    return Err("--base-path is only valid with `ncx hub`".to_owned());
+                }
+                base_path = parse_value(&arguments, &mut index, "--base-path")?;
+            }
+            "--local-root" => {
+                if command != "hub" {
+                    return Err("--local-root is only valid with `ncx hub`".to_owned());
+                }
+                local_roots.push(PathBuf::from(parse_value::<String>(
+                    &arguments,
+                    &mut index,
+                    "--local-root",
+                )?));
+            }
+            "--session-limit" => {
+                if command != "hub" {
+                    return Err("--session-limit is only valid with `ncx hub`".to_owned());
+                }
+                session_limit = parse_value(&arguments, &mut index, "--session-limit")?;
+            }
+            "--startup-timeout-seconds" => {
+                if command != "hub" {
+                    return Err("--startup-timeout-seconds is only valid with `ncx hub`".to_owned());
+                }
+                startup_timeout = Duration::from_secs(parse_positive(
+                    &arguments,
+                    &mut index,
+                    "--startup-timeout-seconds",
+                )?);
+            }
+            "--session-ttl-seconds" => {
+                if command != "hub" {
+                    return Err("--session-ttl-seconds is only valid with `ncx hub`".to_owned());
+                }
+                idle_ttl = Duration::from_secs(parse_positive(
+                    &arguments,
+                    &mut index,
+                    "--session-ttl-seconds",
+                )?);
             }
             "--max-response-bytes" => {
                 limits.max_response_bytes =
@@ -157,6 +224,9 @@ fn parse_arguments(arguments: Vec<String>) -> NcxResult<ParsedCommand> {
                 return Err(format!("unknown option {option:?}"));
             }
             value => {
+                if command == "hub" {
+                    return Err(format!("unexpected hub argument {value:?}"));
+                }
                 if target.replace(value.to_owned()).is_some() {
                     return Err("expected exactly one NetCDF file".to_owned());
                 }
@@ -171,6 +241,18 @@ fn parse_arguments(arguments: Vec<String>) -> NcxResult<ParsedCommand> {
         }
         let target = target.ok_or_else(|| "missing NetCDF file".to_owned())?;
         Ok(ParsedCommand::Open { target, limits })
+    } else if command == "hub" {
+        Ok(ParsedCommand::Hub {
+            listen,
+            config: HubConfig {
+                base_path,
+                local_roots,
+                session_limit,
+                startup_timeout,
+                idle_ttl,
+                limits,
+            },
+        })
     } else {
         if !sources.is_empty() && target.is_some() {
             return Err("use either FILE or --dataset, not both".to_owned());
@@ -381,15 +463,27 @@ async fn serve_local(
     .await
 }
 
+async fn serve_hub(listen: SocketAddrV4, config: HubConfig) -> NcxResult<()> {
+    let listener = TcpListener::bind(listen)
+        .await
+        .map_err(|error| format!("cannot bind {listen}: {error}"))?;
+    let address = listener
+        .local_addr()
+        .map_err(|error| format!("cannot inspect the hub listener: {error}"))?;
+    println!("NCX_READY={}{}/", address, config.base_path);
+    println!("http://{}{}/", address, config.base_path);
+    hub::serve(listener, config, shutdown(false)).await
+}
+
 async fn shutdown(exit_on_stdin_eof: bool) {
     if !exit_on_stdin_eof {
-        let _ = signal::ctrl_c().await;
+        termination_signal().await;
         return;
     }
     let mut input = tokio::io::stdin();
     let mut byte = [0_u8; 1];
     tokio::select! {
-        _ = signal::ctrl_c() => {}
+        _ = termination_signal() => {}
         _ = async {
             loop {
                 match input.read(&mut byte).await {
@@ -398,6 +492,22 @@ async fn shutdown(exit_on_stdin_eof: bool) {
                 }
             }
         } => {}
+    }
+}
+
+async fn termination_signal() {
+    #[cfg(unix)]
+    {
+        let mut terminate = signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("SIGTERM is available on Unix");
+        tokio::select! {
+            _ = signal::ctrl_c() => {}
+            _ = terminate.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = signal::ctrl_c().await;
     }
 }
 
@@ -607,6 +717,36 @@ mod tests {
         assert_eq!(destination, "cluster");
         assert_eq!(path, "/data/a file's.nc");
         assert_eq!(shell_quote(&path), "'/data/a file'\"'\"'s.nc'");
+    }
+
+    #[test]
+    fn parses_hub_listener_roots_and_lifecycle_limits() {
+        let command = parse_arguments(vec![
+            "hub".into(),
+            "--listen".into(),
+            "0.0.0.0:8765".into(),
+            "--base-path".into(),
+            "/ncx".into(),
+            "--local-root".into(),
+            "/data".into(),
+            "--session-limit".into(),
+            "10".into(),
+            "--startup-timeout-seconds".into(),
+            "5".into(),
+            "--session-ttl-seconds".into(),
+            "90".into(),
+        ])
+        .unwrap();
+
+        let ParsedCommand::Hub { listen, config } = command else {
+            panic!("expected hub");
+        };
+        assert_eq!(listen, "0.0.0.0:8765".parse().unwrap());
+        assert_eq!(config.base_path, "/ncx");
+        assert_eq!(config.local_roots, [PathBuf::from("/data")]);
+        assert_eq!(config.session_limit, 10);
+        assert_eq!(config.startup_timeout, Duration::from_secs(5));
+        assert_eq!(config.idle_ttl, Duration::from_secs(90));
     }
 
     #[test]

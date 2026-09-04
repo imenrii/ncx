@@ -23,6 +23,9 @@ ncx serve --port 8765 run.nc
 
 # Compare multiple simulation runs side-by-side
 ncx serve --dataset baseline=run_a.nc --dataset test=run_b.nc
+
+# Run the persistent hub behind a host web server at /ncx/
+ncx hub --listen 0.0.0.0:8765 --base-path /ncx --local-root /data
 ```
 
 When pointing to a directory, `ncx` discovers and sorts all direct regular
@@ -32,6 +35,13 @@ the list and is marked as unavailable. Do not change collection files while one
 `ncx` session is running; file changes during a session are not supported.
 Remote files opened via `host:/path` automatically configure an SSH local port
 forward.
+
+`ncx hub` owns bounded, idle-expiring viewer sessions. The hub can listen on a
+configured IPv4 container interface, but every child viewer remains on IPv4
+loopback. Local session paths must be absolute and must resolve below a
+configured `--local-root`. The hub streams only the existing viewer GET routes;
+it does not expose a general HTTP proxy. Remote hub targets are added in the
+hosting deployment phase.
 
 Binary responses have a 64 MiB default limit. Use `--max-response-bytes` to
 change this limit. Display fields use little-endian `f32`, coordinates and time

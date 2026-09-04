@@ -363,9 +363,20 @@ where
         .route("/meta", get(metadata))
         .route("/data", get(data))
         .fallback(api_not_found);
-    let app = Router::new()
+    let app = viewer_routes().nest("/api", api).with_state(state);
+
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown)
+        .await
+        .map_err(|error| format!("HTTP server failed: {error}"))
+}
+
+pub(crate) fn viewer_routes<S>() -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    Router::new()
         .route("/", get(index))
-        .nest("/api", api)
         .route("/assets/app.js", get(app_javascript))
         .route("/assets/app.css", get(app_css))
         .route("/fonts/gorton-400.woff2", get(font_ui_regular))
@@ -378,12 +389,6 @@ where
         .route("/fonts/hershey-heavy.woff2", get(font_plot_heavy))
         .route("/fonts/nationalpark.woff2", get(font_plot_fallback))
         .fallback(index)
-        .with_state(state);
-
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown)
-        .await
-        .map_err(|error| format!("HTTP server failed: {error}"))
 }
 
 async fn index() -> Response {
