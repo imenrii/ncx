@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
-use tokio::time::{Instant, sleep, timeout, timeout_at};
+use tokio::time::{Instant, sleep, sleep_until, timeout, timeout_at};
 
 use crate::NcxResult;
 use crate::dataset::Dataset;
@@ -394,17 +394,30 @@ struct ProcessLauncher {
 const LOCAL_DATASET_FD: libc::c_int = 100;
 
 #[cfg(target_os = "linux")]
+fn inherit_local_dataset_fd(source_fd: libc::c_int, target_fd: libc::c_int) -> std::io::Result<()> {
+    if source_fd != target_fd {
+        if unsafe { libc::dup2(source_fd, target_fd) } == -1 {
+            return Err(std::io::Error::last_os_error());
+        }
+        return Ok(());
+    }
+
+    let flags = unsafe { libc::fcntl(source_fd, libc::F_GETFD) };
+    if flags == -1
+        || unsafe { libc::fcntl(source_fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) } == -1
+    {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
 fn configure_local_dataset(command: &mut Command, target: &LocalTarget) {
     let source_fd = target.file.as_raw_fd();
     // The child opens this duplicate after exec, so a later pathname replacement
     // cannot change the already-authorized file.
     unsafe {
-        command.pre_exec(move || {
-            if libc::dup2(source_fd, LOCAL_DATASET_FD) == -1 {
-                return Err(std::io::Error::last_os_error());
-            }
-            Ok(())
-        });
+        command.pre_exec(move || inherit_local_dataset_fd(source_fd, LOCAL_DATASET_FD));
     }
     command
         .arg("--")
@@ -735,6 +748,13 @@ fn candidate_loopback_port() -> Result<u16, HubError> {
         })
 }
 
+fn next_server_probe(now: Instant, deadline: Instant) -> Result<Instant, HubError> {
+    if now >= deadline {
+        return Err(session_start_timeout());
+    }
+    Ok(std::cmp::min(now + Duration::from_millis(100), deadline))
+}
+
 async fn wait_for_server(child: &mut Child, port: u16, deadline: Instant) -> Result<(), HubError> {
     loop {
         if let Some(status) = child.try_wait().map_err(|error| HubError {
@@ -748,16 +768,14 @@ async fn wait_for_server(child: &mut Child, port: u16, deadline: Instant) -> Res
                 message: format!("ncx serve exited before it was ready ({status})"),
             });
         }
-        if Instant::now() >= deadline {
-            return Err(session_start_timeout());
-        }
+        let retry_at = next_server_probe(Instant::now(), deadline)?;
         if timeout_at(deadline, server_is_ready(port))
             .await
             .unwrap_or(false)
         {
             return Ok(());
         }
-        sleep(Duration::from_millis(100)).await;
+        sleep_until(retry_at).await;
     }
 }
 
@@ -1294,6 +1312,22 @@ mod tests {
         assert_eq!(manager.upstream(&id).await.unwrap_err().status, 404);
     }
 
+    #[test]
+    fn server_probe_delay_is_capped_by_the_startup_deadline() {
+        let now = Instant::now();
+        assert_eq!(
+            next_server_probe(now, now + Duration::from_millis(250)).unwrap(),
+            now + Duration::from_millis(100)
+        );
+        assert_eq!(
+            next_server_probe(now, now + Duration::from_millis(25)).unwrap(),
+            now + Duration::from_millis(25)
+        );
+        let error = next_server_probe(now, now).unwrap_err();
+        assert_eq!(error.status, 504);
+        assert_eq!(error.code, "session_start_timeout");
+    }
+
     #[tokio::test]
     async fn startup_deadline_releases_the_starting_session_slot() {
         let release = Arc::new(Notify::new());
@@ -1662,6 +1696,29 @@ mod tests {
             Dataset::open(&capability).unwrap().metadata().dataset.name,
             "classic.nc"
         );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn equal_local_dataset_fd_clears_close_on_exec() {
+        let file = File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/classic.nc"))
+            .unwrap();
+        let fd = file.as_raw_fd();
+        let original = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+        assert_ne!(original, -1);
+        let with_close_on_exec = original | libc::FD_CLOEXEC;
+        assert_ne!(
+            unsafe { libc::fcntl(fd, libc::F_SETFD, with_close_on_exec) },
+            -1
+        );
+
+        inherit_local_dataset_fd(fd, fd).unwrap();
+
+        assert_eq!(
+            unsafe { libc::fcntl(fd, libc::F_GETFD) },
+            with_close_on_exec & !libc::FD_CLOEXEC
+        );
+        assert_ne!(unsafe { libc::fcntl(fd, libc::F_SETFD, original) }, -1);
     }
 
     #[cfg(target_os = "linux")]
