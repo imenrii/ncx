@@ -4,10 +4,9 @@
  * Native `<dialog>`: it brings the modal backdrop, focus trap, Escape-to-close
  * and `aria-modal` with it, so none of that is written here.
  *
- * The export is a faithful scaled copy of the panel on screen -- the width and
- * resolution below decide the physical size of that copy, and nothing is
- * re-laid-out. The lettering fields override only the words, and accept the
- * LaTeX subset in `mathtext.ts`.
+ * The export keeps the on-screen coordinate range and pane layout. Field data
+ * is rendered again at the selected width and resolution. The lettering fields
+ * override only the words and accept the LaTeX subset in `mathtext.ts`.
  */
 import { useEffect, useId, useRef, useState } from "react";
 

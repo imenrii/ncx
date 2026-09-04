@@ -5,6 +5,7 @@ import {
   type ColorRange,
 } from "./color";
 import type { ColorScale } from "./model";
+import { canvasPng, validateCanvasSize } from "./capture";
 import type { Bounds, MeshGeometry } from "./mesh";
 import { PERFORMANCE_MEASURE, measurePerformance } from "./performance";
 
@@ -77,6 +78,13 @@ export interface MeshDrawSettings {
 /** The small WebGL2 surface used by curvilinear and UGRID fields. */
 export interface MeshSurface {
   draw(geometry: MeshGeometry, sourceValues: Float32Array, settings: MeshDrawSettings): void;
+  capture(
+    geometry: MeshGeometry,
+    sourceValues: Float32Array,
+    settings: MeshDrawSettings,
+    width: number,
+    height: number,
+  ): Promise<Blob>;
   destroy(): void;
 }
 
@@ -100,14 +108,10 @@ class MeshRenderer implements MeshSurface {
   private uploadedColormap: ColormapChoice | undefined;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
-    // `preserveDrawingBuffer` so the mesh can be read back after it is drawn.
-    // Without it the compositor is free to clear the buffer as soon as it has
-    // presented the frame, and `toDataURL` for the PNG export returns a blank
-    // rectangle -- which is exactly what it did.
     const gl = canvas.getContext("webgl2", {
       alpha: false,
       antialias: true,
-      preserveDrawingBuffer: true,
+      preserveDrawingBuffer: false,
     });
     if (!gl) throw new Error("This browser does not provide WebGL2");
     this.gl = gl;
@@ -132,10 +136,24 @@ class MeshRenderer implements MeshSurface {
   }
 
   draw(geometry: MeshGeometry, sourceValues: Float32Array, settings: MeshDrawSettings): void {
-    const gl = this.gl;
     const ratio = Math.min(2, window.devicePixelRatio || 1);
-    const width = Math.max(1, Math.round(settings.width * ratio));
-    const height = Math.max(1, Math.round(settings.height * ratio));
+    this.drawAtSize(
+      geometry,
+      sourceValues,
+      settings,
+      Math.max(1, Math.round(settings.width * ratio)),
+      Math.max(1, Math.round(settings.height * ratio)),
+    );
+  }
+
+  private drawAtSize(
+    geometry: MeshGeometry,
+    sourceValues: Float32Array,
+    settings: MeshDrawSettings,
+    width: number,
+    height: number,
+  ): void {
+    const gl = this.gl;
     if (this.canvas.width !== width || this.canvas.height !== height) {
       this.canvas.width = width;
       this.canvas.height = height;
@@ -197,6 +215,37 @@ class MeshRenderer implements MeshSurface {
     });
   }
 
+  async capture(
+    geometry: MeshGeometry,
+    sourceValues: Float32Array,
+    settings: MeshDrawSettings,
+    width: number,
+    height: number,
+  ): Promise<Blob> {
+    validateCanvasSize(width, height);
+    const canvas = document.createElement("canvas");
+    const renderer = new MeshRenderer(canvas);
+    try {
+      renderer.validateTargetSize(width, height);
+      renderer.drawAtSize(geometry, sourceValues, settings, width, height);
+      return await canvasPng(canvas);
+    } finally {
+      renderer.destroy();
+    }
+  }
+
+  private validateTargetSize(width: number, height: number): void {
+    const dimensions = this.gl.getParameter(this.gl.MAX_VIEWPORT_DIMS) as Int32Array;
+    const renderbuffer = Number(this.gl.getParameter(this.gl.MAX_RENDERBUFFER_SIZE));
+    const maximumWidth = Math.min(dimensions[0], renderbuffer);
+    const maximumHeight = Math.min(dimensions[1], renderbuffer);
+    if (width > maximumWidth || height > maximumHeight) {
+      throw new Error(
+        `Export size ${width} × ${height} exceeds the WebGL limit ${maximumWidth} × ${maximumHeight}`,
+      );
+    }
+  }
+
   destroy(): void {
     const gl = this.gl;
     gl.deleteBuffer(this.positionBuffer);
@@ -227,24 +276,50 @@ class CanvasMeshRenderer implements MeshSurface {
     settings: MeshDrawSettings,
   ): void {
     const ratio = Math.min(2, window.devicePixelRatio || 1);
-    const width = Math.max(1, Math.round(settings.width * ratio));
-    const height = Math.max(1, Math.round(settings.height * ratio));
+    this.drawAtSize(
+      geometry,
+      sourceValues,
+      settings,
+      Math.max(1, Math.round(settings.width * ratio)),
+      Math.max(1, Math.round(settings.height * ratio)),
+    );
+  }
+
+  async capture(
+    geometry: MeshGeometry,
+    sourceValues: Float32Array,
+    settings: MeshDrawSettings,
+    width: number,
+    height: number,
+  ): Promise<Blob> {
+    validateCanvasSize(width, height);
+    const canvas = document.createElement("canvas");
+    const renderer = new CanvasMeshRenderer(canvas);
+    renderer.drawAtSize(geometry, sourceValues, settings, width, height);
+    return canvasPng(canvas);
+  }
+
+  private drawAtSize(
+    geometry: MeshGeometry,
+    sourceValues: Float32Array,
+    settings: MeshDrawSettings,
+    width: number,
+    height: number,
+  ): void {
     if (this.canvas.width !== width || this.canvas.height !== height) {
       this.canvas.width = width;
       this.canvas.height = height;
     }
     const context = this.context;
-    context.setTransform(ratio, 0, 0, ratio, 0, 0);
+    context.setTransform(1, 0, 0, 1, 0, 0);
     context.fillStyle = "#eeeeee";
-    context.fillRect(0, 0, settings.width, settings.height);
+    context.fillRect(0, 0, width, height);
     const localMinimumX = settings.view.minimumX - geometry.origin.x;
     const localMinimumY = settings.view.minimumY - geometry.origin.y;
     const dataWidth = settings.view.maximumX - settings.view.minimumX;
     const dataHeight = settings.view.maximumY - settings.view.minimumY;
-    const screenX = (value: number) =>
-      ((value - localMinimumX) / dataWidth) * settings.width;
-    const screenY = (value: number) =>
-      (1 - (value - localMinimumY) / dataHeight) * settings.height;
+    const screenX = (value: number) => ((value - localMinimumX) / dataWidth) * width;
+    const screenY = (value: number) => (1 - (value - localMinimumY) / dataHeight) * height;
 
     for (let vertex = 0; vertex < geometry.scalarIndices.length; vertex += 3) {
       const values = [

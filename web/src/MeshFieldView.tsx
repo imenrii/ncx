@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 
-import { LatestSliceLoader, fetchCoordinate, fetchStaticSlice } from "./api";
+import { LatestSliceLoader, fetchCoordinate, fetchSlice, fetchStaticSlice } from "./api";
 import { finiteRange, formatNumber, type ColorRange,
   type ColormapChoice,
 } from "./color";
+import { registerPlotCapture } from "./capture";
 import { fieldMargin } from "./FieldView";
 import { plotType } from "./plotgeom";
 import { PERFORMANCE_MEASURE, measurePerformance } from "./performance";
@@ -282,6 +283,65 @@ export function MeshFieldView(props: MeshFieldViewProps) {
     });
     canvas.current?.setAttribute("data-rendered", "true");
   }, [rendererReady, geometry, values, view, props.colormap, props.scale, activeRange, plot.width, plot.height]);
+
+  useEffect(() => {
+    const node = frame.current;
+    const surface = renderer.current;
+    if (!node || !rendererReady || !surface || !geometry || !view || !values) return;
+    return registerPlotCapture(node, async (width, height) => {
+      let exportGeometry = geometry;
+      let exportValues = values;
+      if (hint.kind === "curvilinear") {
+        const exportSlice = await fetchSlice(fieldRequest(
+          props.variable,
+          props.display,
+          props.indices,
+          { width, height },
+          true,
+        ));
+        if (!(exportSlice.values instanceof Float32Array)) {
+          throw new Error("The mesh data is not available for export");
+        }
+        exportGeometry = await buildGeometry(
+          props.metadata,
+          props.variable,
+          props.display,
+          exportSlice,
+        );
+        exportValues = exportSlice.values;
+      }
+      return surface.capture(
+        exportGeometry,
+        exportValues,
+        {
+          colormap: props.colormap,
+          scale: props.scale,
+          range: activeRange,
+          view,
+          width: plot.width,
+          height: plot.height,
+        },
+        width,
+        height,
+      );
+    });
+  }, [
+    frame,
+    rendererReady,
+    geometry,
+    values,
+    view,
+    hint.kind,
+    props.metadata,
+    props.variable,
+    props.display,
+    props.indices,
+    props.colormap,
+    props.scale,
+    activeRange,
+    plot.width,
+    plot.height,
+  ]);
 
   if (needsConfirmation) {
     const estimatedMegabytes = Math.ceil((faceCount * 3 * 16) / 1024 / 1024);

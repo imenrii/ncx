@@ -21,6 +21,8 @@ window.__ncxStep = "startup";
 window.__ncxFetches = [];
 window.__ncxScalarReads = 0;
 window.__ncxMaxScalarReads = 0;
+window.__ncxTileFetches = 0;
+window.__ncxExportResult = undefined;
 const reportCrash = (message) => {
   window.__ncxErrors.push(message);
   fetch("/__result?payload=" + encodeURIComponent(JSON.stringify({ failures: [window.__ncxStep + ": " + message], fetches: window.__ncxFetches.length })));
@@ -31,6 +33,12 @@ const originalFetch = window.fetch;
 window.fetch = async (...arguments) => {
   const target = String(arguments[0]);
   window.__ncxFetches.push(target);
+  if (target.startsWith("https://tile.openstreetmap.org/")) {
+    window.__ncxTileFetches += 1;
+    const binary = atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+    const bytes = Uint8Array.from(binary, (value) => value.charCodeAt(0));
+    return new Response(bytes, { status: 200, headers: { "content-type": "image/png" } });
+  }
   const scalar = target.includes("/api/data?") && decodeURIComponent(target).includes("path=/temperature");
   if (scalar) {
     window.__ncxScalarReads += 1;
@@ -45,6 +53,32 @@ window.fetch = async (...arguments) => {
     if (scalar) window.__ncxScalarReads -= 1;
   }
 };
+const originalAnchorClick = HTMLAnchorElement.prototype.click;
+HTMLAnchorElement.prototype.click = function() {
+  if (this.download?.endsWith(".png") && this.href.startsWith("blob:")) {
+    const href = this.href;
+    window.__ncxExportResult = originalFetch(href)
+      .then((response) => response.blob())
+      .then(async (blob) => {
+        const image = await createImageBitmap(blob);
+        const sample = document.createElement("canvas");
+        sample.width = 32;
+        sample.height = 32;
+        const context = sample.getContext("2d");
+        context.drawImage(image, 0, 0, sample.width, sample.height);
+        let checksum = 2166136261;
+        for (const value of context.getImageData(0, 0, sample.width, sample.height).data) {
+          checksum = Math.imul(checksum ^ value, 16777619) >>> 0;
+        }
+        const width = image.width;
+        const height = image.height;
+        image.close();
+        return { width, height, bytes: blob.size, checksum };
+      });
+    return;
+  }
+  return originalAnchorClick.call(this);
+};
 </script>
 <script type="module">
 const browserMode = ${JSON.stringify(browserMode)};
@@ -56,6 +90,17 @@ const waitFor = async (test, message, timeout = 4000) => {
     await new Promise((resolve) => setTimeout(resolve, 40));
   }
   throw new Error(message);
+};
+const saveOpenDialog = async (dialog) => {
+  window.__ncxExportResult = undefined;
+  [...dialog.querySelectorAll("button")]
+    .find((button) => button.textContent.trim() === "Save")?.click();
+  const result = await waitFor(
+    () => window.__ncxExportResult,
+    "PNG export did not start",
+    15000,
+  );
+  return result;
 };
 // The plotted extent, read from the axes. Comparing tick text instead only
 // detected a view change when it happened to move a label, which a small pan
@@ -262,6 +307,25 @@ try {
     if (window.__ncxMaxScalarReads > 4) {
       failures.push("field comparison advanced before its slowest pane loaded");
     }
+    window.__ncxStep = "comparison export";
+    const comparisonReads = window.__ncxFetches.filter((url) =>
+      url.includes("/api/data?") && decodeURIComponent(url).includes("path=/temperature")).length;
+    document.querySelector(".screenshot-button")?.click();
+    const comparisonDialog = await waitFor(
+      () => document.querySelector("dialog.save-dialog[open]"),
+      "comparison export dialog did not open",
+    );
+    const comparisonExport = await saveOpenDialog(comparisonDialog);
+    if (comparisonExport.width !== 2882 || comparisonExport.bytes < 1000) {
+      failures.push("comparison export PNG is invalid: " + JSON.stringify(comparisonExport));
+    }
+    const capturedPanes = panes.filter((pane) => pane.querySelector(".plot-frame")?.dataset.exportCaptured);
+    if (capturedPanes.length !== panes.length) failures.push("comparison export omitted a visible field pane");
+    const comparisonReadsAfter = window.__ncxFetches.filter((url) =>
+      url.includes("/api/data?") && decodeURIComponent(url).includes("path=/temperature")).length;
+    if (comparisonReadsAfter - comparisonReads < panes.length) {
+      failures.push("comparison export did not rerender every field pane");
+    }
     const supporting = [...document.querySelectorAll(".variable-filter label")]
       .find((label) => label.textContent.includes("Show coordinates"))?.querySelector("input");
     supporting.click();
@@ -306,6 +370,23 @@ try {
     if (document.querySelector(".plot-error")) failures.push(document.querySelector(".plot-error").textContent);
     const expectedKind = browserMode.startsWith("ugrid") ? "ugrid2d" : browserMode;
     if (!document.querySelector(".figure-head span")?.textContent.includes(expectedKind)) failures.push("mesh view kind is missing");
+
+    if (browserMode === "curvilinear") {
+      const readsBeforeExport = window.__ncxFetches.filter((url) => url.includes("/api/data?")).length;
+      document.querySelector(".screenshot-button")?.click();
+      const dialog = await waitFor(
+        () => document.querySelector("dialog.save-dialog[open]"),
+        "curvilinear export dialog did not open",
+      );
+      const exported = await saveOpenDialog(dialog);
+      if (exported.width !== 2882 || exported.bytes < 1000) {
+        failures.push("curvilinear export PNG is invalid: " + JSON.stringify(exported));
+      }
+      const readsAfterExport = window.__ncxFetches.filter((url) => url.includes("/api/data?")).length;
+      if (readsAfterExport <= readsBeforeExport) {
+        failures.push("curvilinear export did not request target-size mesh data");
+      }
+    }
 
     if (browserMode.startsWith("ugrid")) {
       const visibleVariables = [...document.querySelectorAll(".variable-row span")].map((row) => row.textContent);
@@ -410,7 +491,14 @@ try {
       if (!exportSubtitle?.value.includes("incident-edge mean")) {
         failures.push("edge export metadata did not disclose the incident-edge mean");
       }
-      [...saveDialog.querySelectorAll("button")].find((button) => button.textContent === "Cancel")?.click();
+      const edgeExport = await saveOpenDialog(saveDialog);
+      if (edgeExport.width !== 2882 || edgeExport.bytes < 1000) {
+        failures.push("edge export PNG is invalid: " + JSON.stringify(edgeExport));
+      }
+      if (!document.querySelector(".mesh-frame")?.dataset.exportCaptured) {
+        failures.push("mesh export did not use the target-size capture adapter");
+      }
+      await waitFor(() => !document.querySelector("dialog.save-dialog[open]"), "edge export dialog did not close");
       const edgeCanvas = document.querySelector(".mesh-canvas");
       const edgeBounds = edgeCanvas.getBoundingClientRect();
       for (const type of ["pointerdown", "pointerup"]) {
@@ -497,6 +585,10 @@ try {
 
   window.__ncxStep = "save dialog";
   {
+    const map = [...document.querySelectorAll('.display-controls label')]
+      .find((label) => label.textContent.trim().startsWith("Map"))?.querySelector("select");
+    const readsBeforeExport = window.__ncxFetches.filter((url) =>
+      url.includes("/api/data?") && decodeURIComponent(url).includes("path=/temperature")).length;
     const open = [...document.querySelectorAll("button")]
       .find((button) => button.textContent.trim() === "Save PNG");
     if (!open) failures.push("Save PNG button is missing");
@@ -515,9 +607,37 @@ try {
       if (!fields.some((input) => input.value.trim())) {
         failures.push("save dialog lettering fields were not prefilled");
       }
-      [...dialog.querySelectorAll("button")]
-        .find((button) => button.textContent.trim() === "Cancel")?.click();
+      const plainExport = await saveOpenDialog(dialog);
+      if (plainExport.width !== 2882 || plainExport.height <= 1000 || plainExport.bytes < 1000) {
+        failures.push("export PNG has wrong target size or content: " + JSON.stringify(plainExport));
+      }
       await waitFor(() => !document.querySelector("dialog.save-dialog[open]"), "save dialog did not close");
+
+      let mappedExport;
+      if (map) {
+        map.value = "osm";
+        map.dispatchEvent(new Event("change", { bubbles: true }));
+        await waitFor(() => document.querySelector(".map-overlay img"), "OSM overlay did not render");
+        open.click();
+        const mapDialog = await waitFor(
+          () => document.querySelector("dialog.save-dialog[open]"),
+          "OSM export dialog did not open",
+        );
+        mappedExport = await saveOpenDialog(mapDialog);
+        await waitFor(() => !document.querySelector("dialog.save-dialog[open]"), "OSM export dialog did not close");
+      }
+      const readsAfterExport = window.__ncxFetches.filter((url) =>
+        url.includes("/api/data?") && decodeURIComponent(url).includes("path=/temperature")).length;
+      if (readsAfterExport <= readsBeforeExport) failures.push("field export reused the screen raster instead of rerendering data");
+      if (!document.querySelector(".plot-frame")?.dataset.exportCaptured) failures.push("field capture adapter did not run");
+      if (map && window.__ncxTileFetches === 0) failures.push("OSM tiles were omitted from export composition");
+      if (mappedExport && mappedExport.checksum === plainExport.checksum) {
+        failures.push("OSM composition did not change the exported pixels");
+      }
+      if (map) {
+        map.value = "none";
+        map.dispatchEvent(new Event("change", { bubbles: true }));
+      }
     }
   }
 

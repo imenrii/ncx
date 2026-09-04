@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 
-import { LatestSliceLoader, fetchCoordinate, fetchStaticSlice } from "./api";
+import { LatestSliceLoader, fetchCoordinate, fetchSlice, fetchStaticSlice } from "./api";
 import {
   colorForValue,
   finiteRange,
@@ -17,6 +17,7 @@ import type {
 } from "./model";
 import { attributeText, displayUnit, quantityLabel, resolveVariableReference } from "./model";
 import { formatPosition, probeAtPosition } from "./projection";
+import { canvasPng, registerPlotCapture, validateCanvasSize } from "./capture";
 import { fieldRequest, type DisplayDimensions } from "./selection";
 import { useElementSize } from "./useElementSize";
 import { plotMargin, plotType, type PlotType } from "./plotgeom";
@@ -261,43 +262,17 @@ export function FieldView(props: FieldViewProps) {
   // Keep colour conversion off the pan path. View-only changes composite this cached raster.
   useEffect(() => {
     if (!slice || !layout || !renderRange || !(slice.values instanceof Float32Array)) return;
-    const source = sourceCanvas.current ?? document.createElement("canvas");
-    sourceCanvas.current = source;
-    if (source.width !== layout.columns || source.height !== layout.rows) {
-      source.width = layout.columns;
-      source.height = layout.rows;
-      rasterImage.current = null;
-    }
-    const context = source.getContext("2d", { alpha: false });
-    if (!context) return;
-    const image = rasterImage.current ?? context.createImageData(layout.columns, layout.rows);
-    rasterImage.current = image;
-    measurePerformance(PERFORMANCE_MEASURE.fieldRaster, () => {
-      for (let targetRow = 0; targetRow < layout.rows; targetRow += 1) {
-        const row = layout.flipY ? layout.rows - 1 - targetRow : targetRow;
-        for (let targetColumn = 0; targetColumn < layout.columns; targetColumn += 1) {
-          const column = layout.flipX ? layout.columns - 1 - targetColumn : targetColumn;
-          const target = (targetRow * layout.columns + targetColumn) * 4;
-          const color = colorForValue(
-            layout.valueAt(row, column),
-            renderRange,
-            props.scale,
-            props.colormap,
-          );
-          if (color) {
-            image.data[target] = color[0];
-            image.data[target + 1] = color[1];
-            image.data[target + 2] = color[2];
-          } else {
-            image.data[target] = 238;
-            image.data[target + 1] = 238;
-            image.data[target + 2] = 238;
-          }
-          image.data[target + 3] = 255;
-        }
-      }
-      context.putImageData(image, 0, 0);
-    });
+    const painted = paintFieldSource(
+      layout,
+      renderRange,
+      props.scale,
+      props.colormap,
+      sourceCanvas.current,
+      rasterImage.current,
+    );
+    if (!painted) return;
+    sourceCanvas.current = painted.canvas;
+    rasterImage.current = painted.image;
   }, [
     slice,
     layout,
@@ -314,21 +289,7 @@ export function FieldView(props: FieldViewProps) {
     const ratio = Math.min(2, window.devicePixelRatio || 1);
     const width = Math.max(1, Math.round(plot.width * ratio));
     const height = Math.max(1, Math.round(plot.height * ratio));
-    if (node.width !== width || node.height !== height) {
-      node.width = width;
-      node.height = height;
-    }
-    const context = node.getContext("2d", { alpha: false });
-    if (!context) return;
-    context.imageSmoothingEnabled = false;
-    context.fillStyle = "#eee";
-    context.fillRect(0, 0, width, height);
-    if (layout.xAxis?.affine !== false && layout.yAxis?.affine !== false) {
-      const destination = projectRectangle(fieldSliceBounds(layout), view, width, height);
-      context.drawImage(source, destination.left, destination.top, destination.width, destination.height);
-    } else {
-      resampleRectilinear(context, source, layout, view, width, height);
-    }
+    drawFieldRaster(node, source, layout, view, width, height);
     // Announce a painted canvas, as the mesh view does. A fresh canvas is
     // 300x150 with no pixels drawn, so its size cannot say whether the slice
     // has actually reached the screen.
@@ -343,6 +304,49 @@ export function FieldView(props: FieldViewProps) {
     plot.width,
     plot.height,
     view,
+  ]);
+
+  useEffect(() => {
+    const node = frame.current;
+    if (!node || !layout || !renderRange) return;
+    return registerPlotCapture(node, async (width, height) => {
+      validateCanvasSize(width, height);
+      const exportRequest = fieldRequest(
+        props.variable,
+        props.display,
+        props.indices,
+        { width, height },
+        true,
+        sourceRegion(view, coordinates),
+      );
+      const exportSlice = await fetchSlice(exportRequest);
+      const exportLayout = fieldLayout(props.variable, props.display, exportSlice, coordinates);
+      if (!exportLayout || !(exportSlice.values instanceof Float32Array)) {
+        throw new Error("The field data is not available for export");
+      }
+      const painted = paintFieldSource(
+        exportLayout,
+        renderRange,
+        props.scale,
+        props.colormap,
+      );
+      if (!painted) throw new Error("The browser could not create the field export canvas");
+      const output = document.createElement("canvas");
+      drawFieldRaster(output, painted.canvas, exportLayout, view, width, height);
+      return canvasPng(output);
+    });
+  }, [
+    frame,
+    layout,
+    renderRange?.minimum,
+    renderRange?.maximum,
+    props.variable,
+    props.display,
+    props.indices,
+    props.scale,
+    props.colormap,
+    view,
+    coordinates,
   ]);
 
   const inspectPointer = (event: PointerEvent<HTMLCanvasElement>): HoverValue | undefined => {
@@ -583,6 +587,68 @@ async function loadRectilinearAxis(metadata: Metadata, variable: Variable) {
       ...result,
       warning: `${variable.path} bounds are unavailable (${message}); using midpoint edges`,
     };
+  }
+}
+
+function paintFieldSource(
+  layout: NonNullable<ReturnType<typeof fieldLayout>>,
+  range: ColorRange,
+  scale: ColorScale,
+  colormap: ColormapChoice,
+  existingCanvas?: HTMLCanvasElement | null,
+  existingImage?: ImageData | null,
+): { canvas: HTMLCanvasElement; image: ImageData } | undefined {
+  const canvas = existingCanvas ?? document.createElement("canvas");
+  let image = existingImage ?? undefined;
+  if (canvas.width !== layout.columns || canvas.height !== layout.rows) {
+    canvas.width = layout.columns;
+    canvas.height = layout.rows;
+    image = undefined;
+  }
+  const context = canvas.getContext("2d", { alpha: false });
+  if (!context) return undefined;
+  image ??= context.createImageData(layout.columns, layout.rows);
+  measurePerformance(PERFORMANCE_MEASURE.fieldRaster, () => {
+    for (let targetRow = 0; targetRow < layout.rows; targetRow += 1) {
+      const row = layout.flipY ? layout.rows - 1 - targetRow : targetRow;
+      for (let targetColumn = 0; targetColumn < layout.columns; targetColumn += 1) {
+        const column = layout.flipX ? layout.columns - 1 - targetColumn : targetColumn;
+        const target = (targetRow * layout.columns + targetColumn) * 4;
+        const color = colorForValue(layout.valueAt(row, column), range, scale, colormap);
+        image.data[target] = color?.[0] ?? 238;
+        image.data[target + 1] = color?.[1] ?? 238;
+        image.data[target + 2] = color?.[2] ?? 238;
+        image.data[target + 3] = 255;
+      }
+    }
+    context.putImageData(image, 0, 0);
+  });
+  return { canvas, image };
+}
+
+function drawFieldRaster(
+  target: HTMLCanvasElement,
+  source: HTMLCanvasElement,
+  layout: NonNullable<ReturnType<typeof fieldLayout>>,
+  view: ViewBounds,
+  width: number,
+  height: number,
+): void {
+  validateCanvasSize(width, height);
+  if (target.width !== width || target.height !== height) {
+    target.width = width;
+    target.height = height;
+  }
+  const context = target.getContext("2d", { alpha: false });
+  if (!context) throw new Error("The browser could not create the field canvas");
+  context.imageSmoothingEnabled = false;
+  context.fillStyle = "#eee";
+  context.fillRect(0, 0, width, height);
+  if (layout.xAxis?.affine !== false && layout.yAxis?.affine !== false) {
+    const destination = projectRectangle(fieldSliceBounds(layout), view, width, height);
+    context.drawImage(source, destination.left, destination.top, destination.width, destination.height);
+  } else {
+    resampleRectilinear(context, source, layout, view, width, height);
   }
 }
 

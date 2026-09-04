@@ -48,8 +48,9 @@ overhead can increase the process memory above this estimate.
 - **Interactive Inspection**:
   - Coordinate aspect ratio preservation with round-number ticks.
   - Point probes with native latitude/longitude readouts.
-  - Locked color ranges, box zoom, middle-click panning, and one-click PNG export.
-  - Optional OpenStreetMap reference basemap.
+  - Locked color ranges, box zoom, middle-click panning, and print-size PNG export.
+  - PNG export keeps the visible coordinate range and rerenders every visible plot pane at the selected width and DPI.
+  - Optional OpenStreetMap reference basemap. Exports include active map tiles and attribution; export stops with an error if a tile cannot be fetched with CORS.
 - **Scientific Color Scales**: Automatically selects perceptually uniform colormaps based on CF standard names and units, with classic `ncview` schemes available.
 
 ---

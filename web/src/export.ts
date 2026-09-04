@@ -1,24 +1,27 @@
 /**
  * Print-ready PNG export.
  *
- * The old export drew the field canvas and nothing else, because the axes,
- * colourbar and labels are not in that canvas -- they are an SVG overlay
- * stacked on top of it. You got the pixels with no scale, no colourbar and no
- * units, which is not a figure. On a UGRID mesh you got a blank rectangle
- * instead, because the WebGL context had no `preserveDrawingBuffer` and the
- * compositor had already cleared it by the time `toDataURL` ran.
+ * Each field supplies a target-size data image. This module then composes all
+ * visible panes, map tiles, vector furniture, and the title band into one SVG
+ * before final PNG encoding. The capture keeps the on-screen coordinate range
+ * and pane layout, but it does not enlarge the screen canvas.
  *
- * So this composes the whole thing: the raster, the furniture over it, and the
- * title band above, into one SVG rendered at print resolution.
- *
- * Style/Guidance.md §10 is the standard being met. PNG at 400 dpi is the
- * deliverable; the fonts are embedded rather than named, because an SVG
+ * PNG at 400 dpi is the default deliverable. The fonts are embedded rather
+ * than named because an SVG
  * rasterised through an `<img>` is an isolated document that cannot see this
  * page's stylesheet or its webfonts, and a named-but-absent face silently
  * becomes the platform sans -- which is exactly the substitution the project's
  * style rules exist to prevent.
  */
 
+import {
+  canvasPng,
+  captureFor,
+  exportPixelWidth,
+  planCaptureLayout,
+  validateCanvasSize,
+  type CaptureRect,
+} from "./capture";
 import { parseMath } from "./mathtext";
 
 /** Style's print resolution. */
@@ -103,9 +106,17 @@ function svgElement<K extends keyof SVGElementTagNameMap>(name: K): SVGElementTa
   return document.createElementNS("http://www.w3.org/2000/svg", name);
 }
 
+function activeFigure(): HTMLElement | undefined {
+  return Array.from(document.querySelectorAll<HTMLElement>("section.figure"))
+    .find((figure) => {
+      const rect = figure.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    });
+}
+
 /** Title and subtitle for the band, read from the figure's own header. */
-export function figureHeading(): { title: string; subtitle: string } {
-  const head = document.querySelector(".figure-head");
+export function figureHeading(figure = activeFigure()): { title: string; subtitle: string } {
+  const head = figure?.querySelector(".figure-head");
   return {
     title: head?.querySelector("h1")?.textContent?.trim() ?? "",
     subtitle: head?.querySelector("span")?.textContent?.trim() ?? "",
@@ -113,10 +124,10 @@ export function figureHeading(): { title: string; subtitle: string } {
 }
 
 /** The axis titles the live figure is drawing, for prefilling the save form. */
-export function figureAxisTitles(): { x: string; y: string } {
-  const labels = document.querySelectorAll<SVGTextElement>(
+export function figureAxisTitles(figure = activeFigure()): { x: string; y: string } {
+  const labels = figure?.querySelectorAll<SVGTextElement>(
     ".plot-frame .plot-axis .axis-label",
-  );
+  ) ?? [];
   return {
     x: labels[0]?.textContent?.trim() ?? "",
     y: labels[1]?.textContent?.trim() ?? "",
@@ -126,7 +137,6 @@ export function figureAxisTitles(): { x: string; y: string } {
 /** Publication widths from design.md § Figure widths, in millimetres. */
 export const WIDTHS_MM = [89, 120, 183] as const;
 export const DPI_CHOICES = [300, 400, 600] as const;
-const MM_PER_INCH = 25.4;
 
 export interface ExportOptions {
   /** Output width in millimetres. The figure is scaled to it. */
@@ -184,108 +194,92 @@ function retitleAxis(root: SVGElement, index: number, text: string): void {
   appendMath(label, text, size);
 }
 
-/**
- * Save the plot on screen as a print-ready PNG.
- *
- * Everything visible in the panel comes along: the field or curve itself, the
- * axes and their units, the colourbar with the active colour scale and range,
- * and a title band naming the variable and the step.
- */
+/** Save every visible plot pane as one print-ready PNG. */
 export async function exportPlotPng(name: string, options?: ExportOptions): Promise<void> {
-  const frame = document.querySelector<HTMLElement>(".plot-frame");
-  const source = frame?.querySelector<SVGSVGElement>("svg.plot-svg, svg.curve-svg");
-  if (!frame || !source) throw new Error("The current view has no plot to save");
+  const figure = activeFigure();
+  const frames = figure && Array.from(figure.querySelectorAll<HTMLElement>(".plot-frame"))
+    .filter((frame) => {
+      const rect = frame.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0 && !frame.closest(".comparison-unavailable");
+    });
+  if (!figure || !frames?.length) throw new Error("The current view has no plot to save");
 
   const settings = options ?? defaultExportOptions();
-  const frameRect = frame.getBoundingClientRect();
-  const width = Math.max(1, Math.round(frameRect.width));
-  const plotHeight = Math.max(1, Math.round(frameRect.height));
-
+  const content = figure.querySelector<HTMLElement>(".field-comparison");
+  const contentRect = content?.getBoundingClientRect() ?? enclosingRect(
+    frames.map((frame) => frame.getBoundingClientRect()),
+  );
   const heading = { title: settings.title, subtitle: settings.subtitle };
-  const titleSize = parseFloat(getComputedStyle(frame).getPropertyValue("--plot-title-size")) || 20;
-  const subtitleSize = parseFloat(getComputedStyle(frame).getPropertyValue("--plot-subtitle-size")) || 14;
+  const titleSize = parseFloat(getComputedStyle(frames[0]).getPropertyValue("--plot-title-size")) || 20;
+  const subtitleSize = parseFloat(getComputedStyle(frames[0]).getPropertyValue("--plot-subtitle-size")) || 14;
   const bandHeight = heading.title
     ? Math.round(titleSize * 1.5 + (heading.subtitle ? subtitleSize * 1.5 : 0))
     : 0;
-  const height = plotHeight + bandHeight;
+  const layout = planCaptureLayout(
+    contentRect,
+    frames.map((frame) => frame.getBoundingClientRect()),
+    exportPixelWidth(settings.widthMm, settings.dpi),
+    bandHeight,
+  );
 
   const output = svgElement("svg");
   output.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-  output.setAttribute("width", String(width));
-  output.setAttribute("height", String(height));
-  output.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  output.setAttribute("width", String(contentRect.width));
+  output.setAttribute("height", String(contentRect.height + bandHeight));
+  output.setAttribute("viewBox", `0 0 ${contentRect.width} ${contentRect.height + bandHeight}`);
 
   const style = svgElement("style");
   style.textContent = await embeddedFontCss();
   output.append(style);
 
   const paper = svgElement("rect");
-  paper.setAttribute("width", String(width));
-  paper.setAttribute("height", String(height));
+  paper.setAttribute("width", "100%");
+  paper.setAttribute("height", "100%");
   paper.setAttribute("fill", "#ffffff");
   output.append(paper);
-
-  if (heading.title) {
-    // Centred here, and only here. On screen the title is left-aligned because
-    // it heads a panel in a running interface and the eye picks it up on the
-    // same left margin as everything else. An exported figure has no interface
-    // around it: it is a plate, and a plate's caption centres on the plate.
-    const face = getComputedStyle(frame).getPropertyValue("--plot-face") || "sans-serif";
-    const centre = String(Math.round(width / 2));
-    const title = svgElement("text");
-    title.setAttribute("x", centre);
-    title.setAttribute("y", String(Math.round(titleSize * 1.05)));
-    title.setAttribute("text-anchor", "middle");
-    title.setAttribute("style",
-      `font-family:${face};font-size:${titleSize}px;font-weight:700;fill:#101418`);
-    appendMath(title, heading.title, titleSize);
-    output.append(title);
-    if (heading.subtitle) {
-      const subtitle = svgElement("text");
-      subtitle.setAttribute("x", centre);
-      subtitle.setAttribute("y", String(Math.round(titleSize * 1.05 + subtitleSize * 1.4)));
-      subtitle.setAttribute("text-anchor", "middle");
-      subtitle.setAttribute("style",
-        `font-family:${face};font-size:${subtitleSize}px;fill:#4a5058`);
-      subtitle.textContent = heading.subtitle;
-      output.append(subtitle);
-    }
-  }
+  appendHeading(output, frames[0], contentRect.width, bandHeight, titleSize, subtitleSize, heading);
 
   const body = svgElement("g");
   body.setAttribute("transform", `translate(0 ${bandHeight})`);
   output.append(body);
+  appendComparisonLabels(body, figure, contentRect);
 
-  // The raster goes under the furniture, at the position the overlay's axes
-  // were drawn for -- the canvas is absolutely placed inside the same frame,
-  // so its offset is just the difference between the two rectangles.
-  const canvas = frame.querySelector<HTMLCanvasElement>("canvas");
-  if (canvas) {
-    const rect = canvas.getBoundingClientRect();
-    const image = svgElement("image");
-    image.setAttribute("x", String(rect.left - frameRect.left));
-    image.setAttribute("y", String(rect.top - frameRect.top));
-    image.setAttribute("width", String(rect.width));
-    image.setAttribute("height", String(rect.height));
-    image.setAttribute("preserveAspectRatio", "none");
-    image.setAttribute("href", canvas.toDataURL("image/png"));
-    body.append(image);
+  for (const frame of frames) delete frame.dataset.exportCaptured;
+  for (let index = 0; index < frames.length; index += 1) {
+    const frame = frames[index];
+    const source = frame.querySelector<SVGSVGElement>("svg.plot-svg, svg.curve-svg");
+    if (!source) throw new Error("A visible plot pane has no SVG furniture");
+    // A curve comparison has one frame and all visible series are already in
+    // its SVG. Field comparisons have one registered data capture per pane.
+    const canvas = frame.querySelector<HTMLCanvasElement>("canvas");
+    if (canvas) {
+      const capture = captureFor(frame);
+      if (!capture) throw new Error("A visible data layer does not support print export");
+      const canvasRect = canvas.getBoundingClientRect();
+      const pixelWidth = Math.max(1, Math.round(canvasRect.width * layout.scale));
+      const pixelHeight = Math.max(1, Math.round(canvasRect.height * layout.scale));
+      validateCanvasSize(pixelWidth, pixelHeight);
+      const blob = await capture(pixelWidth, pixelHeight);
+      appendImage(body, await blobDataUrl(blob), canvasRect, contentRect);
+      frame.dataset.exportCaptured = "true";
+    }
+    await appendMap(body, frame, contentRect);
+
+    const furniture = source.cloneNode(true) as SVGSVGElement;
+    inlineComputedStyle(source, furniture);
+    retitleAxis(furniture, 0, settings.xTitle);
+    retitleAxis(furniture, 1, settings.yTitle);
+    if (!settings.grid) for (const line of furniture.querySelectorAll(".gridline")) line.remove();
+    const planned = layout.frames[index];
+    const group = svgElement("g");
+    group.setAttribute("transform", `translate(${planned.left} ${planned.top})`);
+    for (const child of Array.from(furniture.childNodes)) group.append(child);
+    body.append(group);
   }
 
-  const furniture = source.cloneNode(true) as SVGSVGElement;
-  inlineComputedStyle(source, furniture);
-  retitleAxis(furniture, 0, settings.xTitle);
-  retitleAxis(furniture, 1, settings.yTitle);
-  if (!settings.grid) for (const line of furniture.querySelectorAll(".gridline")) line.remove();
-  for (const child of Array.from(furniture.childNodes)) body.append(child);
-
-  // The output is a faithful scaled copy of the panel: one factor takes the
-  // whole composition to the requested physical width at the requested
-  // resolution. Nothing is re-laid-out, so what was on screen is what prints.
-  const scale = ((settings.widthMm / MM_PER_INCH) * settings.dpi) / width;
   const raster = document.createElement("canvas");
-  raster.width = Math.max(1, Math.round(width * scale));
-  raster.height = Math.max(1, Math.round(height * scale));
+  raster.width = layout.pixelWidth;
+  raster.height = layout.pixelHeight;
   const context = raster.getContext("2d", { alpha: false });
   if (!context) throw new Error("The browser could not create an export canvas");
   context.fillStyle = "#ffffff";
@@ -302,16 +296,151 @@ export async function exportPlotPng(name: string, options?: ExportOptions): Prom
     URL.revokeObjectURL(url);
   }
 
-  const png = await new Promise<Blob>((resolve, reject) => {
-    raster.toBlob(
-      (blob) => (blob ? resolve(blob) : reject(new Error("PNG export failed"))),
-      "image/png",
-    );
-  });
+  const png = await canvasPng(raster);
   const download = URL.createObjectURL(png);
   const link = document.createElement("a");
   link.href = download;
   link.download = `${name.replace(/[^a-z0-9._-]+/gi, "_") || "ncx-plot"}.png`;
   link.click();
   window.setTimeout(() => URL.revokeObjectURL(download), 0);
+}
+
+function enclosingRect(rects: DOMRect[]): CaptureRect {
+  const left = Math.min(...rects.map((rect) => rect.left));
+  const top = Math.min(...rects.map((rect) => rect.top));
+  const right = Math.max(...rects.map((rect) => rect.right));
+  const bottom = Math.max(...rects.map((rect) => rect.bottom));
+  return { left, top, width: right - left, height: bottom - top };
+}
+
+function appendHeading(
+  output: SVGSVGElement,
+  frame: HTMLElement,
+  width: number,
+  bandHeight: number,
+  titleSize: number,
+  subtitleSize: number,
+  heading: { title: string; subtitle: string },
+): void {
+  if (!heading.title) return;
+  const face = getComputedStyle(frame).getPropertyValue("--plot-face") || "sans-serif";
+  const centre = String(width / 2);
+  const title = svgElement("text");
+  title.setAttribute("x", centre);
+  title.setAttribute("y", String(titleSize * 1.05));
+  title.setAttribute("text-anchor", "middle");
+  title.setAttribute("style", `font-family:${face};font-size:${titleSize}px;font-weight:700;fill:#101418`);
+  appendMath(title, heading.title, titleSize);
+  output.append(title);
+  if (heading.subtitle && bandHeight > 0) {
+    const subtitle = svgElement("text");
+    subtitle.setAttribute("x", centre);
+    subtitle.setAttribute("y", String(titleSize * 1.05 + subtitleSize * 1.4));
+    subtitle.setAttribute("text-anchor", "middle");
+    subtitle.setAttribute("style", `font-family:${face};font-size:${subtitleSize}px;fill:#4a5058`);
+    subtitle.textContent = heading.subtitle;
+    output.append(subtitle);
+  }
+}
+
+function appendImage(
+  target: SVGGElement,
+  href: string,
+  rect: DOMRect,
+  content: CaptureRect,
+  style?: string,
+): void {
+  const image = svgElement("image");
+  image.setAttribute("x", String(rect.left - content.left));
+  image.setAttribute("y", String(rect.top - content.top));
+  image.setAttribute("width", String(rect.width));
+  image.setAttribute("height", String(rect.height));
+  image.setAttribute("preserveAspectRatio", "none");
+  image.setAttribute("href", href);
+  if (style) image.setAttribute("style", style);
+  target.append(image);
+}
+
+async function appendMap(target: SVGGElement, frame: HTMLElement, content: CaptureRect): Promise<void> {
+  const overlay = frame.querySelector<HTMLElement>(".map-overlay");
+  if (!overlay) return;
+  const overlayStyle = getComputedStyle(overlay);
+  for (const source of overlay.querySelectorAll<HTMLImageElement>("img")) {
+    const url = source.currentSrc || source.src;
+    let response: Response;
+    try {
+      response = await fetch(url, { mode: "cors" });
+    } catch (cause: unknown) {
+      throw new Error(`Cannot capture OpenStreetMap tile: ${cause instanceof Error ? cause.message : String(cause)}`);
+    }
+    if (!response.ok) throw new Error(`Cannot capture OpenStreetMap tile: HTTP ${response.status}`);
+    const declaredSize = Number(response.headers.get("content-length"));
+    if (Number.isFinite(declaredSize) && declaredSize > 4 * 1024 * 1024) {
+      throw new Error("Cannot capture OpenStreetMap tile: response is too large");
+    }
+    const blob = await response.blob();
+    if (blob.size > 4 * 1024 * 1024) throw new Error("Cannot capture OpenStreetMap tile: response is too large");
+    if (!blob.type.startsWith("image/")) throw new Error("Cannot capture OpenStreetMap tile: response is not an image");
+    const sourceStyle = getComputedStyle(source);
+    appendImage(
+      target,
+      await blobDataUrl(blob),
+      source.getBoundingClientRect(),
+      content,
+      `opacity:${overlayStyle.opacity};mix-blend-mode:${overlayStyle.mixBlendMode};filter:${sourceStyle.filter}`,
+    );
+  }
+  const overlayRect = overlay.getBoundingClientRect();
+  const attribution = svgElement("text");
+  attribution.setAttribute("x", String(overlayRect.right - content.left - 4));
+  attribution.setAttribute("y", String(overlayRect.bottom - content.top - 4));
+  attribution.setAttribute("text-anchor", "end");
+  attribution.setAttribute("style", "font-family:sans-serif;font-size:8px;fill:#101418");
+  attribution.textContent = "© OpenStreetMap contributors";
+  target.append(attribution);
+}
+
+function appendComparisonLabels(target: SVGGElement, figure: HTMLElement, content: CaptureRect): void {
+  for (const pane of figure.querySelectorAll<HTMLElement>(".field-comparison-pane")) {
+    const paneRect = pane.getBoundingClientRect();
+    const border = svgElement("rect");
+    border.setAttribute("x", String(paneRect.left - content.left));
+    border.setAttribute("y", String(paneRect.top - content.top));
+    border.setAttribute("width", String(paneRect.width));
+    border.setAttribute("height", String(paneRect.height));
+    border.setAttribute("fill", "none");
+    border.setAttribute("stroke", "#c8ccd0");
+    target.append(border);
+    const header = pane.querySelector<HTMLElement>(":scope > header");
+    if (!header) continue;
+    const headerRect = header.getBoundingClientRect();
+    const background = svgElement("rect");
+    background.setAttribute("x", String(headerRect.left - content.left));
+    background.setAttribute("y", String(headerRect.top - content.top));
+    background.setAttribute("width", String(headerRect.width));
+    background.setAttribute("height", String(headerRect.height));
+    background.setAttribute("fill", getComputedStyle(header).backgroundColor || "#f4f4f0");
+    target.append(background);
+    const label = svgElement("text");
+    label.setAttribute("x", String(headerRect.left - content.left + 8));
+    label.setAttribute("y", String(headerRect.top - content.top + headerRect.height * 0.68));
+    label.setAttribute("style", "font-family:monospace;font-size:11px;font-weight:700;fill:#101418");
+    label.textContent = header.textContent?.trim() ?? "";
+    target.append(label);
+    const unavailable = pane.querySelector<HTMLElement>(".comparison-unavailable");
+    if (unavailable) {
+      const unavailableRect = unavailable.getBoundingClientRect();
+      const note = svgElement("text");
+      note.setAttribute("x", String(unavailableRect.left - content.left + unavailableRect.width / 2));
+      note.setAttribute("y", String(unavailableRect.top - content.top + unavailableRect.height / 2));
+      note.setAttribute("text-anchor", "middle");
+      note.setAttribute("style", "font-family:monospace;font-size:11px;fill:#4a5058");
+      note.textContent = unavailable.textContent?.trim() ?? "Unavailable";
+      target.append(note);
+    }
+  }
+}
+
+async function blobDataUrl(blob: Blob): Promise<string> {
+  return `data:${blob.type || "application/octet-stream"};base64,${base64(await blob.arrayBuffer())}`;
 }

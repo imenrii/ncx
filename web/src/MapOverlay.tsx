@@ -19,6 +19,7 @@ export function MapOverlay({ bounds, width, height }: MapOverlayProps) {
         <img
           key={tile.key}
           src={tile.url}
+          crossOrigin="anonymous"
           alt=""
           style={{
             left: `${tile.left * 100}%`,
