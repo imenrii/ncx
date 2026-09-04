@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 
-import { LatestSliceLoader, fetchCoordinate } from "./api";
+import { LatestSliceLoader, fetchCoordinate, fetchStaticSlice } from "./api";
 import {
   colorForValue,
   finiteRange,
@@ -15,12 +15,13 @@ import type {
   Probe,
   Variable,
 } from "./model";
-import { displayUnit, quantityLabel } from "./model";
+import { attributeText, displayUnit, quantityLabel, resolveVariableReference } from "./model";
 import { formatPosition, probeAtPosition } from "./projection";
 import { fieldRequest, type DisplayDimensions } from "./selection";
 import { useElementSize } from "./useElementSize";
 import { plotMargin, plotType, type PlotType } from "./plotgeom";
 import { PERFORMANCE_MEASURE, measurePerformance } from "./performance";
+import { buildRectilinearAxis, type RectilinearAxis } from "./rectilinear";
 import { MapOverlay } from "./MapOverlay";
 import { Colorbar, PlotAxes, ViewControls, colorbarWidth } from "./plot";
 import {
@@ -67,6 +68,8 @@ interface FieldViewProps {
 interface Coordinates {
   x?: Float64Array;
   y?: Float64Array;
+  xAxis?: RectilinearAxis;
+  yAxis?: RectilinearAxis;
 }
 
 interface HoverValue {
@@ -179,24 +182,40 @@ export function FieldView(props: FieldViewProps) {
       setCoordinates({});
       return;
     }
-    const x = props.metadata.variables.find(
-      (variable) => variable.path === hint.x,
-    );
-    const y = props.metadata.variables.find(
-      (variable) => variable.path === hint.y,
-    );
-    if (!x || !y) return;
-    Promise.all([fetchCoordinate(x), fetchCoordinate(y)])
-      .then(([xValues, yValues]) => {
-        if (active) setCoordinates({ x: xValues, y: yValues });
+    const x = props.metadata.variables.find((variable) => variable.path === hint.x);
+    const y = props.metadata.variables.find((variable) => variable.path === hint.y);
+    if (!x || !y) {
+      setCoordinates({});
+      props.onStatus("rectilinear coordinate metadata is incomplete; using index geometry");
+      return;
+    }
+    setCoordinates({});
+    Promise.all([
+      loadRectilinearAxis(props.metadata, x),
+      loadRectilinearAxis(props.metadata, y),
+    ])
+      .then(([xResult, yResult]) => {
+        if (!active) return;
+        const usable = xResult.axis && yResult.axis;
+        setCoordinates(usable ? {
+          x: xResult.values,
+          y: yResult.values,
+          xAxis: xResult.axis,
+          yAxis: yResult.axis,
+        } : {});
+        const warnings = [xResult.warning, yResult.warning].filter(Boolean);
+        if (warnings.length) props.onStatus(warnings.join("; "));
       })
-      .catch(() => {
-        if (active) setCoordinates({});
+      .catch((cause: unknown) => {
+        if (!active) return;
+        setCoordinates({});
+        const message = cause instanceof Error ? cause.message : String(cause);
+        props.onStatus(`cannot read rectilinear coordinates: ${message}; using index geometry`);
       });
     return () => {
       active = false;
     };
-  }, [props.metadata.variables, props.variable]);
+  }, [props.metadata, props.variable, props.onStatus]);
 
   const layout = useMemo(
     () => fieldLayout(props.variable, props.display, slice, coordinates),
@@ -304,8 +323,12 @@ export function FieldView(props: FieldViewProps) {
     context.imageSmoothingEnabled = false;
     context.fillStyle = "#eee";
     context.fillRect(0, 0, width, height);
-    const destination = projectRectangle(fieldSliceBounds(layout), view, width, height);
-    context.drawImage(source, destination.left, destination.top, destination.width, destination.height);
+    if (layout.xAxis?.affine !== false && layout.yAxis?.affine !== false) {
+      const destination = projectRectangle(fieldSliceBounds(layout), view, width, height);
+      context.drawImage(source, destination.left, destination.top, destination.width, destination.height);
+    } else {
+      resampleRectilinear(context, source, layout, view, width, height);
+    }
     // Announce a painted canvas, as the mesh view does. A fresh canvas is
     // 300x150 with no pixels drawn, so its size cannot say whether the slice
     // has actually reached the screen.
@@ -522,6 +545,105 @@ export function FieldView(props: FieldViewProps) {
   );
 }
 
+async function loadRectilinearAxis(metadata: Metadata, variable: Variable) {
+  const values = await fetchCoordinate(variable);
+  const boundsReference = attributeText(variable, "bounds");
+  if (!boundsReference) {
+    const result = buildRectilinearAxis(values);
+    return { values, ...result };
+  }
+
+  const boundsPath = resolveVariableReference(variable.path, boundsReference);
+  const boundsVariable = metadata.variables.find((candidate) => candidate.path === boundsPath);
+  if (!boundsVariable) {
+    const result = buildRectilinearAxis(values);
+    return {
+      values,
+      ...result,
+      warning: `${variable.path} bounds variable ${boundsPath} is missing; using midpoint edges`,
+    };
+  }
+
+  try {
+    const bounds = await fetchStaticSlice(boundsVariable, "f64");
+    if (!(bounds.values instanceof Float64Array)) {
+      throw new Error(`${boundsPath} is not numeric`);
+    }
+    const result = buildRectilinearAxis(values, { values: bounds.values, shape: bounds.shape });
+    return {
+      values,
+      ...result,
+      warning: result.warning ? `${variable.path}: ${result.warning}` : undefined,
+    };
+  } catch (cause: unknown) {
+    const result = buildRectilinearAxis(values);
+    const message = cause instanceof Error ? cause.message : String(cause);
+    return {
+      values,
+      ...result,
+      warning: `${variable.path} bounds are unavailable (${message}); using midpoint edges`,
+    };
+  }
+}
+
+function resampleRectilinear(
+  context: CanvasRenderingContext2D,
+  source: HTMLCanvasElement,
+  layout: NonNullable<ReturnType<typeof fieldLayout>>,
+  view: ViewBounds,
+  width: number,
+  height: number,
+): void {
+  if (!layout.xAxis || !layout.yAxis) return;
+  const sourcePixels = source.getContext("2d", { alpha: false })?.getImageData(
+    0,
+    0,
+    source.width,
+    source.height,
+  ).data;
+  if (!sourcePixels) return;
+  const image = context.createImageData(width, height);
+  const columns = new Int32Array(width);
+  const rows = new Int32Array(height);
+  for (let x = 0; x < width; x += 1) {
+    const position = view.minimumX + ((x + 0.5) / width) * (view.maximumX - view.minimumX);
+    const sourceIndex = layout.xAxis.cellAtNormalized(position);
+    columns[x] = sourceIndex === undefined || sourceIndex < layout.xStart || sourceIndex >= layout.xStop
+      ? -1
+      : Math.min(layout.columns - 1, Math.floor((sourceIndex - layout.xStart) / layout.xStride));
+  }
+  for (let y = 0; y < height; y += 1) {
+    const position = view.maximumY - ((y + 0.5) / height) * (view.maximumY - view.minimumY);
+    const sourceIndex = layout.yAxis.cellAtNormalized(position);
+    rows[y] = sourceIndex === undefined || sourceIndex < layout.yStart || sourceIndex >= layout.yStop
+      ? -1
+      : Math.min(layout.rows - 1, Math.floor((sourceIndex - layout.yStart) / layout.yStride));
+  }
+
+  for (let y = 0; y < height; y += 1) {
+    const row = rows[y];
+    for (let x = 0; x < width; x += 1) {
+      const column = columns[x];
+      const target = (y * width + x) * 4;
+      if (column < 0 || row < 0) {
+        image.data[target] = 238;
+        image.data[target + 1] = 238;
+        image.data[target + 2] = 238;
+        image.data[target + 3] = 255;
+        continue;
+      }
+      const pixelX = layout.flipX ? layout.columns - 1 - column : column;
+      const pixelY = layout.flipY ? layout.rows - 1 - row : row;
+      const sourceIndex = (pixelY * source.width + pixelX) * 4;
+      image.data[target] = sourcePixels[sourceIndex];
+      image.data[target + 1] = sourcePixels[sourceIndex + 1];
+      image.data[target + 2] = sourcePixels[sourceIndex + 2];
+      image.data[target + 3] = 255;
+    }
+  }
+  context.putImageData(image, 0, 0);
+}
+
 function fieldLayout(
   variable: Variable,
   display: DisplayDimensions,
@@ -560,22 +682,16 @@ function fieldLayout(
   const yStride = requestStride[display.y];
   const [xStart, xStop] = selectedRange(display.x, xDimension.length);
   const [yStart, yStop] = selectedRange(display.y, yDimension.length);
-  const flipX = coordinates.x
-    ? coordinates.x.at(-1)! < coordinates.x[0]
-    : false;
-  const flipY = coordinates.y
-    ? coordinates.y.at(-1)! > coordinates.y[0]
-    : true;
+  const xAxis = coordinates.xAxis;
+  const yAxis = coordinates.yAxis;
+  const flipX = xAxis ? xAxis.edges.at(-1)! < xAxis.edges[0] : false;
+  const flipY = yAxis ? yAxis.edges.at(-1)! > yAxis.edges[0] : true;
   const valueAt = (row: number, column: number) => {
     const index = yPosition === 0 ? row * columns + column : column * rows + row;
     return Number(slice.values[index]);
   };
-  const xDomain: [number, number] = coordinates.x
-    ? [Math.min(coordinates.x[0], coordinates.x.at(-1)!), Math.max(coordinates.x[0], coordinates.x.at(-1)!)]
-    : [0, xDimension.length - 1];
-  const yDomain: [number, number] = coordinates.y
-    ? [Math.min(coordinates.y[0], coordinates.y.at(-1)!), Math.max(coordinates.y[0], coordinates.y.at(-1)!)]
-    : [0, yDimension.length - 1];
+  const xDomain: [number, number] = xAxis ? [...xAxis.domain] : [0, xDimension.length - 1];
+  const yDomain: [number, number] = yAxis ? [...yAxis.domain] : [0, yDimension.length - 1];
   return {
     columns,
     rows,
@@ -589,6 +705,8 @@ function fieldLayout(
     yStride,
     flipX,
     flipY,
+    xAxis,
+    yAxis,
     xDomain,
     yDomain,
     valueAt,
@@ -599,10 +717,14 @@ function fieldLayout(
         (value - domain[0]) / (domain[1] - domain[0]);
       const fractionX = sourceX === undefined
         ? coordinateFraction(probe.x, xDomain)
-        : (flipX ? 1 - sourceX / Math.max(1, xDimension.length - 1) : sourceX / Math.max(1, xDimension.length - 1));
+        : xAxis
+          ? coordinateFraction(xAxis.centers[sourceX], xDomain)
+          : (flipX ? 1 - sourceX / Math.max(1, xDimension.length - 1) : sourceX / Math.max(1, xDimension.length - 1));
       const fractionY = sourceY === undefined
         ? coordinateFraction(probe.y, yDomain)
-        : (flipY ? sourceY / Math.max(1, yDimension.length - 1) : 1 - sourceY / Math.max(1, yDimension.length - 1));
+        : yAxis
+          ? coordinateFraction(yAxis.centers[sourceY], yDomain)
+          : (flipY ? sourceY / Math.max(1, yDimension.length - 1) : 1 - sourceY / Math.max(1, yDimension.length - 1));
       if (!Number.isFinite(fractionX) || !Number.isFinite(fractionY)) return undefined;
       return {
         x: fractionX,
@@ -617,11 +739,17 @@ function fieldSliceBounds(
 ): ViewRectangle {
   const xLength = layout.xDimension.length;
   const yLength = layout.yDimension.length;
-  const left = layout.flipX ? 1 - layout.xStop / xLength : layout.xStart / xLength;
-  const right = layout.flipX ? 1 - layout.xStart / xLength : layout.xStop / xLength;
-  const top = layout.flipY ? 1 - layout.yStop / yLength : layout.yStart / yLength;
-  const bottom = layout.flipY ? 1 - layout.yStart / yLength : layout.yStop / yLength;
-  return { left, top, width: right - left, height: bottom - top };
+  const x = layout.xAxis
+    ? layout.xAxis.rangeBounds(layout.xStart, layout.xStop)
+    : layout.flipX
+      ? [1 - layout.xStop / xLength, 1 - layout.xStart / xLength] as const
+      : [layout.xStart / xLength, layout.xStop / xLength] as const;
+  const y = layout.yAxis
+    ? layout.yAxis.rangeBounds(layout.yStart, layout.yStop)
+    : layout.flipY
+      ? [layout.yStart / yLength, layout.yStop / yLength] as const
+      : [1 - layout.yStop / yLength, 1 - layout.yStart / yLength] as const;
+  return { left: x[0], top: 1 - y[1], width: x[1] - x[0], height: y[1] - y[0] };
 }
 
 function fieldCell(
@@ -630,6 +758,27 @@ function fieldCell(
   screenX: number,
   screenY: number,
 ): { column: number; row: number } | undefined {
+  if (layout.xAxis && layout.yAxis) {
+    const physicalX = view.minimumX + screenX * (view.maximumX - view.minimumX);
+    const physicalY = view.maximumY - screenY * (view.maximumY - view.minimumY);
+    const sourceX = layout.xAxis.cellAtNormalized(physicalX);
+    const sourceY = layout.yAxis.cellAtNormalized(physicalY);
+    if (
+      sourceX === undefined ||
+      sourceY === undefined ||
+      sourceX < layout.xStart ||
+      sourceX >= layout.xStop ||
+      sourceY < layout.yStart ||
+      sourceY >= layout.yStop
+    ) {
+      return undefined;
+    }
+    return {
+      column: Math.min(layout.columns - 1, Math.floor((sourceX - layout.xStart) / layout.xStride)),
+      row: Math.min(layout.rows - 1, Math.floor((sourceY - layout.yStart) / layout.yStride)),
+    };
+  }
+
   const bounds = fieldSliceBounds(layout);
   const x = view.minimumX + screenX * (view.maximumX - view.minimumX);
   const y = 1 - view.maximumY + screenY * (view.maximumY - view.minimumY);
@@ -646,13 +795,21 @@ function fieldCell(
 }
 
 function sourceRegion(view: ViewBounds, coordinates: Coordinates): ViewBounds {
+  const x = coordinates.xAxis
+    ? coordinates.xAxis.viewWindow(...visibleDomain([...coordinates.xAxis.domain], view.minimumX, view.maximumX))
+    : undefined;
+  const y = coordinates.yAxis
+    ? coordinates.yAxis.viewWindow(...visibleDomain([...coordinates.yAxis.domain], view.minimumY, view.maximumY))
+    : undefined;
+  const xLength = coordinates.xAxis?.centers.length ?? 1;
+  const yLength = coordinates.yAxis?.centers.length ?? 1;
   const flipX = coordinates.x ? coordinates.x.at(-1)! < coordinates.x[0] : false;
   const flipY = coordinates.y ? coordinates.y.at(-1)! > coordinates.y[0] : true;
   return {
-    minimumX: flipX ? 1 - view.maximumX : view.minimumX,
-    maximumX: flipX ? 1 - view.minimumX : view.maximumX,
-    minimumY: flipY ? view.minimumY : 1 - view.maximumY,
-    maximumY: flipY ? view.maximumY : 1 - view.minimumY,
+    minimumX: x ? x.start / xLength : flipX ? 1 - view.maximumX : view.minimumX,
+    maximumX: x ? x.stop / xLength : flipX ? 1 - view.minimumX : view.maximumX,
+    minimumY: y ? y.start / yLength : flipY ? view.minimumY : 1 - view.maximumY,
+    maximumY: y ? y.stop / yLength : flipY ? view.maximumY : 1 - view.minimumY,
   };
 }
 

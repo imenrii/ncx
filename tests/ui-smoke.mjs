@@ -453,6 +453,23 @@ try {
     colors.add([pixels[index], pixels[index + 1], pixels[index + 2]].join(","));
   }
   if (colors.size < 8) failures.push("field canvas does not contain real scalar colours");
+  const row = Math.floor(canvas.height / 2);
+  const runs = [];
+  let runStart = 0;
+  let previous = "";
+  for (let x = 0; x < canvas.width; x += 1) {
+    const index = (row * canvas.width + x) * 4;
+    const color = pixels[index] + "," + pixels[index + 1] + "," + pixels[index + 2];
+    if (x > 0 && color !== previous) {
+      runs.push(x - runStart);
+      runStart = x;
+    }
+    previous = color;
+  }
+  runs.push(canvas.width - runStart);
+  if (runs.length < 8 || runs[1] < runs[0] * 1.6) {
+    failures.push("stretched longitude cells did not render with unequal widths: " + runs.join(","));
+  }
 
   const stableReads = window.__ncxFetches.length;
   await new Promise((resolve) => setTimeout(resolve, 700));
@@ -518,14 +535,24 @@ try {
   fieldPointer("pointermove", 0.63, 0.44);
   const fieldHover = await waitFor(() => document.querySelector(".plot-tooltip"), "field hover readout did not appear");
   if (!/°[NS].*°[EW]/.test(fieldHover.textContent)) failures.push("field hover readout did not use latitude then longitude");
+  fieldPointer("pointermove", 0.25, 0.5);
+  await waitFor(
+    () => document.querySelector(".plot-tooltip")?.textContent.includes("111°E"),
+    "field probe did not use stretched longitude cell edges",
+  );
   for (const title of ["Zoom in", "Zoom out", "Reset view"]) {
     if (!document.querySelector('button[title="' + title + '"]')) failures.push(title + " control is missing");
   }
   const axisBeforeZoom = axisExtent();
-  fieldPointer("pointerdown", 0.2, 0.2);
-  fieldPointer("pointermove", 0.8, 0.8);
-  fieldPointer("pointerup", 0.8, 0.8);
+  fieldPointer("pointerdown", 0.2, 0.4);
+  fieldPointer("pointermove", 0.4, 0.6);
+  fieldPointer("pointerup", 0.4, 0.6);
   await waitFor(() => axisExtent() !== axisBeforeZoom, "field box zoom did not update axes");
+  await waitFor(
+    () => window.__ncxFetches.some((url) =>
+      decodeURIComponent(url).includes("selection=0,2:4,1:3")),
+    "field box zoom did not crop with stretched coordinate edges",
+  );
   if (!hasCorrectAspect(canvas)) failures.push("field box zoom stretched the coordinate aspect");
   const fieldBeforePan = axisExtent();
   fieldPointer("pointerdown", 0.5, 0.5, { button: 1, buttons: 4 });
