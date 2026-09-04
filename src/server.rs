@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 
 use crate::NcxResult;
-use crate::dataset::{DataError, DataResponse, Dataset, DatasetMetadata};
+use crate::dataset::{DataError, DataResponse, Dataset, DatasetMetadata, WireType};
 
 const INDEX_HTML: &str = include_str!("../web/dist/index.html");
 static VERSIONED_INDEX_HTML: LazyLock<String> = LazyLock::new(|| {
@@ -244,6 +244,7 @@ struct DataQuery {
     path: String,
     selection: String,
     stride: String,
+    wire: Option<String>,
 }
 
 async fn data(
@@ -254,13 +255,22 @@ async fn data(
         Ok(query) => query,
         Err(error) => return invalid_query(error),
     };
+    let wire = match query
+        .wire
+        .as_deref()
+        .map(str::parse::<WireType>)
+        .transpose()
+    {
+        Ok(wire) => wire,
+        Err(error) => return error_response(error),
+    };
     let maximum = state.limits.max_response_bytes;
     let read = tokio::task::spawn_blocking(move || {
         let started = Instant::now();
         let result = state.select(query.dataset.as_deref()).and_then(|source| {
             source
                 .dataset
-                .read_data(&query.path, &query.selection, &query.stride, maximum)
+                .read_data(&query.path, &query.selection, &query.stride, wire, maximum)
         });
         let elapsed = started.elapsed();
         if elapsed.as_millis() >= 100 {
@@ -501,17 +511,35 @@ mod tests {
         assert_eq!(Limits::default().max_response_bytes, 64 * 1024 * 1024);
     }
 
-    #[test]
-    fn data_response_reports_complete_read_time() {
+    #[tokio::test]
+    async fn data_response_reports_f64_shape_body_and_complete_read_time() {
         let response = data_response(
             DataResponse {
-                dtype: "f32",
-                shape: vec![1],
-                body: 1.0_f32.to_le_bytes().to_vec(),
+                dtype: "f64",
+                shape: vec![3],
+                body: [1.0_f64, 1.03125, 1.0625]
+                    .into_iter()
+                    .flat_map(f64::to_le_bytes)
+                    .collect(),
             },
             std::time::Duration::from_micros(1_250),
         );
+        assert_eq!(response.headers()["x-ncx-dtype"], "f64");
+        assert_eq!(response.headers()["x-ncx-shape"], "3");
+        assert_eq!(response.headers()["x-ncx-endian"], "little");
         assert_eq!(response.headers()["server-timing"], "read;dur=1.250");
+        let body = axum::body::to_bytes(response.into_body(), 24)
+            .await
+            .unwrap();
+        assert_eq!(body.len(), 24);
+    }
+
+    #[test]
+    fn invalid_wire_type_has_a_clear_client_error() {
+        let error = "f16".parse::<WireType>().unwrap_err();
+        assert_eq!(error.status, 400);
+        assert_eq!(error.code, "invalid_wire_type");
+        assert_eq!(error.message, "wire must be `f32` or `f64`");
     }
 
     #[test]

@@ -65,8 +65,8 @@ interface FieldViewProps {
 }
 
 interface Coordinates {
-  x?: Float32Array;
-  y?: Float32Array;
+  x?: Float64Array;
+  y?: Float64Array;
 }
 
 interface HoverValue {

@@ -176,10 +176,10 @@ class MeshRenderer implements MeshSurface {
 
     gl.uniform4f(
       required(gl.getUniformLocation(this.program, "view_bounds"), "view bounds uniform"),
-      settings.view.minimumX,
-      settings.view.maximumX,
-      settings.view.minimumY,
-      settings.view.maximumY,
+      settings.view.minimumX - geometry.origin.x,
+      settings.view.maximumX - geometry.origin.x,
+      settings.view.minimumY - geometry.origin.y,
+      settings.view.maximumY - geometry.origin.y,
     );
     gl.uniform2f(
       required(gl.getUniformLocation(this.program, "color_range"), "color range uniform"),
@@ -237,12 +237,14 @@ class CanvasMeshRenderer implements MeshSurface {
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.fillStyle = "#eeeeee";
     context.fillRect(0, 0, settings.width, settings.height);
+    const localMinimumX = settings.view.minimumX - geometry.origin.x;
+    const localMinimumY = settings.view.minimumY - geometry.origin.y;
     const dataWidth = settings.view.maximumX - settings.view.minimumX;
     const dataHeight = settings.view.maximumY - settings.view.minimumY;
     const screenX = (value: number) =>
-      ((value - settings.view.minimumX) / dataWidth) * settings.width;
+      ((value - localMinimumX) / dataWidth) * settings.width;
     const screenY = (value: number) =>
-      (1 - (value - settings.view.minimumY) / dataHeight) * settings.height;
+      (1 - (value - localMinimumY) / dataHeight) * settings.height;
 
     for (let vertex = 0; vertex < geometry.scalarIndices.length; vertex += 3) {
       const values = [

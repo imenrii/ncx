@@ -89,7 +89,7 @@ interface Hover {
 export function CurveView(props: CurveViewProps) {
   const [frame, size] = useElementSize<HTMLDivElement>();
   const [slice, setSlice] = useState<DataSlice>();
-  const [xValues, setXValues] = useState<Float32Array>();
+  const [xValues, setXValues] = useState<Float64Array>();
   const [hover, setHover] = useState<Hover>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();

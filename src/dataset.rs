@@ -170,6 +170,7 @@ impl Dataset {
         path: &str,
         selection: &str,
         stride: &str,
+        wire: Option<WireType>,
         max_response_bytes: u64,
     ) -> Result<DataResponse, DataError> {
         let summary = self
@@ -180,10 +181,22 @@ impl Dataset {
             .ok_or_else(|| DataError::new(404, "variable_not_found", "unknown variable path"))?;
         let selection = ReadSelection::parse(summary, selection, stride)?;
         let connectivity = self.connectivity_variables.contains(path);
+        if connectivity && wire == Some(WireType::F64) {
+            return Err(DataError::new(
+                422,
+                "invalid_wire_type",
+                "connectivity cannot be represented as f64",
+            ));
+        }
+        let wire = wire.unwrap_or(WireType::F32);
         selection.check_response_size(
             max_response_bytes,
             summary.source_element_bytes,
-            std::mem::size_of::<u32>(),
+            if connectivity {
+                std::mem::size_of::<u32>()
+            } else {
+                wire.element_bytes()
+            },
         )?;
         if !connectivity {
             validate_decode_attributes(summary)?;
@@ -199,7 +212,10 @@ impl Dataset {
         let (dtype, body) = if connectivity {
             read_connectivity(&variable, &selection)?
         } else {
-            ("f32", read_display_values(&variable, &selection)?)
+            (
+                wire.dtype(),
+                read_display_values(&variable, &selection, wire)?,
+            )
         };
 
         Ok(DataResponse {
@@ -207,6 +223,44 @@ impl Dataset {
             shape: selection.output_shape,
             body,
         })
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WireType {
+    F32,
+    F64,
+}
+
+impl WireType {
+    fn dtype(self) -> &'static str {
+        match self {
+            Self::F32 => "f32",
+            Self::F64 => "f64",
+        }
+    }
+
+    fn element_bytes(self) -> usize {
+        match self {
+            Self::F32 => std::mem::size_of::<f32>(),
+            Self::F64 => std::mem::size_of::<f64>(),
+        }
+    }
+}
+
+impl std::str::FromStr for WireType {
+    type Err = DataError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "f32" => Ok(Self::F32),
+            "f64" => Ok(Self::F64),
+            _ => Err(DataError::new(
+                400,
+                "invalid_wire_type",
+                "wire must be `f32` or `f64`",
+            )),
+        }
     }
 }
 
@@ -819,18 +873,19 @@ fn validate_decode_attributes(variable: &VariableSummary) -> Result<(), DataErro
 fn read_display_values(
     variable: &netcdf::Variable<'_>,
     selection: &ReadSelection,
+    wire: WireType,
 ) -> Result<Vec<u8>, DataError> {
     match variable.vartype() {
-        NcVariableType::Int(IntType::U8) => read_numeric::<u8>(variable, selection),
-        NcVariableType::Int(IntType::U16) => read_numeric::<u16>(variable, selection),
-        NcVariableType::Int(IntType::U32) => read_numeric::<u32>(variable, selection),
-        NcVariableType::Int(IntType::U64) => read_numeric::<u64>(variable, selection),
-        NcVariableType::Int(IntType::I8) => read_numeric::<i8>(variable, selection),
-        NcVariableType::Int(IntType::I16) => read_numeric::<i16>(variable, selection),
-        NcVariableType::Int(IntType::I32) => read_numeric::<i32>(variable, selection),
-        NcVariableType::Int(IntType::I64) => read_numeric::<i64>(variable, selection),
-        NcVariableType::Float(FloatType::F32) => read_numeric::<f32>(variable, selection),
-        NcVariableType::Float(FloatType::F64) => read_numeric::<f64>(variable, selection),
+        NcVariableType::Int(IntType::U8) => read_numeric::<u8>(variable, selection, wire),
+        NcVariableType::Int(IntType::U16) => read_numeric::<u16>(variable, selection, wire),
+        NcVariableType::Int(IntType::U32) => read_numeric::<u32>(variable, selection, wire),
+        NcVariableType::Int(IntType::U64) => read_numeric::<u64>(variable, selection, wire),
+        NcVariableType::Int(IntType::I8) => read_numeric::<i8>(variable, selection, wire),
+        NcVariableType::Int(IntType::I16) => read_numeric::<i16>(variable, selection, wire),
+        NcVariableType::Int(IntType::I32) => read_numeric::<i32>(variable, selection, wire),
+        NcVariableType::Int(IntType::I64) => read_numeric::<i64>(variable, selection, wire),
+        NcVariableType::Float(FloatType::F32) => read_numeric::<f32>(variable, selection, wire),
+        NcVariableType::Float(FloatType::F64) => read_numeric::<f64>(variable, selection, wire),
         _ => Err(DataError::new(
             422,
             "unsupported_dtype",
@@ -842,6 +897,7 @@ fn read_display_values(
 fn read_numeric<T>(
     variable: &netcdf::Variable<'_>,
     selection: &ReadSelection,
+    wire: WireType,
 ) -> Result<Vec<u8>, DataError>
 where
     T: PackedNumber,
@@ -865,20 +921,28 @@ where
         ));
     }
 
-    let mut bytes = Vec::with_capacity(values.len() * 4);
+    let mut bytes = Vec::with_capacity(values.len() * wire.element_bytes());
     for value in values {
-        let display = if missing.contains(&value) {
-            f32::NAN
+        let unpacked = if missing.contains(&value) {
+            f64::NAN
         } else {
-            let unpacked = value.to_f64() * scale + offset;
-            let display = unpacked as f32;
-            if display.is_finite() {
-                display
-            } else {
-                f32::NAN
-            }
+            let value = value.to_f64() * scale + offset;
+            if value.is_finite() { value } else { f64::NAN }
         };
-        bytes.extend_from_slice(&display.to_le_bytes());
+        match wire {
+            WireType::F32 => {
+                let display = unpacked as f32;
+                bytes.extend_from_slice(
+                    &if display.is_finite() {
+                        display
+                    } else {
+                        f32::NAN
+                    }
+                    .to_le_bytes(),
+                );
+            }
+            WireType::F64 => bytes.extend_from_slice(&unpacked.to_le_bytes()),
+        }
     }
     Ok(bytes)
 }
@@ -1250,7 +1314,7 @@ mod tests {
         poison_dataset_lock(&dataset);
 
         let error = dataset
-            .read_data("/temperature", ":,:,:", "1,1,1", 1)
+            .read_data("/temperature", ":,:,:", "1,1,1", None, 1)
             .err()
             .unwrap();
         assert_eq!(error.status, 413);
@@ -1277,7 +1341,7 @@ mod tests {
         poison_dataset_lock(&dataset);
 
         let error = dataset
-            .read_data("/temperature", "0,:,:", "1,1,1", 1024)
+            .read_data("/temperature", "0,:,:", "1,1,1", None, 1024)
             .err()
             .unwrap();
         assert_eq!(error.status, 422);
@@ -1339,7 +1403,7 @@ mod tests {
         ));
 
         let response = dataset
-            .read_data("/temperature", ":,:", "1,2", 1024)
+            .read_data("/temperature", ":,:", "1,2", None, 1024)
             .unwrap();
         assert_eq!(response.shape, [2, 2]);
         let values = response
@@ -1351,7 +1415,69 @@ mod tests {
         assert!(values[1].is_nan());
         assert_eq!(values[2..], [290.0, 300.0]);
 
+        let precise = dataset
+            .read_data("/temperature", ":,:", "1,2", Some(WireType::F64), 1024)
+            .unwrap();
+        let precise = precise
+            .body
+            .chunks_exact(8)
+            .map(|bytes| f64::from_le_bytes(bytes.try_into().unwrap()))
+            .collect::<Vec<_>>();
+        assert_eq!(precise[0], 270.0);
+        assert!(precise[1].is_nan());
+        assert_eq!(precise[2..], [290.0, 300.0]);
+
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn f64_wire_preserves_large_offset_coordinate_spacing() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("ncx-precision-{unique}.nc"));
+        {
+            let mut file = netcdf::create(&path).unwrap();
+            file.add_dimension("time", 3).unwrap();
+            let mut time = file.add_variable::<f64>("time", &["time"]).unwrap();
+            time.put_attribute("axis", "T").unwrap();
+            time.put_attribute("units", "hours since 1900-01-01")
+                .unwrap();
+            time.put_values(&[1_100_000.0, 1_100_000.031_25, 1_100_000.062_5], ..)
+                .unwrap();
+        }
+
+        let dataset = Dataset::open(&path).unwrap();
+        let response = dataset
+            .read_data("/time", ":", "1", Some(WireType::F64), 1024)
+            .unwrap();
+        assert_eq!(response.dtype, "f64");
+        assert_eq!(response.body.len(), 3 * std::mem::size_of::<f64>());
+        let values = response
+            .body
+            .chunks_exact(8)
+            .map(|bytes| f64::from_le_bytes(bytes.try_into().unwrap()))
+            .collect::<Vec<_>>();
+        assert!(values.windows(2).all(|pair| pair[0] < pair[1]));
+
+        let display = dataset.read_data("/time", ":", "1", None, 1024).unwrap();
+        assert_eq!(display.dtype, "f32");
+        assert_eq!(&display.body[0..4], &display.body[4..8]);
+
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn f64_wire_rejects_connectivity() {
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data");
+        let dataset = Dataset::open(&fixtures.join("ugrid.nc")).unwrap();
+        let error = dataset
+            .read_data("/face_nodes", ":,:", "1,1", Some(WireType::F64), 1024)
+            .err()
+            .unwrap();
+        assert_eq!(error.status, 422);
+        assert_eq!(error.code, "invalid_wire_type");
     }
 
     #[test]
@@ -1391,7 +1517,9 @@ mod tests {
             ViewHint::Ugrid2d { location, .. } if location == "face"
         ));
 
-        let connectivity = ugrid.read_data("/face_nodes", ":,:", "1,1", 1024).unwrap();
+        let connectivity = ugrid
+            .read_data("/face_nodes", ":,:", "1,1", None, 1024)
+            .unwrap();
         assert_eq!(connectivity.dtype, "i32");
         assert_eq!(connectivity.shape, [3, 4]);
         assert_eq!(
@@ -1405,7 +1533,9 @@ mod tests {
         let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data");
         let classic = Dataset::open(&fixtures.join("classic.nc")).unwrap();
         assert_eq!(classic.metadata().groups.len(), 1);
-        let values = classic.read_data("/value", ":,:", "1,2", 1024).unwrap();
+        let values = classic
+            .read_data("/value", ":,:", "1,2", None, 1024)
+            .unwrap();
         assert_eq!(values.shape, [2, 2]);
 
         let groups = Dataset::open(&fixtures.join("groups.nc")).unwrap();
@@ -1448,7 +1578,7 @@ mod tests {
             ViewHint::Rectilinear { x, y } if x == "/east/x" && y == "/east/y"
         ));
         let values = groups
-            .read_data("/west/temperature", ":,:", "1,1", 1024)
+            .read_data("/west/temperature", ":,:", "1,1", None, 1024)
             .unwrap();
         assert_eq!(values.shape, [2, 3]);
     }

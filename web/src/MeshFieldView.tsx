@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 
-import { LatestSliceLoader, fetchStaticSlice } from "./api";
+import { LatestSliceLoader, fetchCoordinate, fetchStaticSlice } from "./api";
 import { finiteRange, formatNumber, type ColorRange,
   type ColormapChoice,
 } from "./color";
@@ -505,54 +505,61 @@ async function buildGeometry(
     ) {
       throw new Error("selected display dimensions do not match the curvilinear coordinates");
     }
-    const [xSlice, ySlice] = await Promise.all([
-      fetchStaticSlice(xVariable),
-      fetchStaticSlice(yVariable),
+    const [xValues, yValues] = await Promise.all([
+      fetchCoordinate(xVariable),
+      fetchCoordinate(yVariable),
     ]);
+    const coordinateShape = xVariable.dimensions.map((dimension) => dimension.length);
     if (
-      !(xSlice.values instanceof Float32Array) ||
-      !(ySlice.values instanceof Float32Array) ||
-      xSlice.shape.length !== 2 ||
+      coordinateShape.length !== 2 ||
+      xValues.length !== coordinateShape[0] * coordinateShape[1] ||
+      yValues.length !== xValues.length ||
       slice.shape.length !== 2
     ) {
       throw new Error("curvilinear coordinates and field must be two-dimensional");
     }
     const strides = slice.request.stride.split(",").map(Number);
-    const xValues = xSlice.values;
-    const yValues = ySlice.values;
     const geometry = measurePerformance(PERFORMANCE_MEASURE.meshGeometry, () =>
       buildCurvilinearGeometry(
         xValues,
         yValues,
-        xSlice.shape[0],
-        xSlice.shape[1],
+        coordinateShape[0],
+        coordinateShape[1],
         slice.shape[0],
         slice.shape[1],
         strides[displayY],
         strides[displayX],
       ));
-    return addGeographicCoordinates(metadata, variable, xVariable, yVariable, xSlice, ySlice, geometry);
+    return addGeographicCoordinates(
+      metadata,
+      variable,
+      xVariable,
+      yVariable,
+      xValues,
+      yValues,
+      geometry,
+    );
   }
 
   if (hint.kind === "ugrid2d") {
     const xVariable = requiredVariable(metadata, hint.x);
     const yVariable = requiredVariable(metadata, hint.y);
     const connectivityVariable = requiredVariable(metadata, hint.face_node_connectivity);
-    const [xSlice, ySlice, connectivitySlice] = await Promise.all([
-      fetchStaticSlice(xVariable),
-      fetchStaticSlice(yVariable),
+    const [xValues, yValues, connectivitySlice] = await Promise.all([
+      fetchCoordinate(xVariable),
+      fetchCoordinate(yVariable),
       fetchStaticSlice(connectivityVariable),
     ]);
     if (
-      !(xSlice.values instanceof Float32Array) ||
-      !(ySlice.values instanceof Float32Array) ||
+      xVariable.dimensions.length !== 1 ||
+      yVariable.dimensions.length !== 1 ||
+      xValues.length !== xVariable.dimensions[0].length ||
+      yValues.length !== xValues.length ||
       !(connectivitySlice.values instanceof Int32Array || connectivitySlice.values instanceof Uint32Array) ||
       connectivitySlice.shape.length !== 2
     ) {
       throw new Error("UGRID requires one-dimensional node coordinates and padded 2-D connectivity");
     }
-    const xValues = xSlice.values;
-    const yValues = ySlice.values;
     const connectivity = connectivitySlice.values;
     const geometry = measurePerformance(PERFORMANCE_MEASURE.meshGeometry, () =>
       buildUgridGeometry(
@@ -568,7 +575,15 @@ async function buildGeometry(
         ],
         hint.location === "node" ? "node" : "face",
       ));
-    const projected = await addGeographicCoordinates(metadata, variable, xVariable, yVariable, xSlice, ySlice, geometry);
+    const projected = await addGeographicCoordinates(
+      metadata,
+      variable,
+      xVariable,
+      yVariable,
+      xValues,
+      yValues,
+      geometry,
+    );
     if (hint.location !== "edge") return projected;
     const topology = requiredVariable(metadata, hint.mesh);
     const reference = attributeText(topology, "edge_face_connectivity");
@@ -655,31 +670,26 @@ async function addGeographicCoordinates(
   variable: Variable,
   xVariable: Variable,
   yVariable: Variable,
-  xSlice: DataSlice,
-  ySlice: DataSlice,
+  xValues: Float64Array,
+  yValues: Float64Array,
   geometry: MeshGeometry,
 ): Promise<MeshGeometry> {
   const coordinates = geographicCoordinateVariables(metadata, variable, xVariable.dimensions);
   if (!coordinates) return geometry;
-  const coordinateSlice = (coordinate: Variable) =>
+  const coordinateValues = (coordinate: Variable) =>
     coordinate.path === xVariable.path
-      ? Promise.resolve(xSlice)
+      ? Promise.resolve(xValues)
       : coordinate.path === yVariable.path
-        ? Promise.resolve(ySlice)
-        : fetchStaticSlice(coordinate);
+        ? Promise.resolve(yValues)
+        : fetchCoordinate(coordinate);
   const [longitude, latitude] = await Promise.all([
-    coordinateSlice(coordinates.longitude),
-    coordinateSlice(coordinates.latitude),
+    coordinateValues(coordinates.longitude),
+    coordinateValues(coordinates.latitude),
   ]);
-  if (
-    !(longitude.values instanceof Float32Array) ||
-    !(latitude.values instanceof Float32Array) ||
-    longitude.values.length !== xSlice.values.length ||
-    latitude.values.length !== xSlice.values.length
-  ) {
+  if (longitude.length !== xValues.length || latitude.length !== xValues.length) {
     throw new Error("geographic node coordinates do not match the rendered mesh coordinates");
   }
-  return { ...geometry, longitude: longitude.values, latitude: latitude.values };
+  return { ...geometry, longitude, latitude };
 }
 
 function meshAxisLabels(metadata: Metadata, variable: Variable): { x: string; y: string } {

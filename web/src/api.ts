@@ -9,7 +9,7 @@ import {
   PERFORMANCE_MEASURE,
   measurePerformance,
   measurePerformanceAsync,
-} from "./performance";
+} from "./performance.ts";
 
 const staticSliceCache = new Map<string, Promise<DataSlice>>();
 const metadataCache = new Map<string, Promise<Metadata>>();
@@ -70,6 +70,7 @@ export async function fetchSlice(request: SliceRequest, signal?: AbortSignal): P
     stride: request.stride,
   });
   if (request.dataset) query.set("dataset", request.dataset);
+  if (request.wire) query.set("wire", request.wire);
   const { response, buffer } = await measurePerformanceAsync(
     PERFORMANCE_MEASURE.sliceFetch,
     async () => {
@@ -83,7 +84,7 @@ export async function fetchSlice(request: SliceRequest, signal?: AbortSignal): P
 
   return measurePerformance(PERFORMANCE_MEASURE.sliceDecode, () => {
     const dtype = response.headers.get("X-Ncx-Dtype");
-    if (dtype !== "f32" && dtype !== "i32" && dtype !== "u32") {
+    if (dtype !== "f32" && dtype !== "f64" && dtype !== "i32" && dtype !== "u32") {
       throw new Error(`Unsupported response dtype ${JSON.stringify(dtype)}`);
     }
     const shapeHeader = response.headers.get("X-Ncx-Shape");
@@ -99,32 +100,37 @@ export async function fetchSlice(request: SliceRequest, signal?: AbortSignal): P
       if (total > Number.MAX_SAFE_INTEGER / length) throw new Error("Slice shape is too large");
       return total * length;
     }, 1);
-    if (samples > Number.MAX_SAFE_INTEGER / 4) throw new Error("Slice byte count is too large");
-    const expectedBytes = samples * 4;
+    const elementBytes = dtype === "f64" ? 8 : 4;
+    if (samples > Number.MAX_SAFE_INTEGER / elementBytes) {
+      throw new Error("Slice byte count is too large");
+    }
+    const expectedBytes = samples * elementBytes;
     if (buffer.byteLength !== expectedBytes) {
       throw new Error(`Slice body is ${buffer.byteLength} bytes; expected ${expectedBytes}`);
     }
     const values =
       dtype === "f32"
         ? new Float32Array(buffer)
-        : dtype === "i32"
-          ? new Int32Array(buffer)
-          : new Uint32Array(buffer);
+        : dtype === "f64"
+          ? new Float64Array(buffer)
+          : dtype === "i32"
+            ? new Int32Array(buffer)
+            : new Uint32Array(buffer);
     return { dtype, shape, values, request };
   });
 }
 
-export function fetchCoordinate(variable: Variable): Promise<Float32Array> {
-  return fetchStaticSlice(variable).then((slice) => {
-    if (!(slice.values instanceof Float32Array)) {
-      throw new Error(`${variable.path} is not a display coordinate`);
+export function fetchCoordinate(variable: Variable): Promise<Float64Array> {
+  return fetchStaticSlice(variable, "f64").then((slice) => {
+    if (!(slice.values instanceof Float64Array)) {
+      throw new Error(`${variable.path} is not an f64 coordinate`);
     }
     return slice.values;
   });
 }
 
-export function fetchStaticSlice(variable: Variable): Promise<DataSlice> {
-  const key = `${variable.dataset_id ?? ""}:${variable.path}`;
+export function fetchStaticSlice(variable: Variable, wire?: SliceRequest["wire"]): Promise<DataSlice> {
+  const key = `${variable.dataset_id ?? ""}:${variable.path}:${wire ?? "default"}`;
   let cached = staticSliceCache.get(key);
   if (!cached) {
     cached = fetchSlice({
@@ -132,6 +138,7 @@ export function fetchStaticSlice(variable: Variable): Promise<DataSlice> {
       path: variable.path,
       selection: variable.dimensions.map(() => ":").join(","),
       stride: variable.dimensions.map(() => "1").join(","),
+      wire,
     });
     staticSliceCache.set(key, cached);
     void cached.catch(() => {

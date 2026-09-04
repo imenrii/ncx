@@ -82,7 +82,7 @@ export function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [status, setStatus] = useState("opening dataset…");
   const [playDirection, setPlayDirection] = useState<-1 | 0 | 1>(0);
-  const [timelineValues, setTimelineValues] = useState<Float32Array>();
+  const [timelineValues, setTimelineValues] = useState<Float64Array>();
   const [frameReady, setFrameReady] = useState(true);
   const [colorRange, setColorRange] = useState<ColorRange>({ minimum: 0, maximum: 1 });
   const [rangeLocked, setRangeLocked] = useState(false);
@@ -1121,7 +1121,7 @@ function Timeline({
 }: {
   timeline: { dimension: Variable["dimensions"][number]; index: number } | undefined;
   value: number;
-  values: Float32Array | undefined;
+  values: Float64Array | undefined;
   time: TimeDescription | undefined;
   playing: -1 | 0 | 1;
   onChange: (value: number) => void;

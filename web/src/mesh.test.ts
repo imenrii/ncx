@@ -4,20 +4,33 @@ import test from "node:test";
 import { buildCurvilinearGeometry, buildUgridGeometry, edgesToFaces, findMeshHit } from "./mesh.ts";
 
 test("omits curvilinear quads with invalid coordinates", () => {
-  const x = Float32Array.of(0, 1, 2, 0, 1, 2);
-  const y = Float32Array.of(0, 0, 0, 1, 1, Number.NaN);
+  const x = Float64Array.of(0, 1, 2, 0, 1, 2);
+  const y = Float64Array.of(0, 0, 0, 1, 1, Number.NaN);
   const geometry = buildCurvilinearGeometry(x, y, 2, 3, 2, 3, 1, 1);
   assert.equal(geometry.triangleSources.length, 2);
   assert.equal(findMeshHit(geometry, 0.25, 0.25)?.scalarIndex, 0);
 });
 
 test("normalizes padded one-based UGRID polygons and preserves face scalars", () => {
-  const x = Float32Array.of(0, 2, 2, 1, 0);
-  const y = Float32Array.of(0, 0, 2, 1, 2);
+  const x = Float64Array.of(0, 2, 2, 1, 0);
+  const y = Float64Array.of(0, 0, 2, 1, 2);
   const connectivity = Int32Array.of(1, 2, 3, 4, 5, -1);
   const geometry = buildUgridGeometry(x, y, connectivity, 1, 6, 1, [-1], "face");
   assert.equal(geometry.triangleSources.length, 3);
   assert.deepEqual([...new Set(geometry.scalarIndices)], [0]);
+});
+
+test("rebases large mesh coordinates before f32 upload and returns world probes", () => {
+  const x = Float64Array.of(1_100_000, 1_100_000.03125, 1_100_000);
+  const y = Float64Array.of(2_200_000, 2_200_000, 2_200_000.03125);
+  const geometry = buildUgridGeometry(x, y, Int32Array.of(0, 1, 2), 1, 3, 0, [], "node");
+
+  assert.deepEqual(geometry.origin, { x: 1_100_000, y: 2_200_000 });
+  assert.ok(geometry.positions[0] < geometry.positions[2]);
+  assert.equal(geometry.positions[2], 0.03125);
+  const hit = findMeshHit(geometry, 1_100_000.025, 2_200_000.001);
+  assert.equal(hit?.x, 1_100_000.03125);
+  assert.equal(hit?.y, 2_200_000);
 });
 
 test("averages edge values onto their adjacent faces", () => {
@@ -30,8 +43,8 @@ test("averages edge values onto their adjacent faces", () => {
 });
 
 test("keeps UGRID node scalars and rejects out-of-range connectivity", () => {
-  const x = Float32Array.of(0, 1, 0);
-  const y = Float32Array.of(0, 0, 1);
+  const x = Float64Array.of(0, 1, 0);
+  const y = Float64Array.of(0, 0, 1);
   const geometry = buildUgridGeometry(x, y, Int32Array.of(1, 2, 3), 1, 3, 1, [], "node");
   assert.deepEqual([...geometry.scalarIndices], [0, 1, 2]);
   assert.throws(
@@ -42,8 +55,8 @@ test("keeps UGRID node scalars and rejects out-of-range connectivity", () => {
 
 test("keeps hover probing available above one hundred thousand triangles", () => {
   const side = 230;
-  const x = new Float32Array(side * side);
-  const y = new Float32Array(side * side);
+  const x = new Float64Array(side * side);
+  const y = new Float64Array(side * side);
   for (let row = 0; row < side; row += 1) {
     for (let column = 0; column < side; column += 1) {
       x[row * side + column] = column;

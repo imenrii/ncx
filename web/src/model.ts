@@ -62,6 +62,7 @@ export interface SliceRequest {
   path: string;
   selection: string;
   stride: string;
+  wire?: "f64";
 }
 
 export interface DatasetSummary {
@@ -74,9 +75,9 @@ export interface DatasetSummary {
 }
 
 export interface DataSlice {
-  dtype: "f32" | "i32" | "u32";
+  dtype: "f32" | "f64" | "i32" | "u32";
   shape: number[];
-  values: Float32Array | Int32Array | Uint32Array;
+  values: Float32Array | Float64Array | Int32Array | Uint32Array;
   request: SliceRequest;
 }
 

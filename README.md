@@ -28,10 +28,12 @@ ncx serve --dataset baseline=run_a.nc --dataset test=run_b.nc
 When pointing to a directory, `ncx` discovers and sorts all regular `.nc` files in the folder. Remote files opened via `host:/path` automatically configure an SSH local port forward.
 
 Binary responses have a 64 MiB default limit. Use `--max-response-bytes` to
-change this limit. The server checks the source and wire buffer sizes before it
-reads data. With the current four-byte display format and an eight-byte source,
-the largest allowed response can need up to 192 MiB for these two buffers.
-Library and HTTP overhead can increase the process memory above this estimate.
+change this limit. Display fields use little-endian `f32`, coordinates and time
+axes use little-endian `f64`, and connectivity keeps its integer type. The
+server checks the source and wire buffer sizes before it reads data. An
+allowed four-byte display response from an eight-byte source can need up to
+three times its response size for the source and wire buffers. Library and HTTP
+overhead can increase the process memory above this estimate.
 
 ---
 
