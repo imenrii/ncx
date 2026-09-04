@@ -32,6 +32,7 @@ Options:
   --listen ADDRESS                  IPv4 hub listener (default: 127.0.0.1:8765)
   --base-path PATH                  Hub URL path (default: /ncx)
   --local-root DIRECTORY            Allow hub files below this directory
+  --remote-ncx FILE                 Standalone ncx binary for SSH sessions
   --session-limit COUNT             Hub sessions, including starts (default: 10)
   --startup-timeout-seconds SECONDS Child startup timeout (default: 30)
   --session-ttl-seconds SECONDS     Hub idle timeout (default: 90)
@@ -73,6 +74,15 @@ enum OpenTarget {
 }
 
 pub async fn run() -> NcxResult<()> {
+    if env::var("NCX_ASKPASS_MODE").ok().as_deref() == Some("1") {
+        let password = env::var("NCX_SSH_PASSWORD")
+            .map_err(|_| "NCX_SSH_PASSWORD is not set for SSH_ASKPASS".to_owned())?;
+        if password.contains(['\r', '\n']) {
+            return Err("NCX_SSH_PASSWORD must not contain a line break".to_owned());
+        }
+        println!("{password}");
+        return Ok(());
+    }
     let arguments = env::args_os()
         .skip(1)
         .map(|argument| {
@@ -121,6 +131,7 @@ fn parse_arguments(arguments: Vec<String>) -> NcxResult<ParsedCommand> {
     let mut listen = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 8765);
     let mut base_path = "/ncx".to_owned();
     let mut local_roots = Vec::new();
+    let mut remote_ncx = None;
     let mut session_limit = 10_usize;
     let mut startup_timeout = Duration::from_secs(30);
     let mut idle_ttl = Duration::from_secs(90);
@@ -157,6 +168,16 @@ fn parse_arguments(arguments: Vec<String>) -> NcxResult<ParsedCommand> {
                     &arguments,
                     &mut index,
                     "--local-root",
+                )?));
+            }
+            "--remote-ncx" => {
+                if command != "hub" {
+                    return Err("--remote-ncx is only valid with `ncx hub`".to_owned());
+                }
+                remote_ncx = Some(PathBuf::from(parse_value::<String>(
+                    &arguments,
+                    &mut index,
+                    "--remote-ncx",
                 )?));
             }
             "--session-limit" => {
@@ -251,6 +272,8 @@ fn parse_arguments(arguments: Vec<String>) -> NcxResult<ParsedCommand> {
                 startup_timeout,
                 idle_ttl,
                 limits,
+                remote_ncx,
+                ssh_password: None,
             },
         })
     } else {
@@ -729,6 +752,8 @@ mod tests {
             "/ncx".into(),
             "--local-root".into(),
             "/data".into(),
+            "--remote-ncx".into(),
+            "/opt/ncx-static".into(),
             "--session-limit".into(),
             "10".into(),
             "--startup-timeout-seconds".into(),
@@ -744,6 +769,7 @@ mod tests {
         assert_eq!(listen, "0.0.0.0:8765".parse().unwrap());
         assert_eq!(config.base_path, "/ncx");
         assert_eq!(config.local_roots, [PathBuf::from("/data")]);
+        assert_eq!(config.remote_ncx, Some(PathBuf::from("/opt/ncx-static")));
         assert_eq!(config.session_limit, 10);
         assert_eq!(config.startup_timeout, Duration::from_secs(5));
         assert_eq!(config.idle_ttl, Duration::from_secs(90));

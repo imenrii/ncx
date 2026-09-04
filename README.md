@@ -40,8 +40,16 @@ forward.
 configured IPv4 container interface, but every child viewer remains on IPv4
 loopback. Local session paths must be absolute and must resolve below a
 configured `--local-root`. The hub streams only the existing viewer GET routes;
-it does not expose a general HTTP proxy. Remote hub targets are added in the
-hosting deployment phase.
+it does not expose a general HTTP proxy.
+
+Set `NCX_REMOTE_NCX` to a standalone Linux x86-64 `ncx` executable and set
+`NCX_SSH_PASSWORD` to enable hub targets such as
+`user@host:/absolute/file.nc`. The hub uses `SSH_ASKPASS`, so the password does
+not enter command arguments or logs. It uploads the standalone executable to
+`~/.cache/ncx/<content-id>/ncx` on first use and reuses that version. The SSH
+host must already be present in the container user's `known_hosts`. Docker
+administrators and processes in the hub container can read environment values,
+including the password.
 
 Binary responses have a 64 MiB default limit. Use `--max-response-bytes` to
 change this limit. Display fields use little-endian `f32`, coordinates and time
