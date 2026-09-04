@@ -391,7 +391,7 @@ where
         .fallback(index)
 }
 
-async fn index() -> Response {
+pub(crate) async fn index() -> Response {
     (
         [
             (

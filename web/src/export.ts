@@ -45,13 +45,13 @@ const CARRIED = [
 /** Faces the plot can set: AVHershey, National Park behind it per glyph, and
  *  CM Math ahead of both for Greek, arrows and operators. */
 const FONT_FILES = [
-  { family: "AVHershey Simplex", weight: 400, url: "/fonts/hershey-medium.woff2" },
-  { family: "AVHershey Simplex", weight: 700, url: "/fonts/hershey-heavy.woff2" },
-  { family: "National Park", weight: 400, url: "/fonts/nationalpark.woff2" },
+  { family: "AVHershey Simplex", weight: 400, url: "fonts/hershey-medium.woff2" },
+  { family: "AVHershey Simplex", weight: 700, url: "fonts/hershey-heavy.woff2" },
+  { family: "National Park", weight: 400, url: "fonts/nationalpark.woff2" },
   // CM Math leads --plot-face, so the copied computed `font-family` names it on
   // every text node here. It has to carry its unicode-range too: without one it
   // would claim Latin as well, and its subset has no Latin to answer with.
-  { family: "CM Math", weight: 400, url: "/fonts/cmmath.woff2",
+  { family: "CM Math", weight: 400, url: "fonts/cmmath.woff2",
     range: "U+00B1, U+00D7, U+00F7, U+0370-03FF, U+2190-21FF, U+2200-22FF" },
 ];
 
@@ -72,7 +72,7 @@ async function embeddedFontCss(): Promise<string> {
   if (fontCache !== undefined) return fontCache;
   const faces = await Promise.all(FONT_FILES.map(async (font) => {
     try {
-      const response = await fetch(font.url);
+      const response = await fetch(new URL(font.url, document.baseURI));
       if (!response.ok) return "";
       const data = base64(await response.arrayBuffer());
       return `@font-face{font-family:"${font.family}";font-weight:${font.weight};`

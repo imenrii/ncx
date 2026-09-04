@@ -801,6 +801,12 @@ struct CreatedSession {
     session: String,
 }
 
+#[derive(Serialize)]
+struct HubStatus {
+    hub: bool,
+    active: bool,
+}
+
 pub(crate) async fn serve<F>(listener: TcpListener, config: HubConfig, shutdown: F) -> NcxResult<()>
 where
     F: Future<Output = ()> + Send + 'static,
@@ -856,7 +862,12 @@ fn hub_application(base_path: &str, state: Arc<HubState>) -> Result<Router, HubE
         });
     }
     let api = Router::new()
-        .route("/session", post(create_session).delete(close_session))
+        .route(
+            "/session",
+            get(session_status)
+                .post(create_session)
+                .delete(close_session),
+        )
         .route("/session/heartbeat", post(heartbeat_session))
         .route("/datasets", get(relay_datasets))
         .route("/meta", get(relay_metadata))
@@ -869,6 +880,7 @@ fn hub_application(base_path: &str, state: Arc<HubState>) -> Result<Router, HubE
     let base = base_path.to_owned();
     let redirect_to = format!("{base_path}/");
     Ok(Router::new()
+        .route(&redirect_to, get(server::index))
         .nest(base_path, scoped)
         .layer(middleware::from_fn(move |request: Request, next: Next| {
             let base = base.clone();
@@ -885,6 +897,14 @@ fn hub_application(base_path: &str, state: Arc<HubState>) -> Result<Router, HubE
 
 async fn health() -> &'static str {
     "ok\n"
+}
+
+async fn session_status(State(state): State<Arc<HubState>>, headers: HeaderMap) -> Json<HubStatus> {
+    let active = match session_header(&headers) {
+        Ok(id) => state.manager.heartbeat(&id).await.is_ok(),
+        Err(_) => false,
+    };
+    Json(HubStatus { hub: true, active })
 }
 
 async fn create_session(

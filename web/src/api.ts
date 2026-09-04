@@ -5,6 +5,7 @@ import type {
   SliceRequest,
   Variable,
 } from "./model";
+import { currentHubSession, sessionFetch } from "./hub.ts";
 import {
   PERFORMANCE_MEASURE,
   measurePerformance,
@@ -23,7 +24,7 @@ function apiUrl(path: string): URL {
 }
 
 export async function fetchDatasets(): Promise<{ datasets: DatasetSummary[]; collection: boolean }> {
-  const response = await fetch(apiUrl("datasets"), { cache: "no-store" });
+  const response = await sessionFetch(apiUrl("datasets"), { cache: "no-store" });
   if (!response.ok) {
     throw new Error(await errorMessage(response));
   }
@@ -35,7 +36,7 @@ export async function fetchDatasets(): Promise<{ datasets: DatasetSummary[]; col
 }
 
 export async function fetchMetadata(dataset?: string): Promise<Metadata> {
-  const key = dataset ?? "";
+  const key = `${currentHubSession() ?? "viewer"}:${dataset ?? ""}`;
   const cached = metadataCache.get(key);
   if (cached) return cached;
   const pending = loadMetadata(dataset).catch((error) => {
@@ -49,7 +50,7 @@ export async function fetchMetadata(dataset?: string): Promise<Metadata> {
 async function loadMetadata(dataset?: string): Promise<Metadata> {
   const query = new URLSearchParams();
   if (dataset) query.set("dataset", dataset);
-  const response = await fetch(apiUrl(`meta${query.size ? `?${query}` : ""}`), { cache: "no-store" });
+  const response = await sessionFetch(apiUrl(`meta${query.size ? `?${query}` : ""}`), { cache: "no-store" });
   if (!response.ok) {
     throw new Error(await errorMessage(response));
   }
@@ -74,7 +75,7 @@ export async function fetchSlice(request: SliceRequest, signal?: AbortSignal): P
   const { response, buffer } = await measurePerformanceAsync(
     PERFORMANCE_MEASURE.sliceFetch,
     async () => {
-      const response = await fetch(apiUrl(`data?${query}`), { cache: "no-store", signal });
+      const response = await sessionFetch(apiUrl(`data?${query}`), { cache: "no-store", signal });
       if (!response.ok) {
         throw new Error(await errorMessage(response));
       }
@@ -130,7 +131,7 @@ export function fetchCoordinate(variable: Variable): Promise<Float64Array> {
 }
 
 export function fetchStaticSlice(variable: Variable, wire?: SliceRequest["wire"]): Promise<DataSlice> {
-  const key = `${variable.dataset_id ?? ""}:${variable.path}:${wire ?? "default"}`;
+  const key = `${currentHubSession() ?? "viewer"}:${variable.dataset_id ?? ""}:${variable.path}:${wire ?? "default"}`;
   let cached = staticSliceCache.get(key);
   if (!cached) {
     cached = fetchSlice({

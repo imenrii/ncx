@@ -9,10 +9,10 @@ const ncx = dirname(dirname(fileURLToPath(import.meta.url)));
 const binary = join(ncx, "target/debug/ncx");
 const browserMode = process.argv[2] ?? "rectilinear";
 const benchmark = process.env.NCX_BENCHMARK === "1";
-if (!["rectilinear", "curvilinear", "ugrid", "ugrid_projected", "comparison", "collection", "station"].includes(browserMode)) {
+if (!["rectilinear", "curvilinear", "ugrid", "ugrid_projected", "comparison", "collection", "station", "hub"].includes(browserMode)) {
   throw new Error(`unknown browser fixture ${JSON.stringify(browserMode)}`);
 }
-const fixture = join(ncx, `tests/data/${["comparison", "collection"].includes(browserMode) ? "rectilinear" : browserMode}.nc`);
+const fixture = join(ncx, `tests/data/${["comparison", "collection", "hub"].includes(browserMode) ? "rectilinear" : browserMode}.nc`);
 
 const injected = `<script>
 const collectPerformance = ${JSON.stringify(benchmark)};
@@ -81,7 +81,8 @@ HTMLAnchorElement.prototype.click = function() {
 };
 </script>
 <script type="module">
-const browserMode = ${JSON.stringify(browserMode)};
+const hubMode = ${JSON.stringify(browserMode === "hub")};
+const browserMode = hubMode ? "rectilinear" : ${JSON.stringify(browserMode)};
 const waitFor = async (test, message, timeout = 4000) => {
   const started = performance.now();
   while (performance.now() - started < timeout) {
@@ -123,7 +124,15 @@ const hasCorrectAspect = (canvas) => {
 const failures = [];
 try {
   window.__ncxStep = "initial field";
-  const shell = await waitFor(() => document.querySelector(".shell"), "application shell did not mount");
+  if (hubMode) {
+    const form = await waitFor(() => document.querySelector(".hub-open-panel"), "hub address form did not mount");
+    const input = form.querySelector("#hub-address");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(fixture)});
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    form.querySelector('.hub-save input').click();
+    form.requestSubmit();
+  }
+  const shell = await waitFor(() => document.querySelector(".shell"), "application shell did not mount", 10000);
   const topbar = shell.querySelector(".topbar");
   const topbarBounds = topbar.getBoundingClientRect();
   if (Math.abs(topbarBounds.height - 32) > 0.1 || Math.abs(topbarBounds.width - document.documentElement.clientWidth) > 0.1) {
@@ -801,12 +810,19 @@ try {
     .find((button) => button.textContent.includes("reference_pressure"))?.click();
   await waitFor(() => Math.abs(Number(document.querySelector(".scalar-value strong")?.textContent) - 101325) < 100, "rank-zero scalar did not render");
   }
+  if (hubMode) {
+    if (!localStorage.getItem("ncx.hub.addresses")?.includes("rectilinear.nc")) {
+      failures.push("hub did not save the address after explicit consent");
+    }
+    document.querySelector(".hub-close")?.click();
+    await waitFor(() => document.querySelector(".hub-open-panel"), "hub session did not close");
+  }
 } catch (error) {
   failures.push(
     window.__ncxStep + ": " + String(error.message || error) +
     " · plot: " + (document.querySelector(".plot-error")?.textContent || "none") +
     " · mesh: " + (document.querySelector(".mesh-canvas")?.outerHTML || "none") +
-    " · status: " + (document.querySelector(".statusbar")?.textContent || "none") +
+    " · status: " + (document.querySelector(".statusbar")?.textContent || document.querySelector(".hub-error")?.textContent || "none") +
     "\\n" + String(error.stack || ""),
   );
 }
@@ -844,7 +860,9 @@ if (browserMode === "collection") {
   await writeFile(join(collectionDirectory, "invalid.nc"), "not netcdf");
 }
 
-const childArguments = browserMode === "comparison"
+const childArguments = browserMode === "hub"
+  ? ["hub", "--listen", "127.0.0.1:0", "--base-path", "/ncx", "--local-root", join(ncx, "tests/data")]
+  : browserMode === "comparison"
   ? [
       "serve",
       "--port",
@@ -912,9 +930,18 @@ const proxy = createServer(async (request, response) => {
     const upstreamPath = browserMode === "station" && url.pathname.startsWith("/ncx/")
       ? request.url.slice(4)
       : request.url;
-    const upstream = await fetch(`http://127.0.0.1:${upstreamPort}${upstreamPath}`);
+    const headers = new Headers();
+    for (const [name, value] of Object.entries(request.headers)) {
+      if (value !== undefined && !["host", "connection", "content-length"].includes(name)) headers.set(name, value);
+    }
+    const upstream = await fetch(`http://127.0.0.1:${upstreamPort}${upstreamPath}`, {
+      method: request.method,
+      headers,
+      body: request.method === "GET" || request.method === "HEAD" ? undefined : request,
+      duplex: "half",
+    });
     let body = Buffer.from(await upstream.arrayBuffer());
-    if (new URL(upstreamPath, "http://127.0.0.1").pathname === "/") {
+    if (["/", "/ncx/"].includes(new URL(upstreamPath, "http://127.0.0.1").pathname)) {
       body = Buffer.from(body.toString().replace('<script type="module"', `${injected}<script type="module"`));
     }
     response.statusCode = upstream.status;
@@ -949,7 +976,9 @@ const browser = spawn(
     profile,
     browserMode === "station"
       ? `http://127.0.0.1:${proxyPort}/host`
-      : `http://127.0.0.1:${proxyPort}/?display_zone=HKT%2C480&comparison_host=1&generation=1`,
+      : browserMode === "hub"
+        ? `http://127.0.0.1:${proxyPort}/ncx/?display_zone=HKT%2C480&comparison_host=1&generation=1`
+        : `http://127.0.0.1:${proxyPort}/?display_zone=HKT%2C480&comparison_host=1&generation=1`,
   ],
   { stdio: ["ignore", "ignore", "pipe"] },
 );

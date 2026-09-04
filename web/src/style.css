@@ -32,14 +32,14 @@
    full font is never embedded and never served. */
 @font-face {
   font-family: "Gorton Perfected";
-  src: url("/fonts/gorton-400.woff2") format("woff2");
+  src: url("../fonts/gorton-400.woff2") format("woff2");
   font-weight: 400;
   font-display: swap;
 }
 
 @font-face {
   font-family: "Gorton Perfected";
-  src: url("/fonts/gorton-600.woff2") format("woff2");
+  src: url("../fonts/gorton-600.woff2") format("woff2");
   font-weight: 600;
   font-display: swap;
 }
@@ -50,14 +50,14 @@
    of Commit Mono mid-word loses the alignment it is carried for. */
 @font-face {
   font-family: "Commit Mono";
-  src: url("/fonts/commit-400.woff2") format("woff2");
+  src: url("../fonts/commit-400.woff2") format("woff2");
   font-weight: 400;
   font-display: swap;
 }
 
 @font-face {
   font-family: "Commit Mono";
-  src: url("/fonts/commit-700.woff2") format("woff2");
+  src: url("../fonts/commit-700.woff2") format("woff2");
   font-weight: 700;
   font-display: swap;
 }
@@ -76,7 +76,7 @@
    its symbol in an element that opts out of the transform. */
 @font-face {
   font-family: "CM Math";
-  src: url("/fonts/cmmath.woff2") format("woff2");
+  src: url("../fonts/cmmath.woff2") format("woff2");
   font-weight: 400;
   font-display: swap;
   unicode-range: U+00B1, U+00D7, U+00F7, U+0370-03FF, U+2190-21FF, U+2200-22FF;
@@ -84,21 +84,21 @@
 
 @font-face {
   font-family: "AVHershey Simplex";
-  src: url("/fonts/hershey-light.woff2") format("woff2");
+  src: url("../fonts/hershey-light.woff2") format("woff2");
   font-weight: 300;
   font-display: swap;
 }
 
 @font-face {
   font-family: "AVHershey Simplex";
-  src: url("/fonts/hershey-medium.woff2") format("woff2");
+  src: url("../fonts/hershey-medium.woff2") format("woff2");
   font-weight: 400;
   font-display: swap;
 }
 
 @font-face {
   font-family: "AVHershey Simplex";
-  src: url("/fonts/hershey-heavy.woff2") format("woff2");
+  src: url("../fonts/hershey-heavy.woff2") format("woff2");
   font-weight: 700;
   font-display: swap;
 }
@@ -109,7 +109,7 @@
    pair covers every character in the checklist between them. */
 @font-face {
   font-family: "National Park";
-  src: url("/fonts/nationalpark.woff2") format("woff2");
+  src: url("../fonts/nationalpark.woff2") format("woff2");
   font-weight: 400;
   font-display: swap;
 }
@@ -2225,4 +2225,70 @@ i .value {
   border-color: var(--ink);
   background: var(--amber);
   font-weight: 600;
+}
+
+.hub-active {
+  height: 100%;
+}
+
+.hub-open {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+  background: var(--stock);
+}
+
+.hub-open-panel {
+  width: min(36rem, 100%);
+  display: grid;
+  gap: 0.75rem;
+  padding: 2rem;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  box-shadow: 8px 8px 0 var(--shadow);
+}
+
+.hub-open-panel h1,
+.hub-open-panel p {
+  margin: 0;
+}
+
+.hub-open-panel > input {
+  min-height: var(--hit);
+  padding: 0 0.75rem;
+  border: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: var(--size-body);
+}
+
+.hub-open-panel > button,
+.hub-close {
+  min-height: var(--hit);
+  padding: 0 1rem;
+  border: 1px solid var(--ink);
+  background: var(--amber);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-weight: 600;
+}
+
+.hub-save {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: var(--hit);
+}
+
+.hub-error {
+  color: var(--error, #8b1e1e);
+}
+
+.hub-close {
+  position: fixed;
+  z-index: 30;
+  top: 0.5rem;
+  right: 0.75rem;
+  min-height: var(--hit);
+  background: var(--paper);
 }
