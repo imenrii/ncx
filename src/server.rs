@@ -80,7 +80,7 @@ pub struct Limits {
 impl Default for Limits {
     fn default() -> Self {
         Self {
-            max_response_bytes: 1024 * 1024 * 1024,
+            max_response_bytes: 64 * 1024 * 1024,
             ugrid_warn_faces: 2_000_000,
         }
     }
@@ -494,6 +494,11 @@ mod tests {
             response.headers()[CACHE_CONTROL],
             "public, max-age=31536000, immutable"
         );
+    }
+
+    #[test]
+    fn default_response_limit_is_64_mib() {
+        assert_eq!(Limits::default().max_response_bytes, 64 * 1024 * 1024);
     }
 
     #[test]

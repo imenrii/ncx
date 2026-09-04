@@ -53,6 +53,8 @@ pub struct VariableSummary {
     pub path: String,
     pub name: String,
     pub dtype: String,
+    #[serde(skip)]
+    source_element_bytes: usize,
     pub dimensions: Vec<VariableDimension>,
     pub attributes: Vec<AttributeSummary>,
     pub view_hint: ViewHint,
@@ -177,7 +179,15 @@ impl Dataset {
             .find(|variable| variable.path == path)
             .ok_or_else(|| DataError::new(404, "variable_not_found", "unknown variable path"))?;
         let selection = ReadSelection::parse(summary, selection, stride)?;
-        selection.check_response_size(max_response_bytes)?;
+        let connectivity = self.connectivity_variables.contains(path);
+        selection.check_response_size(
+            max_response_bytes,
+            summary.source_element_bytes,
+            std::mem::size_of::<u32>(),
+        )?;
+        if !connectivity {
+            validate_decode_attributes(summary)?;
+        }
 
         let file = self.file.lock().map_err(|_| {
             DataError::new(500, "dataset_lock_failed", "the NetCDF reader lock failed")
@@ -186,7 +196,7 @@ impl Dataset {
             .variable(path.trim_start_matches('/'))
             .ok_or_else(|| DataError::new(404, "variable_not_found", "unknown variable path"))?;
 
-        let (dtype, body) = if self.connectivity_variables.contains(path) {
+        let (dtype, body) = if connectivity {
             read_connectivity(&variable, &selection)?
         } else {
             ("f32", read_display_values(&variable, &selection)?)
@@ -344,10 +354,12 @@ fn add_variable(
         .collect();
     let attributes = collect_attributes(variable.attributes(), &path, &mut metadata.warnings);
 
+    let variable_type = variable.vartype();
     metadata.variables.push(VariableSummary {
         path,
         name,
-        dtype: data_type_name(&variable.vartype()),
+        dtype: data_type_name(&variable_type),
+        source_element_bytes: variable_type.size(),
         dimensions,
         attributes,
         view_hint: ViewHint::Plain,
@@ -535,6 +547,12 @@ fn join_path(group_path: &str, name: &str) -> String {
     }
 }
 
+#[derive(Debug, PartialEq)]
+struct ReadSize {
+    response_bytes: u64,
+    peak_bytes: u64,
+}
+
 #[derive(Debug)]
 struct ReadSelection {
     start: Vec<usize>,
@@ -638,16 +656,37 @@ impl ReadSelection {
         })
     }
 
-    fn check_response_size(&self, maximum: u64) -> Result<(), DataError> {
-        let bytes = u64::try_from(self.elements)
-            .ok()
-            .and_then(|elements| elements.checked_mul(4))
+    fn check_response_size(
+        &self,
+        maximum: u64,
+        source_element_bytes: usize,
+        wire_element_bytes: usize,
+    ) -> Result<ReadSize, DataError> {
+        let elements = u64::try_from(self.elements)
+            .map_err(|_| DataError::oversized("response size overflows u64".to_owned(), None))?;
+        let source_element_bytes = u64::try_from(source_element_bytes).map_err(|_| {
+            DataError::oversized("source element size overflows u64".to_owned(), None)
+        })?;
+        let wire_element_bytes = u64::try_from(wire_element_bytes).map_err(|_| {
+            DataError::oversized("wire element size overflows u64".to_owned(), None)
+        })?;
+        let source_bytes = elements.checked_mul(source_element_bytes).ok_or_else(|| {
+            DataError::oversized("source buffer size overflows u64".to_owned(), None)
+        })?;
+        let response_bytes = elements
+            .checked_mul(wire_element_bytes)
             .ok_or_else(|| DataError::oversized("response size overflows u64".to_owned(), None))?;
-        if bytes <= maximum {
-            return Ok(());
+        let peak_bytes = source_bytes.checked_add(response_bytes).ok_or_else(|| {
+            DataError::oversized("read memory estimate overflows u64".to_owned(), None)
+        })?;
+        if response_bytes <= maximum {
+            return Ok(ReadSize {
+                response_bytes,
+                peak_bytes,
+            });
         }
 
-        let suggested_stride = self.suggested_stride(maximum);
+        let suggested_stride = self.suggested_stride(maximum, wire_element_bytes);
         let suggestion = suggested_stride
             .as_ref()
             .map(|values| {
@@ -660,13 +699,13 @@ impl ReadSelection {
             .map(|values| format!("; try stride={values}"))
             .unwrap_or_default();
         Err(DataError::oversized(
-            format!("response would be {bytes} bytes; limit is {maximum}{suggestion}"),
+            format!("response would be {response_bytes} bytes; limit is {maximum}{suggestion}"),
             suggested_stride,
         ))
     }
 
-    fn suggested_stride(&self, maximum: u64) -> Option<Vec<usize>> {
-        let budget = usize::try_from(maximum / 4).ok()?;
+    fn suggested_stride(&self, maximum: u64, wire_element_bytes: u64) -> Option<Vec<usize>> {
+        let budget = usize::try_from(maximum / wire_element_bytes).ok()?;
         if budget == 0 || !self.ranged_dimensions.contains(&true) {
             return None;
         }
@@ -756,6 +795,25 @@ fn parse_range(item: &str, dimension: &VariableDimension) -> Result<(usize, usiz
         ));
     }
     Ok((start, stop))
+}
+
+fn validate_decode_attributes(variable: &VariableSummary) -> Result<(), DataError> {
+    for attribute in &variable.attributes {
+        if !attribute.truncated {
+            continue;
+        }
+        let (code, label) = match attribute.name.as_str() {
+            "missing_value" => ("invalid_missing_value", "missing_value"),
+            "scale_factor" | "add_offset" => ("invalid_packing", attribute.name.as_str()),
+            _ => continue,
+        };
+        return Err(DataError::new(
+            422,
+            code,
+            format!("{label} has more than {MAX_ATTRIBUTE_VALUES} values"),
+        ));
+    }
+    Ok(())
 }
 
 fn read_display_values(
@@ -1109,6 +1167,7 @@ mod tests {
             path: "/temperature".to_owned(),
             name: "temperature".to_owned(),
             dtype: "i16".to_owned(),
+            source_element_bytes: 2,
             dimensions: vec![
                 VariableDimension {
                     path: "/y".to_owned(),
@@ -1140,7 +1199,7 @@ mod tests {
         assert_eq!(error.code, "invalid_stride");
 
         let selection = ReadSelection::parse(&variable, ":,:", "1,1").unwrap();
-        let error = selection.check_response_size(16).unwrap_err();
+        let error = selection.check_response_size(16, 2, 4).unwrap_err();
         let suggestion = error.suggested_stride.unwrap();
         let suggestion = suggestion
             .iter()
@@ -1148,7 +1207,89 @@ mod tests {
             .collect::<Vec<_>>()
             .join(",");
         let suggested_selection = ReadSelection::parse(&variable, ":,:", &suggestion).unwrap();
-        assert!(suggested_selection.check_response_size(16).is_ok());
+        assert!(suggested_selection.check_response_size(16, 2, 4).is_ok());
+    }
+
+    #[test]
+    fn response_preflight_uses_wire_width_and_reports_peak_memory() {
+        let variable = test_variable();
+        let selection = ReadSelection::parse(&variable, ":,:", "1,1").unwrap();
+
+        let size = selection.check_response_size(64, 2, 8).unwrap();
+        assert_eq!(size.response_bytes, 64);
+        assert_eq!(size.peak_bytes, 80);
+
+        let error = selection.check_response_size(63, 2, 8).unwrap_err();
+        assert_eq!(error.status, 413);
+        assert_eq!(error.code, "response_too_large");
+        assert!(error.suggested_stride.is_some());
+    }
+
+    #[test]
+    fn response_preflight_rejects_memory_arithmetic_overflow() {
+        let selection = ReadSelection {
+            start: Vec::new(),
+            count: Vec::new(),
+            stride: Vec::new(),
+            requested_stride: Vec::new(),
+            output_shape: Vec::new(),
+            ranged_dimensions: Vec::new(),
+            elements: usize::MAX,
+        };
+
+        let error = selection.check_response_size(u64::MAX, 8, 8).unwrap_err();
+        assert_eq!(error.status, 413);
+        assert_eq!(error.code, "response_too_large");
+        assert_eq!(error.suggested_stride, None);
+    }
+
+    #[test]
+    fn oversized_response_fails_before_the_dataset_lock() {
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data");
+        let dataset = Dataset::open(&fixtures.join("rectilinear.nc")).unwrap();
+        poison_dataset_lock(&dataset);
+
+        let error = dataset
+            .read_data("/temperature", ":,:,:", "1,1,1", 1)
+            .err()
+            .unwrap();
+        assert_eq!(error.status, 413);
+        assert_eq!(error.code, "response_too_large");
+    }
+
+    #[test]
+    fn oversized_decode_attributes_fail_before_the_dataset_lock() {
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data");
+        let mut dataset = Dataset::open(&fixtures.join("rectilinear.nc")).unwrap();
+        dataset
+            .metadata
+            .variables
+            .iter_mut()
+            .find(|variable| variable.path == "/temperature")
+            .unwrap()
+            .attributes
+            .push(AttributeSummary {
+                name: "missing_value".to_owned(),
+                dtype: "i16".to_owned(),
+                value: AttributeData::Array(vec![AttributeScalar::Signed(-1)]),
+                truncated: true,
+            });
+        poison_dataset_lock(&dataset);
+
+        let error = dataset
+            .read_data("/temperature", "0,:,:", "1,1,1", 1024)
+            .err()
+            .unwrap();
+        assert_eq!(error.status, 422);
+        assert_eq!(error.code, "invalid_missing_value");
+    }
+
+    fn poison_dataset_lock(dataset: &Dataset) {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = dataset.file.lock().unwrap();
+            panic!("poison the test mutex");
+        }));
+        assert!(result.is_err());
     }
 
     #[test]

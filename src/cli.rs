@@ -27,7 +27,7 @@ Usage:
 
 Options:
   --port PORT                 Loopback port for `serve` (default: 0)
-  --max-response-bytes BYTES  Maximum binary response (default: 1073741824)
+  --max-response-bytes BYTES  Maximum binary response (default: 67108864)
   --ugrid-warn-faces FACES    UGRID confirmation threshold (default: 2000000)
   --dataset ID=FILE           Add one named read-only dataset to `serve`
   --exit-on-stdin-eof         Stop `serve` when its owner pipe closes
@@ -591,6 +591,11 @@ mod tests {
         assert_eq!(destination, "cluster");
         assert_eq!(path, "/data/a file's.nc");
         assert_eq!(shell_quote(&path), "'/data/a file'\"'\"'s.nc'");
+    }
+
+    #[test]
+    fn help_reports_the_default_response_limit() {
+        assert!(USAGE.contains("default: 67108864"));
     }
 
     #[test]
