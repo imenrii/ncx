@@ -125,10 +125,13 @@ export function App() {
   useEffect(() => {
     if (!selectedDataset) return;
     let active = true;
+    setStartupError(undefined);
     setStatus(`opening ${selectedDataset}…`);
     fetchMetadata(selectedDataset)
       .then((nextMetadata) => {
         if (!active) return;
+        setDatasets((current) => current.map((dataset) =>
+          dataset.id === selectedDataset ? inspectedDataset(dataset, nextMetadata) : dataset));
         setMetadata(nextMetadata);
         const requested = requestedVariable.current?.dataset === selectedDataset
           ? requestedVariable.current.path
@@ -143,6 +146,15 @@ export function App() {
       .catch((error: unknown) => {
         if (!active) return;
         const message = error instanceof Error ? error.message : String(error);
+        setDatasets((current) => current.map((dataset) =>
+          dataset.id === selectedDataset ? unavailableDataset(dataset, message) : dataset));
+        const next = collection
+          ? datasets.find((dataset) => dataset.id !== selectedDataset && dataset.state !== "unavailable")
+          : undefined;
+        if (next) {
+          setSelectedDataset(next.id);
+          return;
+        }
         setStartupError(message);
         setStatus(message);
       });
@@ -382,6 +394,10 @@ export function App() {
           selectedPath={selectedPath}
           search={search}
           onSearch={setSearch}
+          onReady={(dataset, nextMetadata) => setDatasets((current) => current.map((summary) =>
+            summary.id === dataset ? inspectedDataset(summary, nextMetadata) : summary))}
+          onUnavailable={(dataset, error) => setDatasets((current) => current.map((summary) =>
+            summary.id === dataset ? unavailableDataset(summary, error) : summary))}
           onSelect={(dataset, path) => {
             if (dataset === selectedDataset) {
               setSelectedPath(path);
@@ -881,6 +897,22 @@ type LoadedCollectionFile = {
   supportingPaths: Set<string>;
 };
 
+function inspectedDataset(dataset: DatasetSummary, metadata: Metadata): DatasetSummary {
+  return {
+    id: dataset.id,
+    label: dataset.label,
+    state: "ready",
+    name: metadata.dataset.name,
+    variables: metadata.variables.length,
+    dimensions: metadata.dimensions.length,
+    warnings: metadata.warnings.length,
+  };
+}
+
+function unavailableDataset(dataset: DatasetSummary, error: string): DatasetSummary {
+  return { id: dataset.id, label: dataset.label, state: "unavailable", error };
+}
+
 function CollectionBrowser({
   datasets,
   metadata,
@@ -888,6 +920,8 @@ function CollectionBrowser({
   selectedPath,
   search,
   onSearch,
+  onReady,
+  onUnavailable,
   onSelect,
 }: {
   datasets: DatasetSummary[];
@@ -896,12 +930,13 @@ function CollectionBrowser({
   selectedPath: string;
   search: string;
   onSearch: (value: string) => void;
+  onReady: (dataset: string, metadata: Metadata) => void;
+  onUnavailable: (dataset: string, error: string) => void;
   onSelect: (dataset: string, path: string) => void;
 }) {
   const [showSupporting, setShowSupporting] = useState(false);
   const [loaded, setLoaded] = useState<Map<string, LoadedCollectionFile>>(new Map());
   const [loading, setLoading] = useState<Set<string>>(new Set());
-  const [errors, setErrors] = useState<Map<string, string>>(new Map());
   const query = search.trim().toLowerCase();
 
   useEffect(() => {
@@ -914,29 +949,24 @@ function CollectionBrowser({
     });
   }, [metadata, selectedDataset]);
 
-  const load = (dataset: string) => {
-    if (loaded.has(dataset) || loading.has(dataset)) return;
-    setLoading((current) => new Set(current).add(dataset));
-    void fetchMetadata(dataset)
+  const load = (dataset: DatasetSummary) => {
+    if (dataset.state === "unavailable" || loaded.has(dataset.id) || loading.has(dataset.id)) return;
+    setLoading((current) => new Set(current).add(dataset.id));
+    void fetchMetadata(dataset.id)
       .then((nextMetadata) => {
-        setLoaded((current) => new Map(current).set(dataset, {
+        setLoaded((current) => new Map(current).set(dataset.id, {
           metadata: nextMetadata,
           supportingPaths: supportingVariablePaths(nextMetadata),
         }));
-        setErrors((current) => {
-          const next = new Map(current);
-          next.delete(dataset);
-          return next;
-        });
+        onReady(dataset.id, nextMetadata);
       })
       .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
-        setErrors((current) => new Map(current).set(dataset, message));
+        onUnavailable(dataset.id, error instanceof Error ? error.message : String(error));
       })
       .finally(() => {
         setLoading((current) => {
           const next = new Set(current);
-          next.delete(dataset);
+          next.delete(dataset.id);
           return next;
         });
       });
@@ -976,20 +1006,22 @@ function CollectionBrowser({
           const fileSelectedPath = dataset.id === selectedDataset ? selectedPath : "";
           const visibleCount = file
             ? countVisible(file.metadata, file.supportingPaths, showSupporting, fileSelectedPath)
-            : dataset.variables;
+            : dataset.state === "ready" ? dataset.variables : undefined;
           return (
             <details
-              className="collection-file"
+              className={`collection-file ${dataset.state}`}
               key={dataset.id}
               open={dataset.id === selectedDataset || undefined}
-              onToggle={(event) => event.currentTarget.open && load(dataset.id)}
+              onToggle={(event) => event.currentTarget.open && load(dataset)}
             >
               <summary>
-                <strong>{dataset.name}</strong>
-                <span>{visibleCount} variables</span>
+                <strong>{dataset.state === "ready" ? dataset.name : dataset.label}</strong>
+                <span>{dataset.state === "unavailable"
+                  ? "unavailable"
+                  : visibleCount === undefined ? "not inspected" : `${visibleCount} variables`}</span>
               </summary>
               {loading.has(dataset.id) && !file && <p className="collection-note">Loading metadata…</p>}
-              {errors.has(dataset.id) && <p className="collection-error">{errors.get(dataset.id)}</p>}
+              {dataset.state === "unavailable" && <p className="collection-error">{dataset.error}</p>}
               {file && (
                 <>
                   <VariableGroups

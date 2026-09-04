@@ -25,7 +25,13 @@ ncx serve --port 8765 run.nc
 ncx serve --dataset baseline=run_a.nc --dataset test=run_b.nc
 ```
 
-When pointing to a directory, `ncx` discovers and sorts all regular `.nc` files in the folder. Remote files opened via `host:/path` automatically configure an SSH local port forward.
+When pointing to a directory, `ncx` discovers and sorts all direct regular
+`.nc` files before it opens any dataset. It opens a file when you select it and
+keeps one collection file open between requests. An invalid `.nc` file stays in
+the list and is marked as unavailable. Do not change collection files while one
+`ncx` session is running; file changes during a session are not supported.
+Remote files opened via `host:/path` automatically configure an SSH local port
+forward.
 
 Binary responses have a 64 MiB default limit. Use `--max-response-bytes` to
 change this limit. Display fields use little-endian `f32`, coordinates and time

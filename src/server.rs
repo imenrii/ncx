@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::future::Future;
-use std::sync::{Arc, LazyLock};
+use std::path::PathBuf;
+use std::sync::{Arc, Condvar, LazyLock, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use axum::body::Body;
@@ -87,15 +88,243 @@ impl Default for Limits {
 }
 
 struct AppState {
-    datasets: Vec<ServedDataset>,
+    catalog: DatasetCatalog,
     limits: Limits,
-    collection: bool,
 }
 
 pub struct ServedDataset {
-    pub id: String,
-    pub label: String,
-    pub dataset: Dataset,
+    id: String,
+    label: String,
+    source: DatasetSource,
+}
+
+impl ServedDataset {
+    pub fn eager(id: impl Into<String>, label: impl Into<String>, dataset: Dataset) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            source: DatasetSource::Eager(Arc::new(dataset)),
+        }
+    }
+
+    pub fn lazy(id: impl Into<String>, label: impl Into<String>, path: PathBuf) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            source: DatasetSource::Lazy(LazyDataset {
+                path,
+                state: Mutex::new(LazyDatasetState {
+                    inspection: DatasetInspection::Uninspected,
+                    opening: false,
+                    open: Weak::new(),
+                }),
+                opened: Condvar::new(),
+            }),
+        }
+    }
+}
+
+enum DatasetSource {
+    Eager(Arc<Dataset>),
+    Lazy(LazyDataset),
+}
+
+struct LazyDataset {
+    path: PathBuf,
+    state: Mutex<LazyDatasetState>,
+    opened: Condvar,
+}
+
+struct LazyDatasetState {
+    inspection: DatasetInspection,
+    opening: bool,
+    open: Weak<Dataset>,
+}
+
+#[derive(Clone, Serialize)]
+struct DatasetSummary {
+    id: String,
+    label: String,
+    #[serde(flatten)]
+    inspection: DatasetInspection,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+enum DatasetInspection {
+    Uninspected,
+    Ready {
+        name: String,
+        variables: usize,
+        dimensions: usize,
+        warnings: usize,
+    },
+    Unavailable {
+        error: String,
+    },
+}
+
+struct OpenedDataset {
+    id: String,
+    label: String,
+    dataset: Arc<Dataset>,
+}
+
+struct DatasetCatalog {
+    entries: Vec<ServedDataset>,
+    collection: bool,
+    active: Mutex<Option<Arc<Dataset>>>,
+}
+
+impl DatasetCatalog {
+    fn new(entries: Vec<ServedDataset>, collection: bool) -> NcxResult<Self> {
+        if entries.is_empty() {
+            return Err("ncx serve needs at least one dataset".to_owned());
+        }
+        let mut ids = HashSet::with_capacity(entries.len());
+        if entries.iter().any(|entry| !ids.insert(&entry.id)) {
+            return Err("ncx serve dataset IDs must be unique".to_owned());
+        }
+        Ok(Self {
+            entries,
+            collection,
+            active: Mutex::new(None),
+        })
+    }
+
+    fn list(&self) -> Vec<DatasetSummary> {
+        self.entries
+            .iter()
+            .map(|entry| DatasetSummary {
+                id: entry.id.clone(),
+                label: entry.label.clone(),
+                inspection: match &entry.source {
+                    DatasetSource::Eager(dataset) => ready(dataset.metadata()),
+                    DatasetSource::Lazy(lazy) => lazy
+                        .state
+                        .lock()
+                        .map(|state| state.inspection.clone())
+                        .unwrap_or_else(|_| DatasetInspection::Unavailable {
+                            error: format!("{} is unavailable", entry.label),
+                        }),
+                },
+            })
+            .collect()
+    }
+
+    fn open(&self, requested: Option<&str>) -> Result<OpenedDataset, DataError> {
+        let entry = self.select(requested)?;
+        let dataset = match &entry.source {
+            DatasetSource::Eager(dataset) => dataset.clone(),
+            DatasetSource::Lazy(lazy) => lazy.open(&entry.label)?,
+        };
+        if self.collection {
+            let mut active = self.active.lock().map_err(|_| catalog_lock_error())?;
+            *active = Some(dataset.clone());
+        }
+        Ok(OpenedDataset {
+            id: entry.id.clone(),
+            label: entry.label.clone(),
+            dataset,
+        })
+    }
+
+    fn select(&self, requested: Option<&str>) -> Result<&ServedDataset, DataError> {
+        if let Some(id) = requested {
+            return self
+                .entries
+                .iter()
+                .find(|entry| entry.id == id)
+                .ok_or_else(|| DataError {
+                    status: 404,
+                    code: "dataset_not_found",
+                    message: format!("unknown dataset {id:?}"),
+                    suggested_stride: None,
+                });
+        }
+        if self.entries.len() == 1 {
+            return Ok(&self.entries[0]);
+        }
+        Err(DataError {
+            status: 400,
+            code: "dataset_required",
+            message: "dataset is required when more than one dataset is loaded".to_owned(),
+            suggested_stride: None,
+        })
+    }
+
+    fn named(&self) -> bool {
+        self.entries.len() > 1
+    }
+}
+
+impl LazyDataset {
+    fn open(&self, label: &str) -> Result<Arc<Dataset>, DataError> {
+        loop {
+            let mut state = self.state.lock().map_err(|_| catalog_lock_error())?;
+            if let Some(dataset) = state.open.upgrade() {
+                return Ok(dataset);
+            }
+            if let DatasetInspection::Unavailable { error } = &state.inspection {
+                return Err(dataset_unavailable(error.clone()));
+            }
+            if state.opening {
+                drop(self.opened.wait(state).map_err(|_| catalog_lock_error())?);
+                continue;
+            }
+            state.opening = true;
+            drop(state);
+
+            let result = Dataset::open(&self.path);
+            let mut state = self.state.lock().map_err(|_| catalog_lock_error())?;
+            state.opening = false;
+            match result {
+                Ok(dataset) => {
+                    let dataset = Arc::new(dataset);
+                    state.inspection = ready(dataset.metadata());
+                    state.open = Arc::downgrade(&dataset);
+                    self.opened.notify_all();
+                    return Ok(dataset);
+                }
+                Err(cause) => {
+                    eprintln!("ncx: cannot open {}: {cause}", self.path.display());
+                    let error = format!("{label} is not a readable NetCDF dataset");
+                    state.inspection = DatasetInspection::Unavailable {
+                        error: error.clone(),
+                    };
+                    self.opened.notify_all();
+                    return Err(dataset_unavailable(error));
+                }
+            }
+        }
+    }
+}
+
+fn ready(metadata: &DatasetMetadata) -> DatasetInspection {
+    DatasetInspection::Ready {
+        name: metadata.dataset.name.clone(),
+        variables: metadata.variables.len(),
+        dimensions: metadata.dimensions.len(),
+        warnings: metadata.warnings.len(),
+    }
+}
+
+fn catalog_lock_error() -> DataError {
+    DataError {
+        status: 500,
+        code: "dataset_catalog_failed",
+        message: "the dataset catalog lock failed".to_owned(),
+        suggested_stride: None,
+    }
+}
+
+fn dataset_unavailable(message: String) -> DataError {
+    DataError {
+        status: 422,
+        code: "dataset_unavailable",
+        message,
+        suggested_stride: None,
+    }
 }
 
 #[derive(Serialize)]
@@ -107,16 +336,6 @@ struct MetadataResponse {
     #[serde(flatten)]
     metadata: DatasetMetadata,
     limits: Limits,
-}
-
-#[derive(Serialize)]
-struct DatasetSummary {
-    id: String,
-    label: String,
-    name: String,
-    variables: usize,
-    dimensions: usize,
-    warnings: usize,
 }
 
 #[derive(Serialize)]
@@ -135,17 +354,9 @@ pub async fn serve<F>(
 where
     F: Future<Output = ()> + Send + 'static,
 {
-    if datasets.is_empty() {
-        return Err("ncx serve needs at least one dataset".to_owned());
-    }
-    let mut ids = HashSet::with_capacity(datasets.len());
-    if datasets.iter().any(|dataset| !ids.insert(&dataset.id)) {
-        return Err("ncx serve dataset IDs must be unique".to_owned());
-    }
     let state = Arc::new(AppState {
-        datasets,
+        catalog: DatasetCatalog::new(datasets, collection)?,
         limits,
-        collection,
     });
     let api = Router::new()
         .route("/datasets", get(dataset_list))
@@ -190,26 +401,11 @@ async fn index() -> Response {
 }
 
 async fn dataset_list(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let datasets = state
-        .datasets
-        .iter()
-        .map(|source| {
-            let metadata = source.dataset.metadata();
-            DatasetSummary {
-                id: source.id.clone(),
-                label: source.label.clone(),
-                name: metadata.dataset.name.clone(),
-                variables: metadata.variables.len(),
-                dimensions: metadata.dimensions.len(),
-                warnings: metadata.warnings.len(),
-            }
-        })
-        .collect();
     (
         [(CACHE_CONTROL, HeaderValue::from_static("no-store"))],
         Json(DatasetsResponse {
-            datasets,
-            collection: state.collection,
+            datasets: state.catalog.list(),
+            collection: state.catalog.collection,
         }),
     )
 }
@@ -227,13 +423,26 @@ async fn metadata(
         Ok(query) => query,
         Err(error) => return invalid_query(error),
     };
-    let source = match state.select(query.dataset.as_deref()) {
-        Ok(source) => source,
-        Err(error) => return error_response(error),
+    let requested = query.dataset;
+    let limits = state.limits;
+    let named = state.catalog.named();
+    let opened =
+        tokio::task::spawn_blocking(move || state.catalog.open(requested.as_deref())).await;
+    let source = match opened {
+        Ok(Ok(source)) => source,
+        Ok(Err(error)) => return error_response(error),
+        Err(error) => {
+            return error_response(DataError {
+                status: 500,
+                code: "dataset_open_task_failed",
+                message: error.to_string(),
+                suggested_stride: None,
+            });
+        }
     };
     (
         [(CACHE_CONTROL, HeaderValue::from_static("no-store"))],
-        Json(state.metadata_response(source)),
+        Json(metadata_response(&source, named, limits)),
     )
         .into_response()
 }
@@ -267,11 +476,18 @@ async fn data(
     let maximum = state.limits.max_response_bytes;
     let read = tokio::task::spawn_blocking(move || {
         let started = Instant::now();
-        let result = state.select(query.dataset.as_deref()).and_then(|source| {
-            source
-                .dataset
-                .read_data(&query.path, &query.selection, &query.stride, wire, maximum)
-        });
+        let result = state
+            .catalog
+            .open(query.dataset.as_deref())
+            .and_then(|source| {
+                source.dataset.read_data(
+                    &query.path,
+                    &query.selection,
+                    &query.stride,
+                    wire,
+                    maximum,
+                )
+            });
         let elapsed = started.elapsed();
         if elapsed.as_millis() >= 100 {
             eprintln!("ncx: read {} in {} ms", query.path, elapsed.as_millis());
@@ -292,39 +508,12 @@ async fn data(
     }
 }
 
-impl AppState {
-    fn metadata_response(&self, source: &ServedDataset) -> MetadataResponse {
-        let named = self.datasets.len() > 1;
-        MetadataResponse {
-            dataset_id: named.then(|| source.id.clone()),
-            dataset_label: named.then(|| source.label.clone()),
-            metadata: source.dataset.metadata().clone(),
-            limits: self.limits,
-        }
-    }
-
-    fn select(&self, requested: Option<&str>) -> Result<&ServedDataset, DataError> {
-        if let Some(id) = requested {
-            return self
-                .datasets
-                .iter()
-                .find(|dataset| dataset.id == id)
-                .ok_or_else(|| DataError {
-                    status: 404,
-                    code: "dataset_not_found",
-                    message: format!("unknown dataset {id:?}"),
-                    suggested_stride: None,
-                });
-        }
-        if self.datasets.len() == 1 {
-            return Ok(&self.datasets[0]);
-        }
-        Err(DataError {
-            status: 400,
-            code: "dataset_required",
-            message: "dataset is required when more than one dataset is loaded".to_owned(),
-            suggested_stride: None,
-        })
+fn metadata_response(source: &OpenedDataset, named: bool, limits: Limits) -> MetadataResponse {
+    MetadataResponse {
+        dataset_id: named.then(|| source.id.clone()),
+        dataset_label: named.then(|| source.label.clone()),
+        metadata: source.dataset.metadata().clone(),
+        limits,
     }
 }
 
@@ -542,39 +731,175 @@ mod tests {
         assert_eq!(error.message, "wire must be `f32` or `f64`");
     }
 
-    #[test]
-    fn dataset_selection_preserves_single_file_and_bounds_multi_file_requests() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/classic.nc");
-        let source = |id: &str| ServedDataset {
-            id: id.to_owned(),
-            label: id.to_owned(),
-            dataset: Dataset::open(&path).unwrap(),
-        };
-        let single = AppState {
-            datasets: vec![source("only")],
-            limits: Limits::default(),
-            collection: false,
-        };
-        assert_eq!(single.select(None).unwrap().id, "only");
-        let metadata = single.metadata_response(single.select(None).unwrap());
-        assert_eq!(metadata.dataset_id, None);
-        assert_eq!(metadata.dataset_label, None);
+    fn fixture(name: &str) -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("tests/data/{name}"))
+    }
 
-        let multiple = AppState {
-            datasets: vec![source("case-a"), source("case-b")],
-            limits: Limits::default(),
-            collection: false,
-        };
-        assert_eq!(
-            multiple.select(None).err().unwrap().code,
-            "dataset_required"
+    #[test]
+    fn lazy_catalog_lists_before_open_and_records_first_open() {
+        let catalog = DatasetCatalog::new(
+            vec![ServedDataset::lazy(
+                "classic",
+                "classic.nc",
+                fixture("classic.nc"),
+            )],
+            true,
+        )
+        .unwrap();
+
+        assert!(matches!(
+            catalog.list()[0].inspection,
+            DatasetInspection::Uninspected
+        ));
+        let opened = catalog.open(Some("classic")).unwrap();
+        assert_eq!(opened.dataset.metadata().dataset.name, "classic.nc");
+        assert!(matches!(
+            catalog.list()[0].inspection,
+            DatasetInspection::Ready { variables, .. } if variables > 0
+        ));
+    }
+
+    #[test]
+    fn lazy_catalog_retains_one_active_handle_and_reuses_it() {
+        let catalog = DatasetCatalog::new(
+            vec![
+                ServedDataset::lazy("classic", "classic.nc", fixture("classic.nc")),
+                ServedDataset::lazy("rectilinear", "rectilinear.nc", fixture("rectilinear.nc")),
+            ],
+            true,
+        )
+        .unwrap();
+
+        let first = catalog.open(Some("classic")).unwrap();
+        let repeated = catalog.open(Some("classic")).unwrap();
+        assert!(Arc::ptr_eq(&first.dataset, &repeated.dataset));
+        let first_weak = Arc::downgrade(&first.dataset);
+        drop(first);
+        drop(repeated);
+        assert!(first_weak.upgrade().is_some());
+
+        let second = catalog.open(Some("rectilinear")).unwrap();
+        assert_eq!(second.id, "rectilinear");
+        assert!(first_weak.upgrade().is_none());
+    }
+
+    #[test]
+    fn concurrent_lazy_opens_share_one_dataset() {
+        let catalog = Arc::new(
+            DatasetCatalog::new(
+                vec![ServedDataset::lazy(
+                    "classic",
+                    "classic.nc",
+                    fixture("classic.nc"),
+                )],
+                true,
+            )
+            .unwrap(),
         );
-        assert_eq!(multiple.select(Some("case-b")).unwrap().id, "case-b");
-        let metadata = multiple.metadata_response(multiple.select(Some("case-b")).unwrap());
-        assert_eq!(metadata.dataset_id.as_deref(), Some("case-b"));
+        let barrier = Arc::new(std::sync::Barrier::new(3));
+        let open = |catalog: Arc<DatasetCatalog>, barrier: Arc<std::sync::Barrier>| {
+            std::thread::spawn(move || {
+                barrier.wait();
+                catalog.open(Some("classic")).unwrap().dataset
+            })
+        };
+        let first = open(catalog.clone(), barrier.clone());
+        let second = open(catalog, barrier.clone());
+        barrier.wait();
+
+        assert!(Arc::ptr_eq(&first.join().unwrap(), &second.join().unwrap()));
+    }
+
+    #[test]
+    fn invalid_lazy_entry_does_not_block_valid_siblings() {
+        let invalid = std::env::temp_dir().join(format!("ncx-invalid-{}.nc", std::process::id()));
+        std::fs::write(&invalid, b"not netcdf").unwrap();
+        let catalog = DatasetCatalog::new(
+            vec![
+                ServedDataset::lazy("invalid", "invalid.nc", invalid.clone()),
+                ServedDataset::lazy("classic", "classic.nc", fixture("classic.nc")),
+            ],
+            true,
+        )
+        .unwrap();
+
+        let error = catalog.open(Some("invalid")).err().unwrap();
+        assert_eq!(error.code, "dataset_unavailable");
+        assert!(matches!(
+            catalog.list()[0].inspection,
+            DatasetInspection::Unavailable { .. }
+        ));
         assert_eq!(
-            multiple.select(Some("missing")).err().unwrap().code,
+            catalog
+                .open(Some("classic"))
+                .unwrap()
+                .dataset
+                .metadata()
+                .dataset
+                .name,
+            "classic.nc"
+        );
+        std::fs::remove_file(invalid).unwrap();
+    }
+
+    #[test]
+    fn eager_catalog_preserves_single_and_named_dataset_selection() {
+        let source =
+            |id: &str| ServedDataset::eager(id, id, Dataset::open(&fixture("classic.nc")).unwrap());
+        let single = DatasetCatalog::new(vec![source("only")], false).unwrap();
+        assert_eq!(single.open(None).unwrap().id, "only");
+
+        let multiple =
+            DatasetCatalog::new(vec![source("case-a"), source("case-b")], false).unwrap();
+        assert_eq!(multiple.open(None).err().unwrap().code, "dataset_required");
+        assert_eq!(multiple.open(Some("case-b")).unwrap().id, "case-b");
+        assert_eq!(
+            multiple.open(Some("missing")).err().unwrap().code,
             "dataset_not_found"
+        );
+    }
+
+    #[tokio::test]
+    async fn dataset_http_seams_show_lazy_state_then_metadata_transition() {
+        let state = Arc::new(AppState {
+            catalog: DatasetCatalog::new(
+                vec![ServedDataset::lazy(
+                    "classic",
+                    "classic.nc",
+                    fixture("classic.nc"),
+                )],
+                true,
+            )
+            .unwrap(),
+            limits: Limits::default(),
+        });
+        let before = dataset_list(State(state.clone())).await.into_response();
+        let before = axum::body::to_bytes(before.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert!(
+            std::str::from_utf8(&before)
+                .unwrap()
+                .contains("\"state\":\"uninspected\"")
+        );
+
+        let response = metadata(
+            State(state.clone()),
+            Ok(Query(DatasetQuery {
+                dataset: Some("classic".to_owned()),
+            })),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let after = dataset_list(State(state)).await.into_response();
+        let after = axum::body::to_bytes(after.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert!(
+            std::str::from_utf8(&after)
+                .unwrap()
+                .contains("\"state\":\"ready\"")
         );
     }
 }

@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -202,13 +202,14 @@ try {
   } else if (browserMode === "collection") {
     const summaries = await waitFor(() => {
       const items = [...document.querySelectorAll(".collection-file > summary")];
-      return items.length === 7 ? items : null;
+      return items.length === 8 ? items : null;
     }, "directory files were not grouped into summaries");
     const names = summaries.map((summary) => summary.querySelector("strong")?.textContent);
     const expected = [
       "classic.nc",
       "curvilinear.nc",
       "groups.nc",
+      "invalid.nc",
       "rectilinear.nc",
       "station.nc",
       "ugrid.nc",
@@ -220,19 +221,39 @@ try {
     if (document.querySelector(".dataset-switcher")) {
       failures.push("directory collection still exposes the dataset dropdown");
     }
-    if (window.__ncxFetches.some((url) => url.includes("/api/meta?dataset=file-0006"))) {
+    if (window.__ncxFetches.some((url) => url.includes("/api/meta?dataset=file-0007"))) {
       failures.push("closed collection file fetched metadata eagerly");
     }
+    const beforeCatalog = await originalFetch("/api/datasets").then((response) => response.json());
+    if (beforeCatalog.datasets.find((dataset) => dataset.id === "file-0007")?.state !== "uninspected") {
+      failures.push("closed collection file was inspected by the server");
+    }
 
-    summaries[5].click();
-    const ugrid = summaries[5].parentElement;
+    summaries[3].click();
+    await waitFor(
+      () => document.querySelector(".collection-file.unavailable .collection-error"),
+      "invalid collection file did not become unavailable",
+    );
+    const unavailable = [...document.querySelectorAll(".collection-file > summary")]
+      .find((summary) => summary.querySelector("strong")?.textContent === "invalid.nc");
+    if (unavailable?.querySelector("span")?.textContent !== "unavailable") {
+      failures.push("invalid collection file has no visible unavailable state");
+    }
+    const afterCatalog = await originalFetch("/api/datasets").then((response) => response.json());
+    if (afterCatalog.datasets.find((dataset) => dataset.id === "file-0004")?.state !== "unavailable") {
+      failures.push("server catalog did not retain the unavailable state");
+    }
+
+    const updatedSummaries = [...document.querySelectorAll(".collection-file > summary")];
+    updatedSummaries[6].click();
+    const ugrid = updatedSummaries[6].parentElement;
     const nodeTemperature = await waitFor(
       () => [...ugrid.querySelectorAll(".variable-row")]
         .find((button) => button.querySelector("span")?.textContent === "node_temperature"),
       "opening a file summary did not load its variables",
     );
     const metadataFetches = window.__ncxFetches
-      .filter((url) => url.includes("/api/meta?dataset=file-0006"));
+      .filter((url) => url.includes("/api/meta?dataset=file-0007"));
     if (metadataFetches.length !== 1) {
       failures.push("opening one collection file made " + metadataFetches.length + " metadata requests");
     }
@@ -242,7 +263,7 @@ try {
     }
     nodeTemperature.click();
     await waitFor(
-      () => document.querySelector(".shell")?.dataset.dataset === "file-0006",
+      () => document.querySelector(".shell")?.dataset.dataset === "file-0007",
       "collection variable did not switch files",
     );
     await waitFor(
@@ -806,6 +827,23 @@ const metrics = collectPerformance
 await fetch("/__result?payload=" + encodeURIComponent(JSON.stringify({ failures, fetches: window.__ncxFetches.length, metrics })));
 </script>`;
 
+let collectionDirectory;
+if (browserMode === "collection") {
+  collectionDirectory = await mkdtemp(join(tmpdir(), "ncx-collection-smoke-"));
+  for (const name of [
+    "classic.nc",
+    "curvilinear.nc",
+    "groups.nc",
+    "rectilinear.nc",
+    "station.nc",
+    "ugrid.nc",
+    "ugrid_projected.nc",
+  ]) {
+    await copyFile(join(ncx, "tests/data", name), join(collectionDirectory, name));
+  }
+  await writeFile(join(collectionDirectory, "invalid.nc"), "not netcdf");
+}
+
 const childArguments = browserMode === "comparison"
   ? [
       "serve",
@@ -814,7 +852,7 @@ const childArguments = browserMode === "comparison"
       ...["a", "b", "c", "d", "e", "f"].flatMap((id) => ["--dataset", `case-${id}=${fixture}`]),
     ]
   : browserMode === "collection"
-    ? ["serve", "--port", "0", join(ncx, "tests/data")]
+    ? ["serve", "--port", "0", collectionDirectory]
   : ["serve", "--port", "0", fixture];
 const child = spawn(binary, childArguments, {
   cwd: ncx,
@@ -926,5 +964,6 @@ browser.kill("SIGTERM");
 child.kill("SIGINT");
 proxy.close();
 await rm(profile, { recursive: true, force: true });
+if (collectionDirectory) await rm(collectionDirectory, { recursive: true, force: true });
 console.log(JSON.stringify(payload, null, 2));
 process.exitCode = payload.failures.length ? 1 : 0;

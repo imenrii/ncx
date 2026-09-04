@@ -65,14 +65,22 @@ export interface SliceRequest {
   wire?: "f64";
 }
 
-export interface DatasetSummary {
+interface DatasetSummaryBase {
   id: string;
   label: string;
-  name: string;
-  variables: number;
-  dimensions: number;
-  warnings: number;
 }
+
+export type DatasetSummary = DatasetSummaryBase & (
+  | { state: "uninspected" }
+  | {
+      state: "ready";
+      name: string;
+      variables: number;
+      dimensions: number;
+      warnings: number;
+    }
+  | { state: "unavailable"; error: string }
+);
 
 export interface DataSlice {
   dtype: "f32" | "f64" | "i32" | "u32";

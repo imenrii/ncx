@@ -325,20 +325,36 @@ async fn serve_local(
     let mut datasets = Vec::with_capacity(sources.len());
     let mut variable_count = 0;
     for source in sources {
-        let dataset = Dataset::open(&source.path)?;
-        variable_count += dataset.metadata().variables.len();
-        datasets.push(server::ServedDataset {
-            id: source.id,
-            label: source.label,
-            dataset,
-        });
+        if collection {
+            datasets.push(server::ServedDataset::lazy(
+                source.id,
+                source.label,
+                source.path,
+            ));
+        } else {
+            let dataset = Dataset::open(&source.path)?;
+            variable_count += dataset.metadata().variables.len();
+            datasets.push(server::ServedDataset::eager(
+                source.id,
+                source.label,
+                dataset,
+            ));
+        }
     }
-    eprintln!(
-        "ncx: opened {} dataset(s), {} variables in {} ms",
-        datasets.len(),
-        variable_count,
-        started.elapsed().as_millis()
-    );
+    if collection {
+        eprintln!(
+            "ncx: listed {} dataset(s) in {} ms; datasets open when selected",
+            datasets.len(),
+            started.elapsed().as_millis()
+        );
+    } else {
+        eprintln!(
+            "ncx: opened {} dataset(s), {} variables in {} ms",
+            datasets.len(),
+            variable_count,
+            started.elapsed().as_millis()
+        );
+    }
     let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port))
         .await
         .map_err(|error| format!("cannot bind 127.0.0.1:{port}: {error}"))?;
