@@ -19,6 +19,7 @@ const collectPerformance = ${JSON.stringify(benchmark)};
 window.__ncxErrors = [];
 window.__ncxStep = "startup";
 window.__ncxFetches = [];
+window.__ncxSessionRequests = JSON.parse(sessionStorage.getItem("__ncx_smoke_session_requests") || "[]");
 window.__ncxScalarReads = 0;
 window.__ncxMaxScalarReads = 0;
 window.__ncxTileFetches = 0;
@@ -32,7 +33,13 @@ addEventListener("unhandledrejection", (event) => reportCrash(String(event.reaso
 const originalFetch = window.fetch;
 window.fetch = async (...arguments) => {
   const target = String(arguments[0]);
+  const requestOptions = arguments[1] || {};
+  const method = String(requestOptions.method || "GET").toUpperCase();
   window.__ncxFetches.push(target);
+  if (new URL(target, location.href).pathname.endsWith("/api/session") && method === "POST") {
+    window.__ncxSessionRequests.push({ body: String(requestOptions.body || "") });
+    sessionStorage.setItem("__ncx_smoke_session_requests", JSON.stringify(window.__ncxSessionRequests));
+  }
   if (target.startsWith("https://tile.openstreetmap.org/")) {
     window.__ncxTileFetches += 1;
     const binary = atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
@@ -125,14 +132,28 @@ const failures = [];
 try {
   window.__ncxStep = "initial field";
   if (hubMode) {
-    const form = await waitFor(() => document.querySelector(".hub-open-panel"), "hub address form did not mount");
-    const input = form.querySelector("#hub-address");
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(fixture)});
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    form.querySelector('.hub-save input').click();
-    form.requestSubmit();
+    const gate = await waitFor(
+      () => document.querySelector(".hub-open-panel") || document.querySelector(".shell"),
+      "hub gate did not mount",
+    );
+    if (gate.classList.contains("hub-open-panel")) {
+      const input = gate.querySelector("#hub-address");
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(fixture)});
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      gate.querySelector('.hub-save input').click();
+      gate.requestSubmit();
+    }
   }
   const shell = await waitFor(() => document.querySelector(".shell"), "application shell did not mount", 10000);
+  if (hubMode && !sessionStorage.getItem("__ncx_smoke_reloaded")) {
+    sessionStorage.setItem("__ncx_smoke_reloaded", "true");
+    const beforeReloadPosts = window.__ncxSessionRequests.length;
+    location.reload();
+    await new Promise(() => {});
+    if (window.__ncxSessionRequests.length !== beforeReloadPosts) {
+      failures.push("hub reload created a new session");
+    }
+  }
   const topbar = shell.querySelector(".topbar");
   const topbarBounds = topbar.getBoundingClientRect();
   if (Math.abs(topbarBounds.height - 32) > 0.1 || Math.abs(topbarBounds.width - document.documentElement.clientWidth) > 0.1) {
@@ -814,6 +835,23 @@ try {
   if (hubMode) {
     if (!localStorage.getItem("ncx.hub.addresses")?.includes("rectilinear.nc")) {
       failures.push("hub did not save the address after explicit consent");
+    }
+    const session = JSON.parse(sessionStorage.getItem("ncx.hub.session") || "null");
+    if (!session?.id) {
+      failures.push("hub did not retain a structured session record after reload");
+    } else {
+      const retarget = await window.fetch("/ncx/api/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Ncx-Session": session.id },
+        body: JSON.stringify({ address: ${JSON.stringify(join(ncx, "tests/data/classic.nc"))} }),
+      });
+      if (!retarget.ok) failures.push("hub same-session retarget failed");
+      const lastSessionRequest = window.__ncxSessionRequests.at(-1)?.body || "";
+      if (lastSessionRequest.includes("password")) {
+        failures.push("hub same-session retarget requested a password");
+      }
+      session.address = ${JSON.stringify(join(ncx, "tests/data/classic.nc"))};
+      sessionStorage.setItem("ncx.hub.session", JSON.stringify(session));
     }
     document.querySelector(".hub-close")?.click();
     await waitFor(() => document.querySelector(".hub-open-panel"), "hub session did not close");

@@ -1369,15 +1369,16 @@ fn hub_application(base_path: &str, state: Arc<HubState>) -> Result<Router, HubE
         .route("/data", get(relay_data))
         .fallback(hub_api_not_found)
         .layer(DefaultBodyLimit::max(8 * 1024));
-    let scoped = server::viewer_routes()
+    let scoped = server::hub_viewer_routes()
         .route("/healthz", get(health))
         .nest("/api", api)
         .with_state(state);
     let base = base_path.to_owned();
     let redirect_to = format!("{base_path}/");
     Ok(Router::new()
-        .route(&redirect_to, get(server::index))
+        .route(&redirect_to, get(server::hub_index))
         .nest(base_path, scoped)
+        .layer(axum::Extension(format!("{base_path}/")))
         .layer(middleware::from_fn(move |request: Request, next: Next| {
             let base = base.clone();
             let redirect_to = redirect_to.clone();
@@ -1925,6 +1926,19 @@ mod tests {
         .await;
         assert!(health.starts_with("HTTP/1.1 200"));
         assert!(health.ends_with("ok\n"));
+
+        let deep_link = raw_http(
+            address,
+            "GET /ncx/user%40host%3A%2Fpath%2Frun.nc HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+        assert!(deep_link.starts_with("HTTP/1.1 200"));
+        assert!(
+            deep_link
+                .to_ascii_lowercase()
+                .contains("referrer-policy: no-referrer")
+        );
+        assert!(deep_link.contains("<base href=\"/ncx/\">"));
 
         let missing = raw_http(
             address,

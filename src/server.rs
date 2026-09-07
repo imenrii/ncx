@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use axum::body::Body;
 use axum::extract::rejection::QueryRejection;
-use axum::extract::{Query, State};
+use axum::extract::{Extension, Query, State};
 use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE};
 use axum::http::{HeaderName, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -371,12 +371,11 @@ where
         .map_err(|error| format!("HTTP server failed: {error}"))
 }
 
-pub(crate) fn viewer_routes<S>() -> Router<S>
+fn asset_routes<S>() -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
 {
     Router::new()
-        .route("/", get(index))
         .route("/assets/app.js", get(app_javascript))
         .route("/assets/app.css", get(app_css))
         .route("/fonts/gorton-400.woff2", get(font_ui_regular))
@@ -388,7 +387,22 @@ where
         .route("/fonts/hershey-medium.woff2", get(font_plot_medium))
         .route("/fonts/hershey-heavy.woff2", get(font_plot_heavy))
         .route("/fonts/nationalpark.woff2", get(font_plot_fallback))
-        .fallback(index)
+}
+
+pub(crate) fn viewer_routes<S>() -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    asset_routes().route("/", get(index)).fallback(index)
+}
+
+pub(crate) fn hub_viewer_routes<S>() -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    asset_routes()
+        .route("/", get(hub_index))
+        .fallback(hub_index)
 }
 
 pub(crate) async fn index() -> Response {
@@ -403,6 +417,40 @@ pub(crate) async fn index() -> Response {
         VERSIONED_INDEX_HTML.as_str(),
     )
         .into_response()
+}
+
+pub(crate) async fn hub_index(Extension(base_path): Extension<String>) -> Response {
+    let base_path = html_attribute(&base_path);
+    let html = VERSIONED_INDEX_HTML.replacen(
+        "<head>",
+        &format!(
+            "<head>\n    <base href=\"{base_path}\">\n    <meta name=\"referrer\" content=\"no-referrer\" />"
+        ),
+        1,
+    );
+    (
+        [
+            (
+                CONTENT_TYPE,
+                HeaderValue::from_static("text/html; charset=utf-8"),
+            ),
+            (CACHE_CONTROL, HeaderValue::from_static("no-cache")),
+            (
+                HeaderName::from_static("referrer-policy"),
+                HeaderValue::from_static("no-referrer"),
+            ),
+        ],
+        html,
+    )
+        .into_response()
+}
+
+fn html_attribute(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 async fn dataset_list(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -682,6 +730,29 @@ async fn font_plot_fallback() -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn hub_index_sets_the_base_path_and_no_referrer_policy() {
+        let response = hub_index(Extension("/ncx/".to_owned())).await;
+        assert_eq!(response.headers()["referrer-policy"], "no-referrer");
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = std::str::from_utf8(&body).unwrap();
+        assert!(html.contains(r#"<base href="/ncx/">"#));
+        assert!(html.contains(r#"<meta name="referrer" content="no-referrer" />"#));
+    }
+
+    #[tokio::test]
+    async fn direct_index_has_no_hub_deep_link_base() {
+        let response = index().await;
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = std::str::from_utf8(&body).unwrap();
+        assert!(!html.contains(r#"<base href="#));
+        assert!(!html.contains(r#"name="referrer"#));
+    }
 
     #[test]
     fn application_assets_are_content_versioned_and_immutable() {

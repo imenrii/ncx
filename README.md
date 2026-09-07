@@ -137,8 +137,24 @@ https://hostname/ncx/
 
 The address field accepts a local absolute path below the configured root, such
 as `/data/run.nc`, or an SSH address, such as
-`user@host:/absolute/path/run.nc`. The Save option stores addresses only in the
-browser. It does not store the SSH password.
+`user@host:/absolute/path/run.nc`. A remote deep link can use the form
+`/ncx/user@host:/absolute/path/run.nc`; the hub decodes its path once and
+rejects local or malformed targets. The target remains in browser history and
+Apache access logs. The hub index sets `no-referrer`, so it is not sent to
+OpenStreetMap or other external requests.
+
+The Save option stores addresses only in the browser. It does not store the SSH
+password. The active web session is a tab-scoped record containing the session
+ID, SSH destination, and current address in `sessionStorage`. Refreshing the
+same target resumes that session without a POST or password prompt. Changing
+only the path retargets the viewer through the existing SSH control connection;
+changing the user or host closes the old session and prompts for a new
+password. Local paths use the same path replacement without a password.
+
+The hub does not close a session on `pagehide`, because doing so would close it
+on an ordinary refresh. An explicit Close action and the 90-second heartbeat
+expiry clean up sessions. A closed tab can therefore consume one session slot
+until expiry; this is the bounded trade-off for refresh-safe sessions.
 
 The image uses its standalone `/usr/local/bin/ncx` as the remote executable.
 The hub uploads it through SSH to `~/.cache/ncx/<content-id>/ncx` on first use

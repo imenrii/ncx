@@ -5,7 +5,7 @@ import type {
   SliceRequest,
   Variable,
 } from "./model";
-import { currentHubSession, sessionFetch } from "./hub.ts";
+import { currentHubCacheKey, sessionFetch } from "./hub.ts";
 import {
   PERFORMANCE_MEASURE,
   measurePerformance,
@@ -36,7 +36,7 @@ export async function fetchDatasets(): Promise<{ datasets: DatasetSummary[]; col
 }
 
 export async function fetchMetadata(dataset?: string): Promise<Metadata> {
-  const key = `${currentHubSession() ?? "viewer"}:${dataset ?? ""}`;
+  const key = `${currentHubCacheKey()}:${dataset ?? ""}`;
   const cached = metadataCache.get(key);
   if (cached) return cached;
   const pending = loadMetadata(dataset).catch((error) => {
@@ -131,7 +131,7 @@ export function fetchCoordinate(variable: Variable): Promise<Float64Array> {
 }
 
 export function fetchStaticSlice(variable: Variable, wire?: SliceRequest["wire"]): Promise<DataSlice> {
-  const key = `${currentHubSession() ?? "viewer"}:${variable.dataset_id ?? ""}:${variable.path}:${wire ?? "default"}`;
+  const key = `${currentHubCacheKey()}:${variable.dataset_id ?? ""}:${variable.path}:${wire ?? "default"}`;
   let cached = staticSliceCache.get(key);
   if (!cached) {
     cached = fetchSlice({
