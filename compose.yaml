@@ -4,7 +4,7 @@ services:
       context: .
     image: ncx-hub:local
     ports:
-      - "127.0.0.1:${NCX_HOST_PORT:-8765}:8765"
+      - "127.0.0.1:8765:8765"
     command:
       - hub
       - --listen
@@ -14,22 +14,14 @@ services:
       - --local-root
       - /data
       - --session-limit
-      - "${NCX_SESSION_LIMIT:-10}"
+      - "10"
       - --session-ttl-seconds
-      - "${NCX_SESSION_TTL_SECONDS:-90}"
-    environment:
-      HOME: /home/ncx
-      NCX_REMOTE_NCX: /usr/local/bin/ncx
-      NCX_SSH_PASSWORD: "${NCX_SSH_PASSWORD}"
+      - "90"
+      - --remote-ncx
+      - /usr/local/bin/ncx
     volumes:
-      - type: bind
-        source: "${NCX_DATA_ROOT}"
-        target: /data
-        read_only: true
-      - type: bind
-        source: "${NCX_KNOWN_HOSTS}"
-        target: /home/ncx/.ssh/known_hosts
-        read_only: true
+      - /srv/netcdf:/data:ro
+      - ./deploy/known_hosts:/home/ncx/.ssh/known_hosts:ro
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m
@@ -38,7 +30,7 @@ services:
     security_opt:
       - no-new-privileges:true
     pids_limit: 128
-    mem_limit: "${NCX_MEMORY_LIMIT:-2g}"
+    mem_limit: 2g
     restart: unless-stopped
     stop_grace_period: 15s
     healthcheck:

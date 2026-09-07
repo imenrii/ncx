@@ -35,6 +35,7 @@ RUN apk add --no-cache ca-certificates openssh-client \
 COPY --from=build --chown=10001:10001 \
     /src/target/x86_64-unknown-linux-musl/release/ncx /usr/local/bin/ncx
 
+ENV HOME=/home/ncx
 USER 10001:10001
 WORKDIR /home/ncx
 ENTRYPOINT ["/usr/local/bin/ncx"]

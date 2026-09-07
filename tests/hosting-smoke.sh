@@ -4,21 +4,66 @@ set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$root"
 
-for file in Dockerfile .dockerignore compose.yaml .env.example deploy/apache-ncx.conf.example; do
+for file in Dockerfile .dockerignore .gitignore compose.yaml README.md deploy/apache-ncx.conf.example; do
     test -f "$file" || {
         echo "missing hosting file: $file" >&2
         exit 1
     }
 done
+test ! -e .env.example || {
+    echo 'obsolete deployment template is still present' >&2
+    exit 1
+}
 
-grep -Fq -- '--features netcdf/static' Dockerfile
-grep -Fq '127.0.0.1:${NCX_HOST_PORT:-8765}:8765' compose.yaml
-grep -Fq 'http://127.0.0.1:8765/ncx/' deploy/apache-ncx.conf.example
-grep -Fq 'NCX_SSH_PASSWORD=' .env.example
-if grep -Eq '^NCX_SSH_PASSWORD=.+$' .env.example; then
-    echo '.env.example must not contain an SSH password' >&2
+# The hosted service has no deployment-time secret or configurable Compose
+# value. Keep these checks on the files operators copy or edit, not this test.
+for file in compose.yaml README.md deploy/apache-ncx.conf.example; do
+    if grep -nE '\.env|env_file|NCX_SSH_PASSWORD|\$\{' "$file"; then
+        echo "forbidden deployment configuration in $file" >&2
+        exit 1
+    fi
+done
+if grep -nE '(^|/)\.env([[:space:]]|$)' .dockerignore .gitignore; then
+    echo 'obsolete environment-file ignore entry remains' >&2
     exit 1
 fi
+
+grep -Fq -- '--features netcdf/static' Dockerfile
+grep -Fq 'x86_64-unknown-linux-musl' Dockerfile
+grep -Fq '/usr/local/bin/ncx' Dockerfile
+grep -Fq 'ENV HOME=/home/ncx' Dockerfile
+grep -Fq '127.0.0.1:8765:8765' compose.yaml
+grep -Fq -- '--listen' compose.yaml
+grep -Fq '0.0.0.0:8765' compose.yaml
+grep -Fq -- '--base-path' compose.yaml
+grep -Fq -- '- /ncx' compose.yaml
+grep -Fq -- '--local-root' compose.yaml
+grep -Fq -- '- /data' compose.yaml
+grep -Fq -- '--session-limit' compose.yaml
+grep -Fq -- '- "10"' compose.yaml
+grep -Fq -- '--session-ttl-seconds' compose.yaml
+grep -Fq -- '- "90"' compose.yaml
+grep -Fq -- '--remote-ncx' compose.yaml
+grep -Fq -- '- /usr/local/bin/ncx' compose.yaml
+grep -Fq '/srv/netcdf:/data:ro' compose.yaml
+grep -Fq './deploy/known_hosts:/home/ncx/.ssh/known_hosts:ro' compose.yaml
+grep -Fq 'read_only: true' compose.yaml
+grep -Fq 'size=64m' compose.yaml
+grep -Fq 'cap_drop:' compose.yaml
+grep -Fq -- '- ALL' compose.yaml
+grep -Fq 'no-new-privileges:true' compose.yaml
+grep -Fq 'pids_limit: 128' compose.yaml
+grep -Fq 'mem_limit: 2g' compose.yaml
+grep -Fq 'restart: unless-stopped' compose.yaml
+grep -Fq 'http://127.0.0.1:8765/ncx/healthz' compose.yaml
+grep -Fq 'http://127.0.0.1:8765/ncx/' deploy/apache-ncx.conf.example
+
+grep -Fq 'Apache HTTPS is required' README.md
+grep -Fq 'https://hostname/ncx/user@host:/absolute/path.nc' README.md
+grep -Fq 'masked' README.md
+grep -Fq '90-second heartbeat expiry' README.md
+grep -Fq 'ControlMaster' README.md
+grep -Fq 'no database and no file watcher' README.md
 
 if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
     echo 'SKIP: Docker Compose is unavailable; static hosting checks passed.'
@@ -34,29 +79,34 @@ with socket.socket() as listener:
     print(listener.getsockname()[1])
 PY
 )
-password=$(python3 - <<'PY'
-import secrets
-print(secrets.token_hex(16))
-PY
-)
+compose() {
+    docker compose -f compose.yaml -f "$work/override.yaml" -p "$project" "$@"
+}
 cleanup() {
-    NCX_HOST_PORT="$port" docker compose --env-file "$work/env" -p "$project" down --timeout 10 --remove-orphans >/dev/null 2>&1 || true
+    compose down --timeout 10 --remove-orphans >/dev/null 2>&1 || true
     rm -rf "$work"
 }
 trap cleanup EXIT HUP INT TERM
 : > "$work/known_hosts"
-cat > "$work/env" <<EOF
-NCX_DATA_ROOT=$root/tests/data
-NCX_KNOWN_HOSTS=$work/known_hosts
-NCX_HOST_PORT=$port
-NCX_SESSION_LIMIT=10
-NCX_SESSION_TTL_SECONDS=90
-NCX_SSH_PASSWORD=$password
+cat > "$work/override.yaml" <<EOF
+services:
+  ncx:
+    ports: !override
+      - "127.0.0.1:$port:8765"
+    volumes: !override
+      - type: bind
+        source: "$root/tests/data"
+        target: /data
+        read_only: true
+      - type: bind
+        source: "$work/known_hosts"
+        target: /home/ncx/.ssh/known_hosts
+        read_only: true
 EOF
 
-NCX_HOST_PORT="$port" docker compose --env-file "$work/env" -p "$project" config --quiet
-NCX_HOST_PORT="$port" docker compose --env-file "$work/env" -p "$project" build
-NCX_HOST_PORT="$port" docker compose --env-file "$work/env" -p "$project" up --detach --wait
+compose config --quiet
+compose build
+compose up --detach --wait
 
 base="http://127.0.0.1:$port/ncx"
 python3 - "$base" <<'PY'
@@ -95,14 +145,14 @@ with urllib.request.urlopen(close, timeout=10) as response:
         raise SystemExit(f"hub close returned {response.status}")
 PY
 
-container=$(NCX_HOST_PORT="$port" docker compose --env-file "$work/env" -p "$project" ps --quiet)
-NCX_HOST_PORT="$port" docker compose --env-file "$work/env" -p "$project" stop --timeout 10
+container=$(compose ps --quiet ncx)
+compose stop --timeout 10
 if [ "$(docker inspect --format '{{.State.ExitCode}}' "$container")" != 0 ]; then
     echo 'hosting container did not stop cleanly' >&2
     exit 1
 fi
-NCX_HOST_PORT="$port" docker compose --env-file "$work/env" -p "$project" down --timeout 10 --remove-orphans
-if [ -n "$(NCX_HOST_PORT="$port" docker compose --env-file "$work/env" -p "$project" ps --quiet)" ]; then
+compose down --timeout 10 --remove-orphans
+if [ -n "$(compose ps --quiet ncx)" ]; then
     echo 'hosting container was not removed' >&2
     exit 1
 fi

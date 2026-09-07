@@ -1,6 +1,5 @@
 /target/
 /web/node_modules/
-/.env
 /deploy/known_hosts
 *.swp
 .tmp/

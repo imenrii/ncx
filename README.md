@@ -111,14 +111,15 @@ The resulting executable in `target/release/ncx` is completely self-contained.
 ### Persistent intranet hosting
 
 The supplied Compose service builds the standalone Linux x86-64 executable and
-runs `ncx hub` on a Docker bridge. Apache keeps ports 80 and 443. Docker
-publishes the hub only on host loopback, and Apache maps `/ncx/` to that port.
+runs `ncx hub` on a Docker bridge. Docker publishes exactly `127.0.0.1:8765` on
+the host, and Apache maps `/ncx/` to that port. The hub accepts up to 10
+sessions and expires an idle session after 90 seconds.
 
-Prepare `deploy/known_hosts` with the approved SSH host keys and configure the
-read-only `/data` mount in `compose.yaml`. UID 10001 in the container must be
-able to read the data directory and `known_hosts`. The browser supplies an SSH
-password only when it creates a remote web session. The password is not a
-Docker setting and is not saved.
+The Compose file mounts `/srv/netcdf:/data:ro`. Edit the `/srv/netcdf` source in
+`compose.yaml` if the host data directory is elsewhere. Prepare
+`deploy/known_hosts` with the approved SSH host keys before starting the
+container. UID 10001 in the container must be able to read the data directory
+and `known_hosts`.
 
 Build and start the hub:
 
@@ -127,39 +128,42 @@ docker compose build
 docker compose up -d
 ```
 
-Enable Apache `mod_proxy` and `mod_proxy_http`. Include
-`deploy/apache-ncx.conf.example` in the active virtual host, verify the Apache
-configuration, and reload Apache. Then visit:
+Apache HTTPS is required for hosted SSH access. The browser shows a masked
+password prompt for each new remote web session and sends the password once in
+the session-creation POST body. After authentication, the password is not
+retained. Enable Apache `mod_proxy` and `mod_proxy_http`,
+include `deploy/apache-ncx.conf.example` in the active HTTPS virtual host,
+verify the Apache configuration, and reload Apache. Then visit:
 
 ```text
 https://hostname/ncx/
 ```
 
-The address field accepts a local absolute path below the configured root, such
-as `/data/run.nc`, or an SSH address, such as
-`user@host:/absolute/path/run.nc`. A remote deep link can use the form
-`/ncx/user@host:/absolute/path/run.nc`; the hub decodes its path once and
-rejects local or malformed targets. The target remains in browser history and
-Apache access logs. The hub index sets `no-referrer`, so it is not sent to
-OpenStreetMap or other external requests.
+A deep link has the form
+`https://hostname/ncx/user@host:/absolute/path.nc`. The hub decodes the path
+once and rejects local or malformed targets. The target path is visible in the
+browser URL and history and in Apache access logs; do not put a secret in it.
+The hub index sets `no-referrer`, so the target is not sent to OpenStreetMap or
+other external requests.
 
-The Save option stores addresses only in the browser. It does not store the SSH
-password. The active web session is a tab-scoped record containing the session
-ID, SSH destination, and current address in `sessionStorage`. Refreshing the
-same target resumes that session without a POST or password prompt. Changing
-only the path retargets the viewer through the existing SSH control connection;
-changing the user or host closes the old session and prompts for a new
-password. Local paths use the same path replacement without a password.
+The Save option stores addresses only in the browser. It never stores a
+password. The active tab stores only the session ID, SSH destination, and
+current address in `sessionStorage`. Refreshing the same target resumes the
+session without another POST or prompt. Changing only the path for the same
+`user@host` identity retargets the viewer through the existing SSH ControlMaster
+without another prompt. Changing the user or host closes the old session and
+prompts for a new password. Local paths use the same path replacement without a
+password.
 
-The hub does not close a session on `pagehide`, because doing so would close it
-on an ordinary refresh. An explicit Close action and the 90-second heartbeat
-expiry clean up sessions. A closed tab can therefore consume one session slot
-until expiry; this is the bounded trade-off for refresh-safe sessions.
+The browser does not close a session on `pagehide`, because that would close it
+on an ordinary refresh. Explicit close and the 90-second heartbeat expiry are
+cleanup paths. A closed tab can therefore hold one bounded session slot until
+its 90-second expiry.
 
 The image uses its standalone `/usr/local/bin/ncx` as the remote executable.
-The hub uploads it through SSH to `~/.cache/ncx/<content-id>/ncx` on first use
-and reuses that exact version. The remote host must be Linux x86-64 and must
-provide a writable home directory.
+The hub uploads it through SSH once for each binary version to
+`~/.cache/ncx/<content-id>/ncx` and reuses that exact version. The remote host
+must be Linux x86-64 and must provide a writable home directory.
 
 The hub stores session state in memory. It has no database and no file watcher.
 Open a new session to read a newly created file. Stop the deployment with:
