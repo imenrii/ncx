@@ -1,6 +1,9 @@
 const SESSION_KEY = "ncx.hub.session";
 const ADDRESS_KEY = "ncx.hub.addresses";
 const apiRoot = new URL("api/", document.baseURI);
+const activeApiRequests = new Set<AbortController>();
+let transitionWait: Promise<void> | undefined;
+let resumeTransition: (() => void) | undefined;
 
 export interface HubStatus {
   hub: boolean;
@@ -18,6 +21,11 @@ export type SessionTransition = "new" | "same" | "retarget";
 interface CreateHubSessionOptions {
   password?: string;
   save?: boolean;
+}
+
+export interface ReplaceHubSessionResult {
+  record: HubSessionRecord;
+  cleanupWarning?: string;
 }
 
 export function hubBasePath(): string | undefined {
@@ -143,44 +151,58 @@ export async function inspectHub(): Promise<HubStatus> {
 
 export async function createHubSession(
   address: string,
-  options: CreateHubSessionOptions | boolean = {},
+  options: CreateHubSessionOptions = {},
 ): Promise<HubSessionRecord> {
-  const { password, save } = typeof options === "boolean" ? { save: options } : options;
-  const body: { address: string; password?: string } = { address };
-  if (password !== undefined) body.password = password;
-  const response = await fetch(new URL("session", apiRoot), {
-    method: "POST",
-    cache: "no-store",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) throw new Error(await responseMessage(response, password));
-  const session = await responseSession(response);
-  const record = { id: session, destination: sessionDestination(address), address };
+  const record = await requestNewHubSession(address, options.password);
   storeHubSession(record);
-  if (save) rememberAddress(address);
+  if (options.save) rememberAddress(address);
   return record;
 }
 
 export async function retargetHubSession(address: string, save = false): Promise<HubSessionRecord> {
-  const current = currentHubSessionRecord();
-  if (!current) throw new Error("No active ncx hub session");
-  const headers = new Headers({
-    "Content-Type": "application/json",
-    "X-Ncx-Session": current.id,
+  return withHubSessionTransition(async () => {
+    const current = currentHubSessionRecord();
+    if (!current) throw new Error("No active ncx hub session");
+    const headers = new Headers({
+      "Content-Type": "application/json",
+      "X-Ncx-Session": current.id,
+    });
+    const response = await fetch(new URL("session", apiRoot), {
+      method: "POST",
+      cache: "no-store",
+      headers,
+      body: JSON.stringify({ address }),
+    });
+    if (!response.ok) throw new Error(await responseMessage(response));
+    const session = await responseSession(response);
+    const record = { id: session, destination: sessionDestination(address), address };
+    storeHubSession(record);
+    if (save) rememberAddress(address);
+    return record;
   });
-  const response = await fetch(new URL("session", apiRoot), {
-    method: "POST",
-    cache: "no-store",
-    headers,
-    body: JSON.stringify({ address }),
+}
+
+/** Create a replacement before releasing the old session. */
+export async function replaceHubSession(
+  address: string,
+  options: CreateHubSessionOptions = {},
+): Promise<ReplaceHubSessionResult> {
+  return withHubSessionTransition(async () => {
+    const previous = currentHubSessionRecord();
+    const record = await requestNewHubSession(address, options.password);
+    storeHubSession(record);
+    if (options.save) rememberAddress(address);
+
+    let cleanupWarning: string | undefined;
+    if (previous && previous.id !== record.id) {
+      try {
+        await closeHubSessionId(previous.id);
+      } catch (cause: unknown) {
+        cleanupWarning = cause instanceof Error ? cause.message : String(cause);
+      }
+    }
+    return { record, cleanupWarning };
   });
-  if (!response.ok) throw new Error(await responseMessage(response));
-  const session = await responseSession(response);
-  const record = { id: session, destination: sessionDestination(address), address };
-  storeHubSession(record);
-  if (save) rememberAddress(address);
-  return record;
 }
 
 export async function heartbeatHubSession(): Promise<boolean> {
@@ -194,22 +216,58 @@ export async function heartbeatHubSession(): Promise<boolean> {
 }
 
 export async function closeHubSession(): Promise<void> {
-  const session = currentHubSession();
-  clearHubSession();
-  if (!session) return;
+  const current = currentHubSessionRecord();
+  if (!current) return;
+  await withHubSessionTransition(async () => {
+    await closeHubSessionId(current.id);
+    if (currentHubSessionRecord()?.id === current.id) clearHubSession();
+  });
+}
+
+/** Close an inactive ID without changing the active browser record. */
+export async function closeHubSessionId(session: string): Promise<void> {
   const headers = new Headers({ "X-Ncx-Session": session });
-  await fetch(new URL("session", apiRoot), {
+  const response = await fetch(new URL("session", apiRoot), {
     method: "DELETE",
     cache: "no-store",
     headers,
-  }).catch(() => undefined);
+  });
+  if (!response.ok) throw new Error(await responseMessage(response));
 }
 
-export function sessionFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+export async function withHubSessionTransition<T>(operation: () => Promise<T>): Promise<T> {
+  if (transitionWait) throw new Error("An ncx session transition is already active");
+  transitionWait = new Promise<void>((resolve) => { resumeTransition = resolve; });
+  for (const controller of activeApiRequests) controller.abort();
+  activeApiRequests.clear();
+  try {
+    return await operation();
+  } finally {
+    const resume = resumeTransition;
+    transitionWait = undefined;
+    resumeTransition = undefined;
+    resume?.();
+  }
+}
+
+export async function sessionFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  if (transitionWait) await transitionWait;
+
   const headers = new Headers(init.headers);
   const session = currentHubSession();
   if (session) headers.set("X-Ncx-Session", session);
-  return fetch(input, { ...init, headers });
+  const controller = new AbortController();
+  const callerSignal = init.signal;
+  const abortFromCaller = () => controller.abort(callerSignal?.reason);
+  if (callerSignal?.aborted) abortFromCaller();
+  else callerSignal?.addEventListener("abort", abortFromCaller, { once: true });
+  activeApiRequests.add(controller);
+  try {
+    return await fetch(input, { ...init, headers, signal: controller.signal });
+  } finally {
+    activeApiRequests.delete(controller);
+    callerSignal?.removeEventListener("abort", abortFromCaller);
+  }
 }
 
 export function clearHubSession(): void {
@@ -249,6 +307,23 @@ function hasControlCharacter(value: string): boolean {
     const code = character.codePointAt(0) ?? 0;
     return code < 0x20 || code === 0x7f;
   });
+}
+
+async function requestNewHubSession(
+  address: string,
+  password?: string,
+): Promise<HubSessionRecord> {
+  const body: { address: string; password?: string } = { address };
+  if (password !== undefined) body.password = password;
+  const response = await fetch(new URL("session", apiRoot), {
+    method: "POST",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(await responseMessage(response, password));
+  const id = await responseSession(response);
+  return { id, destination: sessionDestination(address), address };
 }
 
 async function responseSession(response: Response): Promise<string> {

@@ -840,21 +840,41 @@ try {
     if (!session?.id) {
       failures.push("hub did not retain a structured session record after reload");
     } else {
-      const retarget = await window.fetch("/ncx/api/session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Ncx-Session": session.id },
-        body: JSON.stringify({ address: ${JSON.stringify(join(ncx, "tests/data/classic.nc"))} }),
-      });
-      if (!retarget.ok) failures.push("hub same-session retarget failed");
+      const setAddress = async (value) => {
+        document.querySelector(".hub-open-another")?.click();
+        const form = await waitFor(() => document.querySelector(".hub-open-panel"), "hub address form did not reopen");
+        const input = form.querySelector("#hub-address");
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, value);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        form.requestSubmit();
+      };
+
+      await setAddress(${JSON.stringify(join(ncx, "tests/data/missing.nc"))});
+      await waitFor(
+        () => document.querySelector(".hub-active-error") && document.querySelector(".shell"),
+        "failed hub retarget did not restore the prior viewer",
+        10000,
+      );
+      const afterFailure = JSON.parse(sessionStorage.getItem("ncx.hub.session") || "null");
+      if (afterFailure?.id !== session.id || afterFailure?.address !== session.address) {
+        failures.push("failed hub retarget replaced the prior session record");
+      }
+      if (document.querySelector(".plot-error")) failures.push("failed hub retarget left the prior viewer unusable");
+
+      await setAddress(${JSON.stringify(join(ncx, "tests/data/classic.nc"))});
+      await waitFor(() => document.querySelector(".shell"), "hub same-session retarget did not restore the viewer", 10000);
+      const afterSuccess = JSON.parse(sessionStorage.getItem("ncx.hub.session") || "null");
+      if (afterSuccess?.id !== session.id || afterSuccess?.address !== ${JSON.stringify(join(ncx, "tests/data/classic.nc"))}) {
+        failures.push("hub same-session retarget did not update the active address");
+      }
       const lastSessionRequest = window.__ncxSessionRequests.at(-1)?.body || "";
       if (lastSessionRequest.includes("password")) {
         failures.push("hub same-session retarget requested a password");
       }
-      session.address = ${JSON.stringify(join(ncx, "tests/data/classic.nc"))};
-      sessionStorage.setItem("ncx.hub.session", JSON.stringify(session));
     }
     document.querySelector(".hub-close")?.click();
-    await waitFor(() => document.querySelector(".hub-open-panel"), "hub session did not close");
+    await waitFor(() => document.querySelector(".hub-open-panel"), "explicit hub close did not return to the form");
+    if (sessionStorage.getItem("ncx.hub.session")) failures.push("explicit hub close retained the session record");
   }
 } catch (error) {
   failures.push(

@@ -40,12 +40,19 @@ const {
   isRemoteAddress,
   parseHubDeepLink,
   rememberAddress,
+  replaceHubSession,
   retargetHubSession,
   savedAddresses,
   sessionDestination,
   sessionFetch,
   sessionTransition,
+  withHubSessionTransition,
 } = await import("./hub.ts");
+
+if (false) {
+  // @ts-expect-error The removed boolean form could hide a password-bearing call.
+  void createHubSession("/data/a.nc", false);
+}
 
 test("deep links use the hub base path and decode one URL layer", () => {
   assert.equal(
@@ -183,4 +190,144 @@ test("hub detection distinguishes a viewer and clears an expired session", async
   assert.deepEqual(await inspectHub(), { hub: true, active: false });
   assert.equal(sessionStorage.getItem("ncx.hub.session"), null);
   globalThis.fetch = originalFetch;
+});
+
+test("a session transition aborts active API work and holds new work until resume", async () => {
+  sessionStorage.setItem("ncx.hub.session", JSON.stringify({
+    id: "0123456789abcdef0123456789abcdef",
+    destination: "local",
+    address: "/data/a.nc",
+  }));
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  let activeAborted = false;
+  globalThis.fetch = (input, init) => {
+    calls += 1;
+    if (calls === 1) {
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          activeAborted = true;
+          reject(new DOMException("aborted", "AbortError"));
+        }, { once: true });
+      });
+    }
+    return Promise.resolve(new Response(String(input), { status: 200 }));
+  };
+  try {
+    const active = sessionFetch("http://host/ncx/api/data");
+    void active.catch(() => undefined);
+    await Promise.resolve();
+    let held: Promise<Response> | undefined;
+    await withHubSessionTransition(async () => {
+      held = sessionFetch("http://host/ncx/api/meta");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      assert.equal(activeAborted, true);
+      assert.equal(calls, 1);
+    });
+    await assert.rejects(active, { name: "AbortError" });
+    assert.equal((await held!).status, 200);
+    assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("sessionFetch combines a caller abort signal and removes the tracked request", async () => {
+  const originalFetch = globalThis.fetch;
+  const caller = new AbortController();
+  globalThis.fetch = (_input, init) => new Promise<Response>((_resolve, reject) => {
+    init?.signal?.addEventListener("abort", () => {
+      reject(new DOMException("aborted", "AbortError"));
+    }, { once: true });
+  });
+  try {
+    const request = sessionFetch("http://host/ncx/api/data", { signal: caller.signal });
+    caller.abort();
+    await assert.rejects(request, { name: "AbortError" });
+    await withHubSessionTransition(async () => undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("failed close keeps the active session record", async () => {
+  const record = {
+    id: "0123456789abcdef0123456789abcdef",
+    destination: "local",
+    address: "/data/a.nc",
+  };
+  sessionStorage.setItem("ncx.hub.session", JSON.stringify(record));
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json(
+    { error: { message: "close failed" } },
+    { status: 503 },
+  );
+  try {
+    await assert.rejects(closeHubSession(), /close failed/);
+    assert.deepEqual(currentHubSessionRecord(), record);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("replacement creates first and reports old-session cleanup failure", async () => {
+  const old = {
+    id: "0123456789abcdef0123456789abcdef",
+    destination: "user@old",
+    address: "user@old:/a.nc",
+  };
+  const replacement = "fedcba9876543210fedcba9876543210";
+  sessionStorage.setItem("ncx.hub.session", JSON.stringify(old));
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ method?: string; body?: string; session?: string | null }> = [];
+  globalThis.fetch = async (_input, init) => {
+    const headers = new Headers(init?.headers);
+    requests.push({
+      method: init?.method,
+      body: typeof init?.body === "string" ? init.body : undefined,
+      session: headers.get("X-Ncx-Session"),
+    });
+    if (init?.method === "POST") {
+      return Response.json({ session: replacement }, { status: 201 });
+    }
+    return Response.json({ error: { message: "old close failed" } }, { status: 503 });
+  };
+  try {
+    const result = await replaceHubSession("user@new:/b.nc", { password: "secret", save: false });
+    assert.equal(requests[0].method, "POST");
+    assert.equal(requests[0].session, null);
+    assert.equal(requests[1].method, "DELETE");
+    assert.equal(requests[1].session, old.id);
+    assert.match(result.cleanupWarning ?? "", /old close failed/);
+    assert.deepEqual(currentHubSessionRecord(), {
+      id: replacement,
+      destination: "user@new",
+      address: "user@new:/b.nc",
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("failed replacement creation leaves the old session active", async () => {
+  const old = {
+    id: "0123456789abcdef0123456789abcdef",
+    destination: "user@old",
+    address: "user@old:/a.nc",
+  };
+  sessionStorage.setItem("ncx.hub.session", JSON.stringify(old));
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json(
+    { error: { message: "authentication failed" } },
+    { status: 502 },
+  );
+  try {
+    await assert.rejects(
+      replaceHubSession("user@new:/b.nc", { password: "secret" }),
+      /authentication failed/,
+    );
+    assert.deepEqual(currentHubSessionRecord(), old);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

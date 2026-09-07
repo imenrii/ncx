@@ -2262,15 +2262,26 @@ i .value {
   font-size: var(--size-body);
 }
 
-.hub-open-panel > button,
-.hub-close {
+.hub-open-panel .dialog-actions button,
+.hub-session-actions button {
   min-height: var(--hit);
   padding: 0 1rem;
   border: 1px solid var(--ink);
-  background: var(--amber);
+  background: var(--paper);
   color: var(--ink);
   font-family: var(--mono);
   font-weight: 600;
+}
+
+.hub-open-panel .dialog-actions,
+.hub-session-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.hub-open-panel .dialog-actions button:last-child {
+  background: var(--amber);
 }
 
 .hub-save {
@@ -2333,11 +2344,21 @@ i .value {
   font-weight: 600;
 }
 
-.hub-close {
+.hub-session-actions {
   position: fixed;
   z-index: 30;
   top: 0.5rem;
   right: 0.75rem;
-  min-height: var(--hit);
+}
+
+.hub-active-error {
+  position: fixed;
+  z-index: 29;
+  top: 3.5rem;
+  right: 0.75rem;
+  max-width: min(32rem, calc(100vw - 1.5rem));
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid currentcolor;
   background: var(--paper);
 }

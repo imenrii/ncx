@@ -10,6 +10,8 @@ import {
   inspectHub,
   isRemoteAddress,
   parseHubDeepLink,
+  rememberAddress,
+  replaceHubSession,
   retargetHubSession,
   savedAddresses,
   sessionTransition,
@@ -37,6 +39,7 @@ export function HubGate() {
   const [save, setSave] = useState(false);
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | undefined>(deepLink.error);
+  const [activeError, setActiveError] = useState<string>();
   const [opening, setOpening] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
   const addresses = savedAddresses();
@@ -73,20 +76,15 @@ export function HubGate() {
             })
             .catch((cause: unknown) => {
               if (!live) return;
-              setError(cause instanceof Error ? cause.message : String(cause));
-              void closeHubSession().finally(() => {
-                if (live) setState("open");
-              });
+              setActiveError(cause instanceof Error ? cause.message : String(cause));
+              setAddress(current.address);
+              setState("active");
             });
           return;
         }
-        setState("closing");
-        void closeHubSession().then(() => {
-          if (!live) return;
-          setPassword("");
-          setAddress(target ?? "");
-          setState("prompt");
-        });
+        setPassword("");
+        setAddress(target ?? "");
+        setState("prompt");
       })
       .catch((cause: unknown) => {
         if (!live) return;
@@ -117,21 +115,59 @@ export function HubGate() {
     return () => window.clearInterval(heartbeat);
   }, [state]);
 
+  const restoreActive = (cause: unknown) => {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    if (currentHubSessionRecord()) {
+      setActiveError(message);
+      setAddress(currentHubSessionRecord()!.address);
+      setState("active");
+    } else {
+      setError(message);
+      setState("open");
+    }
+  };
+
+  const acceptReplacement = (cleanupWarning?: string) => {
+    setError(undefined);
+    setActiveError(cleanupWarning);
+    setState("active");
+  };
+
   const submitAddress = (event: FormEvent) => {
     event.preventDefault();
     const candidate = address.trim();
     if (!candidate || opening) return;
     setError(undefined);
+    setActiveError(undefined);
+    const current = currentHubSessionRecord();
+    const transition = sessionTransition(current, candidate);
+    if (transition === "same") {
+      if (save) rememberAddress(candidate);
+      setState("active");
+      return;
+    }
+    if (transition === "retarget") {
+      setState("retargeting");
+      void retargetHubSession(candidate, save)
+        .then(() => setState("active"))
+        .catch(restoreActive);
+      return;
+    }
     if (isRemoteAddress(candidate)) {
       setAddress(candidate);
       setPassword("");
       setState("prompt");
       return;
     }
+
     setOpening(true);
-    void createHubSession(candidate, { save })
-      .then(() => setState("active"))
-      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)))
+    setState("retargeting");
+    const openingSession = current
+      ? replaceHubSession(candidate, { save })
+      : createHubSession(candidate, { save }).then((record) => ({ record, cleanupWarning: undefined }));
+    void openingSession
+      .then((result) => acceptReplacement(result.cleanupWarning))
+      .catch(restoreActive)
       .finally(() => setOpening(false));
   };
 
@@ -140,35 +176,67 @@ export function HubGate() {
     const entered = password;
     setPassword("");
     if (!entered || opening) return;
+    const current = currentHubSessionRecord();
     setOpening(true);
-    void createHubSession(address.trim(), { password: entered, save })
-      .then(() => setState("active"))
-      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)))
+    const openingSession = current
+      ? replaceHubSession(address.trim(), { password: entered, save })
+      : createHubSession(address.trim(), { password: entered, save }).then((record) => ({ record, cleanupWarning: undefined }));
+    void openingSession
+      .then((result) => acceptReplacement(result.cleanupWarning))
+      .catch((cause: unknown) => {
+        if (currentHubSessionRecord()) restoreActive(cause);
+        else {
+          setError(cause instanceof Error ? cause.message : String(cause));
+          setState("prompt");
+        }
+      })
       .finally(() => {
         setPassword("");
         setOpening(false);
       });
   };
 
-  const cancelPassword = () => {
+  const cancelToActive = () => {
     setPassword("");
     setError(undefined);
     setOpening(false);
-    setState("open");
+    const current = currentHubSessionRecord();
+    if (current) {
+      setAddress(current.address);
+      setState("active");
+    } else {
+      setState("open");
+    }
   };
 
   const close = () => {
     setState("closing");
-    void closeHubSession().then(() => setState("open"));
+    setActiveError(undefined);
+    void closeHubSession()
+      .then(() => setState("open"))
+      .catch(restoreActive);
   };
 
   if (state === "viewer") return <App />;
   if (state === "active") {
     return (
       <div className="hub-active">
-        <button className="hub-close" onClick={close}>
-          Open another address
-        </button>
+        <div className="hub-session-actions">
+          <button
+            className="hub-open-another"
+            onClick={() => {
+              const current = currentHubSessionRecord();
+              setAddress(current?.address ?? "");
+              setError(undefined);
+              setActiveError(undefined);
+              setState("open");
+            }}
+          >
+            Open another address
+          </button>
+          <button className="hub-close" onClick={close}>Close session</button>
+        </div>
+        {activeError && <p className="hub-error hub-active-error" role="alert">{activeError}</p>}
         <App />
       </div>
     );
@@ -210,9 +278,14 @@ export function HubGate() {
             Save this address in this browser
           </label>
           {error && <p className="hub-error" role="alert">{error}</p>}
-          <button type="submit" disabled={opening || state === "prompt" || !address.trim()}>
-            {state === "prompt" ? "Connect…" : opening ? "Opening…" : "Connect"}
-          </button>
+          <div className="dialog-actions">
+            {currentHubSessionRecord() && (
+              <button type="button" onClick={cancelToActive}>Cancel</button>
+            )}
+            <button type="submit" disabled={opening || state === "prompt" || !address.trim()}>
+              {state === "prompt" ? "Connect…" : opening ? "Opening…" : "Connect"}
+            </button>
+          </div>
         </form>
       </main>
       {hub && (
@@ -222,7 +295,7 @@ export function HubGate() {
           aria-labelledby="hub-password-title"
           onCancel={(event) => {
             event.preventDefault();
-            cancelPassword();
+            cancelToActive();
           }}
         >
           <form onSubmit={submitPassword}>
@@ -240,7 +313,7 @@ export function HubGate() {
             />
             {error && <p className="hub-error" role="alert">{error}</p>}
             <div className="dialog-actions">
-              <button type="button" onClick={cancelPassword}>Cancel</button>
+              <button type="button" onClick={cancelToActive}>Cancel</button>
               <button type="submit" className="primary" disabled={opening || !password}>
                 {opening ? "Connecting…" : "Connect"}
               </button>

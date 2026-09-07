@@ -151,9 +151,11 @@ password. The active tab stores only the session ID, SSH destination, and
 current address in `sessionStorage`. Refreshing the same target resumes the
 session without another POST or prompt. Changing only the path for the same
 `user@host` identity retargets the viewer through the existing SSH ControlMaster
-without another prompt. Changing the user or host closes the old session and
-prompts for a new password. Local paths use the same path replacement without a
-password.
+without another prompt. Changing the user or host prompts for a new password,
+starts the replacement, and closes the old session only after the replacement
+works. Cancelled or failed changes keep the old viewer. Local path changes use
+the same password-free replacement. Viewer API requests pause while a viewer is
+being replaced.
 
 The browser does not close a session on `pagehide`, because that would close it
 on an ordinary refresh. Explicit close and the 90-second heartbeat expiry are
