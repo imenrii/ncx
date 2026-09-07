@@ -45,14 +45,15 @@ the pathname again. The hub allows 1 to 10 starting or active sessions and
 streams only the existing viewer GET routes; it does not expose a general HTTP
 proxy.
 
-Set `NCX_REMOTE_NCX` to a standalone Linux x86-64 `ncx` executable and set
-`NCX_SSH_PASSWORD` to enable hub targets such as
-`user@host:/absolute/file.nc`. The hub uses `SSH_ASKPASS`, so the password does
-not enter command arguments or logs. It uploads the standalone executable to
+Set `--remote-ncx` to a standalone Linux x86-64 `ncx` executable to enable hub
+targets such as `user@host:/absolute/file.nc`. A remote web session owns one
+OpenSSH control connection for its `user@host` identity. The password is
+required only when that connection starts. The hub passes it through a one-use
+pipe, then removes it from memory. A path change on the same identity replaces
+the viewer through the existing control connection without another password.
+The hub uploads the standalone executable to
 `~/.cache/ncx/<content-id>/ncx` on first use and reuses that version. The SSH
-host must already be present in the container user's `known_hosts`. Docker
-administrators and processes in the hub container can read environment values,
-including the password.
+host must already be present in the container user's `known_hosts`.
 
 Binary responses have a 64 MiB default limit. Use `--max-response-bytes` to
 change this limit. Display fields use little-endian `f32`, coordinates and time
@@ -113,21 +114,11 @@ The supplied Compose service builds the standalone Linux x86-64 executable and
 runs `ncx hub` on a Docker bridge. Apache keeps ports 80 and 443. Docker
 publishes the hub only on host loopback, and Apache maps `/ncx/` to that port.
 
-Prepare the configuration:
-
-```bash
-cp .env.example .env
-mkdir -p deploy
-ssh-keyscan -H hkss11 > deploy/known_hosts
-# Verify the saved host-key fingerprint through a trusted source.
-$EDITOR .env
-```
-
-Set `NCX_DATA_ROOT` to the host directory that Docker will mount read-only at
-`/data`. UID 10001 in the container must be able to read that directory and the
-`known_hosts` file. Set `NCX_SSH_PASSWORD` to the SSH login password. Do not
-commit `.env` or `deploy/known_hosts`. Docker administrators and processes in
-the container can read environment values, including the password.
+Prepare `deploy/known_hosts` with the approved SSH host keys and configure the
+read-only `/data` mount in `compose.yaml`. UID 10001 in the container must be
+able to read the data directory and `known_hosts`. The browser supplies an SSH
+password only when it creates a remote web session. The password is not a
+Docker setting and is not saved.
 
 Build and start the hub:
 

@@ -3,7 +3,7 @@ use std::fs::File;
 use std::future::Future;
 use std::net::SocketAddrV4;
 #[cfg(target_os = "linux")]
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, FromRawFd};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::Stdio;
@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::body::Body;
-use axum::extract::{Request, State};
+use axum::extract::{DefaultBodyLimit, Request, State};
 use axum::http::header::{CONNECTION, HOST};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri};
 use axum::middleware::{self, Next};
@@ -183,14 +183,39 @@ fn resolve_local_target(_path: &Path, _roots: &[PathBuf]) -> Result<LocalTarget,
 
 type LaunchFuture<'a> =
     Pin<Box<dyn Future<Output = Result<LaunchedSession, HubError>> + Send + 'a>>;
+type RetargetFuture<'a> = Pin<Box<dyn Future<Output = Result<SocketAddrV4, HubError>> + Send + 'a>>;
 type StopFuture<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum SessionIdentity {
+    Local,
+    Remote(String),
+}
+
+impl Target {
+    fn identity(&self) -> SessionIdentity {
+        match self {
+            Self::Local(_) => SessionIdentity::Local,
+            Self::Remote(target) => SessionIdentity::Remote(target.destination.clone()),
+        }
+    }
+}
 
 trait SessionLauncher: Send + Sync {
     /// Stop and reap launched processes when this absolute deadline expires.
-    fn launch<'a>(&'a self, target: Target, deadline: Instant) -> LaunchFuture<'a>;
+    fn launch<'a>(
+        &'a self,
+        id: &'a SessionId,
+        target: Target,
+        password: Option<SecretString>,
+        deadline: Instant,
+    ) -> LaunchFuture<'a>;
 }
 
 trait SessionProcess: Send {
+    fn identity(&self) -> SessionIdentity;
+    fn is_alive(&mut self) -> bool;
+    fn retarget<'a>(&'a mut self, target: Target, deadline: Instant) -> RetargetFuture<'a>;
     fn stop(&mut self) -> StopFuture<'_>;
 }
 
@@ -238,8 +263,12 @@ impl SessionManager {
         }
     }
 
-    async fn open(&self, target: Target) -> Result<SessionId, HubError> {
-        {
+    async fn open(
+        &self,
+        target: Target,
+        password: Option<SecretString>,
+    ) -> Result<SessionId, HubError> {
+        let id = {
             let mut state = self.state.lock().await;
             if state.starting + state.active.len() >= self.limit {
                 return Err(HubError {
@@ -248,27 +277,21 @@ impl SessionManager {
                     message: format!("the hub allows at most {} active sessions", self.limit),
                 });
             }
-            state.starting += 1;
-        }
-
-        let deadline = Instant::now() + self.startup_timeout;
-        let launched = self.launcher.launch(target, deadline).await;
-        let mut state = self.state.lock().await;
-        state.starting -= 1;
-        let mut launched = launched?;
-        let id = loop {
-            let candidate = match random_session_id() {
-                Ok(candidate) => candidate,
-                Err(error) => {
-                    drop(state);
-                    launched.process.stop().await;
-                    return Err(error);
+            let id = loop {
+                let candidate = random_session_id()?;
+                if !state.active.contains_key(&candidate) {
+                    break candidate;
                 }
             };
-            if !state.active.contains_key(&candidate) {
-                break candidate;
-            }
+            state.starting += 1;
+            id
         };
+
+        let deadline = Instant::now() + self.startup_timeout;
+        let launched = self.launcher.launch(&id, target, password, deadline).await;
+        let mut state = self.state.lock().await;
+        state.starting -= 1;
+        let launched = launched?;
         state.active.insert(
             id.clone(),
             Session {
@@ -280,11 +303,62 @@ impl SessionManager {
         Ok(id)
     }
 
+    async fn retarget(&self, id: &SessionId, target: Target) -> Result<(), HubError> {
+        let identity = target.identity();
+        let mut session = {
+            let mut state = self.state.lock().await;
+            let session = state.active.remove(id).ok_or_else(unknown_session)?;
+            state.starting += 1;
+            session
+        };
+        if session.process.identity() != identity {
+            let mut state = self.state.lock().await;
+            state.starting -= 1;
+            state.active.insert(id.clone(), session);
+            return Err(HubError {
+                status: 409,
+                code: "new_session_required",
+                message: "a different SSH identity requires a new web session".to_owned(),
+            });
+        }
+        let deadline = Instant::now() + self.startup_timeout;
+        let result = session.process.retarget(target, deadline).await;
+        if let Ok(upstream) = result {
+            session.upstream = upstream;
+            session.last_seen = Instant::now();
+        }
+        let mut state = self.state.lock().await;
+        state.starting -= 1;
+        state.active.insert(id.clone(), session);
+        result.map(|_| ())
+    }
+
     async fn upstream(&self, id: &SessionId) -> Result<SocketAddrV4, HubError> {
         let mut state = self.state.lock().await;
-        let session = state.active.get_mut(id).ok_or_else(unknown_session)?;
+        let alive = state
+            .active
+            .get_mut(id)
+            .ok_or_else(unknown_session)?
+            .process
+            .is_alive();
+        if !alive {
+            let mut session = state.active.remove(id).expect("session was present");
+            drop(state);
+            session.process.stop().await;
+            return Err(unknown_session());
+        }
+        let session = state.active.get_mut(id).expect("session was present");
         session.last_seen = Instant::now();
         Ok(session.upstream)
+    }
+
+    async fn identity(&self, id: &SessionId) -> Result<SessionIdentity, HubError> {
+        let state = self.state.lock().await;
+        state
+            .active
+            .get(id)
+            .map(|session| session.process.identity())
+            .ok_or_else(unknown_session)
     }
 
     async fn heartbeat(&self, id: &SessionId) -> Result<(), HubError> {
@@ -371,17 +445,46 @@ fn unknown_session() -> HubError {
     }
 }
 
-struct ChildProcess {
+struct LocalSessionProcess {
     child: Child,
+    executable: PathBuf,
+    limits: Limits,
 }
 
-impl SessionProcess for ChildProcess {
-    fn stop(&mut self) -> StopFuture<'_> {
+impl SessionProcess for LocalSessionProcess {
+    fn identity(&self) -> SessionIdentity {
+        SessionIdentity::Local
+    }
+
+    fn is_alive(&mut self) -> bool {
+        self.child.try_wait().is_ok_and(|status| status.is_none())
+    }
+
+    fn retarget<'a>(&'a mut self, target: Target, deadline: Instant) -> RetargetFuture<'a> {
         Box::pin(async move {
-            let _ = self.child.start_kill();
-            let _ = self.child.wait().await;
+            let Target::Local(target) = target else {
+                return Err(HubError {
+                    status: 409,
+                    code: "new_session_required",
+                    message: "an SSH identity requires a new web session".to_owned(),
+                });
+            };
+            let (upstream, mut replacement) =
+                launch_local_viewer(&self.executable, self.limits, target, deadline).await?;
+            std::mem::swap(&mut self.child, &mut replacement);
+            stop_child(&mut replacement).await;
+            Ok(upstream)
         })
     }
+
+    fn stop(&mut self) -> StopFuture<'_> {
+        Box::pin(async move { stop_child(&mut self.child).await })
+    }
+}
+
+async fn stop_child(child: &mut Child) {
+    let _ = child.start_kill();
+    let _ = child.wait().await;
 }
 
 struct ProcessLauncher {
@@ -424,99 +527,407 @@ fn configure_local_dataset(command: &mut Command, target: &LocalTarget) {
         .arg(format!("/proc/self/fd/{LOCAL_DATASET_FD}"));
 }
 
+async fn launch_local_viewer(
+    executable: &Path,
+    limits: Limits,
+    target: LocalTarget,
+    deadline: Instant,
+) -> Result<(SocketAddrV4, Child), HubError> {
+    let mut last_error = String::new();
+    for attempt in 1..=3 {
+        if Instant::now() >= deadline {
+            return Err(session_start_timeout());
+        }
+        let port = candidate_loopback_port()?;
+        let mut command = Command::new(executable);
+        command
+            .arg("serve")
+            .arg("--exit-on-stdin-eof")
+            .arg("--port")
+            .arg(port.to_string())
+            .arg("--max-response-bytes")
+            .arg(limits.max_response_bytes.to_string())
+            .arg("--ugrid-warn-faces")
+            .arg(limits.ugrid_warn_faces.to_string());
+        #[cfg(target_os = "linux")]
+        configure_local_dataset(&mut command, &target);
+        let mut child = command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::inherit())
+            .env_remove("NCX_ASKPASS_PIPE")
+            .env_remove("NCX_SSH_PASSWORD")
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|error| HubError {
+                status: 500,
+                code: "session_start_failed",
+                message: format!("cannot start ncx serve: {error}"),
+            })?;
+        match wait_for_server(&mut child, port, deadline).await {
+            Ok(()) => {
+                return Ok((
+                    SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, port),
+                    child,
+                ));
+            }
+            Err(error) => {
+                last_error = error.message;
+                stop_child(&mut child).await;
+                if attempt < 3 {
+                    eprintln!("ncx: local session startup failed; retrying with another port");
+                }
+            }
+        }
+    }
+    Err(HubError {
+        status: 502,
+        code: "session_start_failed",
+        message: format!("local ncx did not become ready: {last_error}"),
+    })
+}
+
 #[derive(Clone)]
 struct RemoteRuntime {
     binary: PathBuf,
     cache_key: String,
-    password: String,
     ssh_program: PathBuf,
 }
 
+struct SecretString(Vec<u8>);
+
+impl SecretString {
+    fn new(value: String) -> Result<Self, HubError> {
+        let mut value = value.into_bytes();
+        if value.is_empty()
+            || value.len() > 1024
+            || value.contains(&b'\r')
+            || value.contains(&b'\n')
+        {
+            value.fill(0);
+            return Err(HubError {
+                status: 400,
+                code: "invalid_ssh_password",
+                message: "the SSH password must contain 1 to 1024 bytes without line breaks"
+                    .to_owned(),
+            });
+        }
+        Ok(Self(value))
+    }
+}
+
+impl Drop for SecretString {
+    fn drop(&mut self) {
+        self.0.fill(0);
+    }
+}
+
+fn validate_password(target: &Target, password: &Option<SecretString>) -> Result<(), HubError> {
+    match (target, password) {
+        (Target::Remote(_), None) => Err(HubError {
+            status: 401,
+            code: "ssh_password_required",
+            message: "an SSH password is required".to_owned(),
+        }),
+        (Target::Local(_), Some(_)) => Err(HubError {
+            status: 400,
+            code: "unexpected_ssh_password",
+            message: "local sessions do not accept an SSH password".to_owned(),
+        }),
+        _ => Ok(()),
+    }
+}
+
+struct PasswordChild {
+    child: Child,
+    _reader: File,
+}
+
+#[cfg(target_os = "linux")]
+fn spawn_ssh_with_password(
+    mut command: Command,
+    askpass_executable: &Path,
+    password: &SecretString,
+) -> Result<PasswordChild, HubError> {
+    use std::io::Write;
+
+    let mut descriptors = [0; 2];
+    if unsafe { libc::pipe2(descriptors.as_mut_ptr(), libc::O_CLOEXEC) } == -1 {
+        return Err(HubError {
+            status: 500,
+            code: "ssh_start_failed",
+            message: format!(
+                "cannot create the SSH password pipe: {}",
+                std::io::Error::last_os_error()
+            ),
+        });
+    }
+    let reader = unsafe { File::from_raw_fd(descriptors[0]) };
+    let mut writer = unsafe { File::from_raw_fd(descriptors[1]) };
+    writer.write_all(&password.0).map_err(|error| HubError {
+        status: 500,
+        code: "ssh_start_failed",
+        message: format!("cannot prepare the SSH password: {error}"),
+    })?;
+    drop(writer);
+    let pipe_path = format!("/proc/{}/fd/{}", std::process::id(), reader.as_raw_fd());
+    if !Path::new(&pipe_path).exists() {
+        return Err(HubError {
+            status: 501,
+            code: "ssh_password_pipe_unsupported",
+            message: "the hub cannot expose its SSH password pipe through /proc".to_owned(),
+        });
+    }
+    let child = command
+        .env("SSH_ASKPASS", askpass_executable)
+        .env("SSH_ASKPASS_REQUIRE", "force")
+        .env("DISPLAY", "ncx")
+        .env("NCX_ASKPASS_PIPE", pipe_path)
+        .env_remove("NCX_SSH_PASSWORD")
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|error| HubError {
+            status: 500,
+            code: "ssh_start_failed",
+            message: format!("cannot start ssh: {error}"),
+        })?;
+    Ok(PasswordChild {
+        child,
+        _reader: reader,
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
+fn spawn_ssh_with_password(
+    _command: Command,
+    _askpass_executable: &Path,
+    _password: &SecretString,
+) -> Result<PasswordChild, HubError> {
+    Err(HubError {
+        status: 501,
+        code: "ssh_password_pipe_unsupported",
+        message: "SSH password sessions require Linux /proc".to_owned(),
+    })
+}
+
 impl SessionLauncher for ProcessLauncher {
-    fn launch<'a>(&'a self, target: Target, deadline: Instant) -> LaunchFuture<'a> {
+    fn launch<'a>(
+        &'a self,
+        id: &'a SessionId,
+        target: Target,
+        password: Option<SecretString>,
+        deadline: Instant,
+    ) -> LaunchFuture<'a> {
         let executable = self.executable.clone();
         let limits = self.limits;
         let remote = self.remote.clone();
         Box::pin(async move {
-            let target = match target {
-                Target::Local(target) => target,
+            match target {
+                Target::Local(target) => {
+                    if password.is_some() {
+                        return Err(HubError {
+                            status: 400,
+                            code: "unexpected_ssh_password",
+                            message: "local sessions do not accept an SSH password".to_owned(),
+                        });
+                    }
+                    let (upstream, child) =
+                        launch_local_viewer(&executable, limits, target, deadline).await?;
+                    Ok(LaunchedSession {
+                        upstream,
+                        process: Box::new(LocalSessionProcess {
+                            child,
+                            executable,
+                            limits,
+                        }),
+                    })
+                }
                 Target::Remote(target) => {
                     let remote = remote.ok_or_else(|| HubError {
                         status: 422,
                         code: "remote_sessions_disabled",
                         message: "this hub has no remote ncx executable".to_owned(),
                     })?;
-                    return launch_remote_session(&executable, limits, remote, target, deadline)
-                        .await;
-                }
-            };
-            let mut last_error = String::new();
-            for attempt in 1..=3 {
-                if Instant::now() >= deadline {
-                    return Err(session_start_timeout());
-                }
-                let port = candidate_loopback_port()?;
-                let mut command = Command::new(&executable);
-                command
-                    .arg("serve")
-                    .arg("--exit-on-stdin-eof")
-                    .arg("--port")
-                    .arg(port.to_string())
-                    .arg("--max-response-bytes")
-                    .arg(limits.max_response_bytes.to_string())
-                    .arg("--ugrid-warn-faces")
-                    .arg(limits.ugrid_warn_faces.to_string());
-                #[cfg(target_os = "linux")]
-                configure_local_dataset(&mut command, &target);
-                let mut child = command
-                    .stdin(Stdio::piped())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::inherit())
-                    .env_remove("NCX_ASKPASS_MODE")
-                    .env_remove("NCX_SSH_PASSWORD")
-                    .kill_on_drop(true)
-                    .spawn()
-                    .map_err(|error| HubError {
-                        status: 500,
-                        code: "session_start_failed",
-                        message: format!("cannot start ncx serve: {error}"),
+                    let password = password.ok_or_else(|| HubError {
+                        status: 401,
+                        code: "ssh_password_required",
+                        message: "an SSH password is required".to_owned(),
                     })?;
-                match wait_for_server(&mut child, port, deadline).await {
-                    Ok(()) => {
-                        return Ok(LaunchedSession {
-                            upstream: SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, port),
-                            process: Box::new(ChildProcess { child }),
-                        });
-                    }
-                    Err(error) => {
-                        last_error = error.message;
-                        let _ = child.start_kill();
-                        let _ = child.wait().await;
-                        if attempt < 3 {
-                            eprintln!(
-                                "ncx: local session startup failed; retrying with another port"
-                            );
-                        }
-                    }
+                    launch_remote_session(
+                        id,
+                        &executable,
+                        limits,
+                        remote,
+                        target,
+                        &password,
+                        deadline,
+                    )
+                    .await
                 }
             }
-            Err(HubError {
-                status: 502,
-                code: "session_start_failed",
-                message: format!("local ncx did not become ready: {last_error}"),
-            })
+        })
+    }
+}
+
+struct RemoteSessionProcess {
+    master: Child,
+    viewer: Child,
+    destination: String,
+    control_path: PathBuf,
+    remote: RemoteRuntime,
+    limits: Limits,
+}
+
+impl SessionProcess for RemoteSessionProcess {
+    fn identity(&self) -> SessionIdentity {
+        SessionIdentity::Remote(self.destination.clone())
+    }
+
+    fn is_alive(&mut self) -> bool {
+        self.master.try_wait().is_ok_and(|status| status.is_none())
+            && self.viewer.try_wait().is_ok_and(|status| status.is_none())
+    }
+
+    fn retarget<'a>(&'a mut self, target: Target, deadline: Instant) -> RetargetFuture<'a> {
+        Box::pin(async move {
+            let Target::Remote(target) = target else {
+                return Err(HubError {
+                    status: 409,
+                    code: "new_session_required",
+                    message: "a local target requires a new web session".to_owned(),
+                });
+            };
+            if target.destination != self.destination {
+                return Err(HubError {
+                    status: 409,
+                    code: "new_session_required",
+                    message: "a different SSH identity requires a new web session".to_owned(),
+                });
+            }
+            if !matches!(self.master.try_wait(), Ok(None)) {
+                return Err(unknown_session());
+            }
+            let (upstream, mut replacement) = launch_remote_viewer(
+                &self.remote,
+                &self.control_path,
+                &target,
+                self.limits,
+                deadline,
+            )
+            .await?;
+            std::mem::swap(&mut self.viewer, &mut replacement);
+            stop_child(&mut replacement).await;
+            Ok(upstream)
+        })
+    }
+
+    fn stop(&mut self) -> StopFuture<'_> {
+        Box::pin(async move {
+            stop_child(&mut self.viewer).await;
+            stop_child(&mut self.master).await;
+            let _ = std::fs::remove_file(&self.control_path);
         })
     }
 }
 
 async fn launch_remote_session(
+    id: &SessionId,
     askpass_executable: &Path,
     limits: Limits,
     remote: RemoteRuntime,
     target: RemoteTarget,
+    password: &SecretString,
     deadline: Instant,
 ) -> Result<LaunchedSession, HubError> {
-    ensure_remote_binary(askpass_executable, &remote, &target.destination, deadline).await?;
+    let control_path = std::env::temp_dir().join(format!("ncx-{}.sock", id.0));
+    let _ = std::fs::remove_file(&control_path);
+    let mut command = authenticated_ssh_command(&remote);
+    command
+        .arg("-M")
+        .arg("-N")
+        .arg("-S")
+        .arg(&control_path)
+        .arg("-o")
+        .arg("ControlPersist=no")
+        .arg("--")
+        .arg(&target.destination)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::inherit());
+    let mut authenticated = spawn_ssh_with_password(command, askpass_executable, password)?;
+    if let Err(error) =
+        wait_for_control_master(&mut authenticated.child, &control_path, deadline).await
+    {
+        stop_child(&mut authenticated.child).await;
+        let _ = std::fs::remove_file(&control_path);
+        return Err(error);
+    }
+    let PasswordChild {
+        child: master,
+        _reader,
+    } = authenticated;
+    drop(_reader);
+    let mut master = master;
+    if let Err(error) =
+        ensure_remote_binary(&remote, &target.destination, &control_path, deadline).await
+    {
+        stop_child(&mut master).await;
+        let _ = std::fs::remove_file(&control_path);
+        return Err(error);
+    }
+    let (upstream, viewer) =
+        match launch_remote_viewer(&remote, &control_path, &target, limits, deadline).await {
+            Ok(viewer) => viewer,
+            Err(error) => {
+                stop_child(&mut master).await;
+                let _ = std::fs::remove_file(&control_path);
+                return Err(error);
+            }
+        };
+    Ok(LaunchedSession {
+        upstream,
+        process: Box::new(RemoteSessionProcess {
+            master,
+            viewer,
+            destination: target.destination,
+            control_path,
+            remote,
+            limits,
+        }),
+    })
+}
+
+async fn wait_for_control_master(
+    child: &mut Child,
+    control_path: &Path,
+    deadline: Instant,
+) -> Result<(), HubError> {
+    loop {
+        if let Some(status) = child.try_wait().map_err(|error| HubError {
+            status: 502,
+            code: "ssh_authentication_failed",
+            message: format!("cannot inspect the SSH connection: {error}"),
+        })? {
+            return Err(HubError {
+                status: 401,
+                code: "ssh_authentication_failed",
+                message: format!("SSH authentication failed ({status})"),
+            });
+        }
+        if control_path.exists() {
+            return Ok(());
+        }
+        sleep_until(next_server_probe(Instant::now(), deadline)?).await;
+    }
+}
+
+async fn launch_remote_viewer(
+    remote: &RemoteRuntime,
+    control_path: &Path,
+    target: &RemoteTarget,
+    limits: Limits,
+    deadline: Instant,
+) -> Result<(SocketAddrV4, Child), HubError> {
     let mut last_error = String::new();
     for attempt in 1..=3 {
         if Instant::now() >= deadline {
@@ -525,7 +936,7 @@ async fn launch_remote_session(
         let port = candidate_loopback_port()?;
         let forward = format!("127.0.0.1:{port}:127.0.0.1:{port}");
         let remote_command = remote_serve_command(&remote.cache_key, &target.path, port, limits);
-        let mut command = ssh_command(askpass_executable, &remote);
+        let mut command = mux_ssh_command(remote, control_path);
         let mut child = command
             .arg("-o")
             .arg("ExitOnForwardFailure=yes")
@@ -542,21 +953,20 @@ async fn launch_remote_session(
             .map_err(|error| HubError {
                 status: 500,
                 code: "ssh_start_failed",
-                message: format!("cannot start ssh: {error}"),
+                message: format!("cannot start SSH viewer: {error}"),
             })?;
         match wait_for_server(&mut child, port, deadline).await {
             Ok(()) => {
-                return Ok(LaunchedSession {
-                    upstream: SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, port),
-                    process: Box::new(ChildProcess { child }),
-                });
+                return Ok((
+                    SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, port),
+                    child,
+                ));
             }
             Err(error) => {
                 last_error = error.message;
-                let _ = child.start_kill();
-                let _ = child.wait().await;
+                stop_child(&mut child).await;
                 if attempt < 3 {
-                    eprintln!("ncx: SSH session startup failed; retrying with another port");
+                    eprintln!("ncx: SSH viewer startup failed; retrying with another port");
                 }
             }
         }
@@ -569,14 +979,14 @@ async fn launch_remote_session(
 }
 
 async fn ensure_remote_binary(
-    askpass_executable: &Path,
     remote: &RemoteRuntime,
     destination: &str,
+    control_path: &Path,
     deadline: Instant,
 ) -> Result<(), HubError> {
     let cache = remote_cache_path(&remote.cache_key);
     let check = format!("test -x \"{cache}\"");
-    let mut command = ssh_command(askpass_executable, remote);
+    let mut command = mux_ssh_command(remote, control_path);
     command
         .arg("--")
         .arg(destination)
@@ -605,7 +1015,7 @@ async fn ensure_remote_binary(
          tmp=\"$cache.tmp.$$\" && trap 'rm -f \"$tmp\"' EXIT HUP INT TERM && \
          cat > \"$tmp\" && chmod 700 \"$tmp\" && mv -f \"$tmp\" \"$cache\""
     );
-    let mut command = ssh_command(askpass_executable, remote);
+    let mut command = mux_ssh_command(remote, control_path);
     command
         .arg("--")
         .arg(destination)
@@ -658,7 +1068,7 @@ async fn command_status_until(
     }
 }
 
-fn ssh_command(askpass_executable: &Path, remote: &RemoteRuntime) -> Command {
+fn authenticated_ssh_command(remote: &RemoteRuntime) -> Command {
     let mut command = Command::new(&remote.ssh_program);
     command
         .arg("-o")
@@ -668,12 +1078,22 @@ fn ssh_command(askpass_executable: &Path, remote: &RemoteRuntime) -> Command {
         .arg("-o")
         .arg("PreferredAuthentications=password,keyboard-interactive")
         .arg("-o")
-        .arg("PubkeyAuthentication=no")
-        .env("SSH_ASKPASS", askpass_executable)
-        .env("SSH_ASKPASS_REQUIRE", "force")
-        .env("DISPLAY", "ncx")
-        .env("NCX_ASKPASS_MODE", "1")
-        .env("NCX_SSH_PASSWORD", &remote.password);
+        .arg("PubkeyAuthentication=no");
+    command
+}
+
+fn mux_ssh_command(remote: &RemoteRuntime, control_path: &Path) -> Command {
+    let mut command = Command::new(&remote.ssh_program);
+    command
+        .arg("-S")
+        .arg(control_path)
+        .arg("-o")
+        .arg("ControlMaster=no")
+        .arg("-o")
+        .arg("BatchMode=yes")
+        .env_remove("NCX_SSH_PASSWORD")
+        .env_remove("NCX_ASKPASS_PIPE")
+        .env_remove("SSH_ASKPASS");
     command
 }
 
@@ -812,17 +1232,10 @@ pub(crate) struct HubConfig {
     pub idle_ttl: Duration,
     pub limits: Limits,
     pub remote_ncx: Option<PathBuf>,
-    pub ssh_password: Option<String>,
 }
 
 impl HubConfig {
     pub fn validate(mut self) -> NcxResult<Self> {
-        if self.remote_ncx.is_none() {
-            self.remote_ncx = std::env::var_os("NCX_REMOTE_NCX").map(PathBuf::from);
-        }
-        if self.ssh_password.is_none() {
-            self.ssh_password = std::env::var("NCX_SSH_PASSWORD").ok();
-        }
         if self.base_path.is_empty()
             || !self.base_path.starts_with('/')
             || self.base_path.ends_with('/')
@@ -850,27 +1263,18 @@ impl HubConfig {
         if self.startup_timeout.is_zero() || self.idle_ttl.is_zero() {
             return Err("hub timeouts must be greater than zero".to_owned());
         }
-        match (&mut self.remote_ncx, &self.ssh_password) {
-            (Some(binary), Some(password)) if !password.is_empty() => {
-                *binary = binary.canonicalize().map_err(|error| {
-                    format!(
-                        "cannot find remote ncx binary {}: {error}",
-                        binary.display()
-                    )
-                })?;
-                if !binary.is_file() {
-                    return Err(format!(
-                        "remote ncx binary {} is not a regular file",
-                        binary.display()
-                    ));
-                }
-            }
-            (None, None) => {}
-            _ => {
-                return Err(
-                    "set both NCX_REMOTE_NCX and NCX_SSH_PASSWORD to enable SSH sessions"
-                        .to_owned(),
-                );
+        if let Some(binary) = &mut self.remote_ncx {
+            *binary = binary.canonicalize().map_err(|error| {
+                format!(
+                    "cannot find remote ncx binary {}: {error}",
+                    binary.display()
+                )
+            })?;
+            if !binary.is_file() {
+                return Err(format!(
+                    "remote ncx binary {} is not a regular file",
+                    binary.display()
+                ));
             }
         }
         Ok(self)
@@ -885,6 +1289,7 @@ struct HubState {
 #[derive(Deserialize)]
 struct CreateSession {
     address: String,
+    password: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -908,14 +1313,13 @@ where
         Arc::new(ProcessLauncher {
             executable: executable.clone(),
             limits: config.limits,
-            remote: match (config.remote_ncx, config.ssh_password) {
-                (Some(binary), Some(password)) => Some(RemoteRuntime {
+            remote: match config.remote_ncx {
+                Some(binary) => Some(RemoteRuntime {
                     cache_key: binary_fingerprint(&binary).map_err(|error| error.message)?,
                     binary,
-                    password,
                     ssh_program: PathBuf::from("ssh"),
                 }),
-                _ => None,
+                None => None,
             },
         }),
         config.session_limit,
@@ -963,7 +1367,8 @@ fn hub_application(base_path: &str, state: Arc<HubState>) -> Result<Router, HubE
         .route("/datasets", get(relay_datasets))
         .route("/meta", get(relay_metadata))
         .route("/data", get(relay_data))
-        .fallback(hub_api_not_found);
+        .fallback(hub_api_not_found)
+        .layer(DefaultBodyLimit::max(8 * 1024));
     let scoped = server::viewer_routes()
         .route("/healthz", get(health))
         .nest("/api", api)
@@ -1000,8 +1405,17 @@ async fn session_status(State(state): State<Arc<HubState>>, headers: HeaderMap) 
 
 async fn create_session(
     State(state): State<Arc<HubState>>,
+    headers: HeaderMap,
     Json(request): Json<CreateSession>,
 ) -> Result<(StatusCode, Json<CreatedSession>), HubError> {
+    if request.address.len() > 4096 {
+        return Err(HubError {
+            status: 400,
+            code: "invalid_target",
+            message: "the target address is too long".to_owned(),
+        });
+    }
+    let password = request.password.map(SecretString::new).transpose()?;
     let address = request.address;
     let roots = state.local_roots.clone();
     let target = tokio::task::spawn_blocking(move || resolve_target(&address, &roots))
@@ -1011,7 +1425,24 @@ async fn create_session(
             code: "target_check_failed",
             message: error.to_string(),
         })??;
-    let id = state.manager.open(target).await?;
+    if let Some(id) = optional_session_header(&headers)? {
+        if state.manager.identity(&id).await? == target.identity() {
+            if password.is_some() {
+                return Err(HubError {
+                    status: 400,
+                    code: "unexpected_ssh_password",
+                    message: "an active SSH session does not accept another password".to_owned(),
+                });
+            }
+            state.manager.retarget(&id, target).await?;
+            return Ok((StatusCode::OK, Json(CreatedSession { session: id.0 })));
+        }
+        validate_password(&target, &password)?;
+        state.manager.close(&id).await?;
+    } else {
+        validate_password(&target, &password)?;
+    }
+    let id = state.manager.open(target, password).await?;
     Ok((StatusCode::CREATED, Json(CreatedSession { session: id.0 })))
 }
 
@@ -1105,20 +1536,23 @@ async fn relay_request_result(
     Ok(Response::from_parts(parts, Body::new(body)))
 }
 
-fn session_header(headers: &HeaderMap) -> Result<SessionId, HubError> {
-    let value = headers
-        .get(HeaderName::from_static("x-ncx-session"))
-        .ok_or_else(|| HubError {
-            status: 400,
-            code: "session_required",
-            message: "X-Ncx-Session is required".to_owned(),
-        })?
-        .to_str()
-        .map_err(|_| unknown_session())?;
+fn optional_session_header(headers: &HeaderMap) -> Result<Option<SessionId>, HubError> {
+    let Some(value) = headers.get(HeaderName::from_static("x-ncx-session")) else {
+        return Ok(None);
+    };
+    let value = value.to_str().map_err(|_| unknown_session())?;
     if value.len() != 32 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err(unknown_session());
     }
-    Ok(SessionId(value.to_ascii_lowercase()))
+    Ok(Some(SessionId(value.to_ascii_lowercase())))
+}
+
+fn session_header(headers: &HeaderMap) -> Result<SessionId, HubError> {
+    optional_session_header(headers)?.ok_or_else(|| HubError {
+        status: 400,
+        code: "session_required",
+        message: "X-Ncx-Session is required".to_owned(),
+    })
 }
 
 fn strip_hop_headers(headers: &mut HeaderMap) {
@@ -1180,7 +1614,13 @@ mod tests {
     }
 
     impl SessionLauncher for FakeLauncher {
-        fn launch<'a>(&'a self, _target: Target, deadline: Instant) -> LaunchFuture<'a> {
+        fn launch<'a>(
+            &'a self,
+            _id: &'a SessionId,
+            _target: Target,
+            _password: Option<SecretString>,
+            deadline: Instant,
+        ) -> LaunchFuture<'a> {
             let upstream = self.upstream;
             let stopped = self.stopped.clone();
             let started = self.started.clone();
@@ -1196,7 +1636,7 @@ mod tests {
                 }
                 Ok(LaunchedSession {
                     upstream,
-                    process: Box::new(FakeProcess { stopped }),
+                    process: Box::new(FakeProcess { stopped, upstream }),
                 })
             })
         }
@@ -1204,9 +1644,38 @@ mod tests {
 
     struct FakeProcess {
         stopped: Arc<AtomicUsize>,
+        upstream: SocketAddrV4,
     }
 
     impl SessionProcess for FakeProcess {
+        fn identity(&self) -> SessionIdentity {
+            SessionIdentity::Remote("test".to_owned())
+        }
+
+        fn is_alive(&mut self) -> bool {
+            true
+        }
+
+        fn retarget<'a>(&'a mut self, target: Target, _deadline: Instant) -> RetargetFuture<'a> {
+            Box::pin(async move {
+                if target.identity() != self.identity() {
+                    return Err(HubError {
+                        status: 409,
+                        code: "new_session_required",
+                        message: "a different SSH identity requires a new web session".to_owned(),
+                    });
+                }
+                if matches!(&target, Target::Remote(target) if target.path == "/fail.nc") {
+                    return Err(HubError {
+                        status: 502,
+                        code: "session_start_failed",
+                        message: "replacement failed".to_owned(),
+                    });
+                }
+                Ok(self.upstream)
+            })
+        }
+
         fn stop(&mut self) -> StopFuture<'_> {
             Box::pin(async move {
                 self.stopped.fetch_add(1, Ordering::SeqCst);
@@ -1261,6 +1730,8 @@ mod tests {
         })
     }
 
+    static NEXT_TEST_DIRECTORY: AtomicUsize = AtomicUsize::new(0);
+
     struct TestDirectory(PathBuf);
 
     impl TestDirectory {
@@ -1269,7 +1740,11 @@ mod tests {
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_nanos();
-            let path = std::env::temp_dir().join(format!("ncx-hub-{unique}"));
+            let sequence = NEXT_TEST_DIRECTORY.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "ncx-hub-{}-{unique}-{sequence}",
+                std::process::id()
+            ));
             std::fs::create_dir_all(&path).unwrap();
             Self(path)
         }
@@ -1293,11 +1768,11 @@ mod tests {
         );
         let opening = {
             let manager = manager.clone();
-            tokio::spawn(async move { manager.open(fake_target()).await })
+            tokio::spawn(async move { manager.open(fake_target(), None).await })
         };
         started.notified().await;
 
-        let error = manager.open(fake_target()).await.unwrap_err();
+        let error = manager.open(fake_target(), None).await.unwrap_err();
         assert_eq!(error.status, 429);
         assert_eq!(error.code, "session_limit_reached");
 
@@ -1310,6 +1785,48 @@ mod tests {
         manager.close(&id).await.unwrap();
         assert_eq!(stopped.load(Ordering::SeqCst), 1);
         assert_eq!(manager.upstream(&id).await.unwrap_err().status, 404);
+    }
+
+    #[tokio::test]
+    async fn same_identity_retargets_and_failed_retarget_keeps_the_session() {
+        let (manager, _) = fake_manager(1, Duration::from_secs(1), None, None);
+        let id = manager.open(fake_target(), None).await.unwrap();
+        manager
+            .retarget(
+                &id,
+                Target::Remote(RemoteTarget {
+                    destination: "test".to_owned(),
+                    path: "/other.nc".to_owned(),
+                }),
+            )
+            .await
+            .unwrap();
+        let error = manager
+            .retarget(
+                &id,
+                Target::Remote(RemoteTarget {
+                    destination: "test".to_owned(),
+                    path: "/fail.nc".to_owned(),
+                }),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.status, 502);
+        assert!(manager.upstream(&id).await.is_ok());
+
+        let error = manager
+            .retarget(
+                &id,
+                Target::Remote(RemoteTarget {
+                    destination: "other".to_owned(),
+                    path: "/other.nc".to_owned(),
+                }),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.status, 409);
+        assert_eq!(error.code, "new_session_required");
+        assert!(manager.upstream(&id).await.is_ok());
     }
 
     #[test]
@@ -1344,12 +1861,12 @@ mod tests {
             Duration::from_secs(1),
         );
 
-        let error = manager.open(fake_target()).await.unwrap_err();
+        let error = manager.open(fake_target(), None).await.unwrap_err();
         assert_eq!(error.status, 504);
         assert_eq!(error.code, "session_start_timeout");
 
         release.notify_one();
-        let id = manager.open(fake_target()).await.unwrap();
+        let id = manager.open(fake_target(), None).await.unwrap();
         manager.close(&id).await.unwrap();
         assert_eq!(stopped.load(Ordering::SeqCst), 1);
     }
@@ -1357,8 +1874,8 @@ mod tests {
     #[tokio::test]
     async fn heartbeat_extends_idle_session_and_shutdown_stops_all_processes() {
         let (manager, stopped) = fake_manager(3, Duration::from_millis(30), None, None);
-        let first = manager.open(fake_target()).await.unwrap();
-        let _second = manager.open(fake_target()).await.unwrap();
+        let first = manager.open(fake_target(), None).await.unwrap();
+        let _second = manager.open(fake_target(), None).await.unwrap();
         tokio::time::sleep(Duration::from_millis(20)).await;
         manager.heartbeat(&first).await.unwrap();
         tokio::time::sleep(Duration::from_millis(20)).await;
@@ -1381,7 +1898,7 @@ mod tests {
     #[tokio::test]
     async fn hub_http_rejects_unknown_sessions_methods_and_routes_and_closes_sessions() {
         let (manager, stopped) = fake_manager(1, Duration::from_secs(1), None, None);
-        let id = manager.open(fake_target()).await.unwrap();
+        let id = manager.open(fake_target(), None).await.unwrap();
         let state = Arc::new(HubState {
             manager,
             local_roots: Vec::new(),
@@ -1457,6 +1974,84 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn hub_http_requires_password_and_reuses_only_the_same_identity() {
+        let (manager, stopped) = fake_manager(2, Duration::from_secs(1), None, None);
+        let state = Arc::new(HubState {
+            manager,
+            local_roots: Vec::new(),
+        });
+        let app = hub_application("/ncx", state).unwrap();
+        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let missing_body = r#"{"address":"test:/one.nc"}"#;
+        let missing = raw_http(
+            address,
+            &format!(
+                "POST /ncx/api/session HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{missing_body}",
+                missing_body.len()
+            ),
+        )
+        .await;
+        assert!(missing.starts_with("HTTP/1.1 401"));
+
+        let create_body = r#"{"address":"test:/one.nc","password":"secret"}"#;
+        let created = raw_http(
+            address,
+            &format!(
+                "POST /ncx/api/session HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{create_body}",
+                create_body.len()
+            ),
+        )
+        .await;
+        assert!(created.starts_with("HTTP/1.1 201"), "{created}");
+        let marker = "\"session\":\"";
+        let start = created.find(marker).unwrap() + marker.len();
+        let id = &created[start..start + 32];
+
+        let retarget_body = r#"{"address":"test:/two.nc"}"#;
+        let retarget = raw_http(
+            address,
+            &format!(
+                "POST /ncx/api/session HTTP/1.1\r\nHost: localhost\r\nX-Ncx-Session: {id}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{retarget_body}",
+                retarget_body.len()
+            ),
+        )
+        .await;
+        assert!(retarget.starts_with("HTTP/1.1 200"), "{retarget}");
+        assert!(retarget.contains(id));
+
+        let other_body = r#"{"address":"other:/three.nc"}"#;
+        let other = raw_http(
+            address,
+            &format!(
+                "POST /ncx/api/session HTTP/1.1\r\nHost: localhost\r\nX-Ncx-Session: {id}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{other_body}",
+                other_body.len()
+            ),
+        )
+        .await;
+        assert!(other.starts_with("HTTP/1.1 401"), "{other}");
+        assert_eq!(stopped.load(Ordering::SeqCst), 0);
+
+        let replace_body = r#"{"address":"other:/three.nc","password":"new-secret"}"#;
+        let replaced = raw_http(
+            address,
+            &format!(
+                "POST /ncx/api/session HTTP/1.1\r\nHost: localhost\r\nX-Ncx-Session: {id}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{replace_body}",
+                replace_body.len()
+            ),
+        )
+        .await;
+        assert!(replaced.starts_with("HTTP/1.1 201"), "{replaced}");
+        assert!(!replaced.contains(id));
+        assert_eq!(stopped.load(Ordering::SeqCst), 1);
+        server.abort();
+    }
+
+    #[tokio::test]
     async fn hub_relay_preserves_query_headers_and_streams_chunks() {
         let upstream = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
             .await
@@ -1485,7 +2080,7 @@ mod tests {
             stream.try_write(b"5\r\nworld\r\n0\r\n\r\n").unwrap();
         });
         let (manager, _) = fake_manager_at(upstream_address, 1, Duration::from_secs(1), None, None);
-        let id = manager.open(fake_target()).await.unwrap();
+        let id = manager.open(fake_target(), None).await.unwrap();
         let state = Arc::new(HubState {
             manager,
             local_roots: Vec::new(),
@@ -1531,6 +2126,184 @@ mod tests {
         server.abort();
     }
 
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn ssh_password_uses_a_one_use_pipe_and_not_arguments_or_environment() {
+        use std::io::Read;
+        use std::os::unix::fs::PermissionsExt;
+        let directory = TestDirectory::new();
+        let log = directory.0.join("ssh.log");
+        let ssh = directory.0.join("fake-ssh");
+        std::fs::write(
+            &ssh,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$*\" > {}\nenv | grep '^NCX_SSH_PASSWORD=' >> {} || true\ncat \"$NCX_ASKPASS_PIPE\" > {}\n",
+                shell_quote(log.to_str().unwrap()),
+                shell_quote(log.to_str().unwrap()),
+                shell_quote(directory.0.join("password").to_str().unwrap()),
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let password = SecretString::new("only-once".to_owned()).unwrap();
+        let mut child =
+            spawn_ssh_with_password(Command::new(&ssh), Path::new("/bin/false"), &password)
+                .unwrap();
+        child.child.wait().await.unwrap();
+        assert_eq!(
+            std::fs::read(directory.0.join("password")).unwrap(),
+            b"only-once"
+        );
+        assert!(!std::fs::read_to_string(&log).unwrap().contains("only-once"));
+        let pipe_path = format!(
+            "/proc/{}/fd/{}",
+            std::process::id(),
+            child._reader.as_raw_fd()
+        );
+        let mut second = Vec::new();
+        File::open(&pipe_path)
+            .unwrap()
+            .read_to_end(&mut second)
+            .unwrap();
+        assert!(second.is_empty());
+        drop(child);
+        assert!(!Path::new(&pipe_path).exists());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn failed_authentication_starts_one_master_and_cleans_its_socket() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = TestDirectory::new();
+        let binary = directory.0.join("remote-ncx");
+        let log = directory.0.join("ssh.log");
+        let pipe_log = directory.0.join("pipe.log");
+        std::fs::write(&binary, b"standalone ncx bytes").unwrap();
+        let ssh = directory.0.join("fake-ssh");
+        std::fs::write(
+            &ssh,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$*\" >> {}\nenv | grep '^NCX_SSH_PASSWORD=' >> {} || true\nprintf '%s' \"$NCX_ASKPASS_PIPE\" > {}\nexit 1\n",
+                shell_quote(log.to_str().unwrap()),
+                shell_quote(log.to_str().unwrap()),
+                shell_quote(pipe_log.to_str().unwrap()),
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let remote = RemoteRuntime {
+            binary: binary.clone(),
+            cache_key: binary_fingerprint(&binary).unwrap(),
+            ssh_program: ssh,
+        };
+        let id = SessionId("0123456789abcdef0123456789abcdef".to_owned());
+        let error = match launch_remote_session(
+            &id,
+            Path::new("/bin/false"),
+            Limits::default(),
+            remote,
+            RemoteTarget {
+                destination: "test".to_owned(),
+                path: "/data.nc".to_owned(),
+            },
+            &SecretString::new("wrong".to_owned()).unwrap(),
+            Instant::now() + Duration::from_secs(1),
+        )
+        .await
+        {
+            Ok(_) => panic!("authentication unexpectedly succeeded"),
+            Err(error) => error,
+        };
+        assert_eq!(error.status, 401);
+        let command = std::fs::read_to_string(log).unwrap();
+        assert_eq!(command.lines().count(), 1);
+        assert!(command.contains("-M -N -S"));
+        assert!(!command.contains("wrong"));
+        assert!(!Path::new(&std::fs::read_to_string(pipe_log).unwrap()).exists());
+        assert!(
+            !std::env::temp_dir()
+                .join(format!("ncx-{}.sock", id.0))
+                .exists()
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn authentication_timeout_closes_password_pipe_and_reaps_master() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = TestDirectory::new();
+        let binary = directory.0.join("remote-ncx");
+        let pipe_log = directory.0.join("pipe.log");
+        let pid_log = directory.0.join("pid.log");
+        std::fs::write(&binary, b"standalone ncx bytes").unwrap();
+        let ssh = directory.0.join("fake-ssh");
+        std::fs::write(
+            &ssh,
+            format!(
+                "#!/bin/sh\nprintf '%s' \"$NCX_ASKPASS_PIPE\" > {}\nprintf '%s' \"$$\" > {}\nexec sleep 30\n",
+                shell_quote(pipe_log.to_str().unwrap()),
+                shell_quote(pid_log.to_str().unwrap()),
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let remote = RemoteRuntime {
+            binary: binary.clone(),
+            cache_key: binary_fingerprint(&binary).unwrap(),
+            ssh_program: ssh,
+        };
+        let id = SessionId("fedcba9876543210fedcba9876543210".to_owned());
+        let result = launch_remote_session(
+            &id,
+            Path::new("/bin/false"),
+            Limits::default(),
+            remote,
+            RemoteTarget {
+                destination: "test".to_owned(),
+                path: "/data.nc".to_owned(),
+            },
+            &SecretString::new("secret".to_owned()).unwrap(),
+            Instant::now() + Duration::from_millis(50),
+        )
+        .await;
+        let error = match result {
+            Ok(_) => panic!("authentication unexpectedly succeeded"),
+            Err(error) => error,
+        };
+        assert_eq!(error.status, 504);
+        assert!(!Path::new(&std::fs::read_to_string(pipe_log).unwrap()).exists());
+        let pid = std::fs::read_to_string(pid_log).unwrap();
+        assert!(!Path::new(&format!("/proc/{pid}")).exists());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn remote_process_cleanup_reaps_master_and_viewer_and_removes_socket() {
+        let master = Command::new("sleep").arg("30").spawn().unwrap();
+        let viewer = Command::new("sleep").arg("30").spawn().unwrap();
+        let master_pid = master.id().unwrap();
+        let viewer_pid = viewer.id().unwrap();
+        let directory = TestDirectory::new();
+        let control_path = directory.0.join("control.sock");
+        std::fs::write(&control_path, b"").unwrap();
+        let mut process = RemoteSessionProcess {
+            master,
+            viewer,
+            destination: "test".to_owned(),
+            control_path: control_path.clone(),
+            remote: RemoteRuntime {
+                binary: PathBuf::from("/bin/false"),
+                cache_key: "test".to_owned(),
+                ssh_program: PathBuf::from("ssh"),
+            },
+            limits: Limits::default(),
+        };
+        process.stop().await;
+        assert!(!control_path.exists());
+        assert!(!Path::new(&format!("/proc/{master_pid}")).exists());
+        assert!(!Path::new(&format!("/proc/{viewer_pid}")).exists());
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn remote_binary_upload_is_reused_for_the_same_version() {
@@ -1544,7 +2317,7 @@ mod tests {
         std::fs::write(
             &ssh,
             format!(
-                "#!/bin/sh\ncmd=''\nfor arg in \"$@\"; do cmd=$arg; done\nprintf '%s\\n' \"$cmd\" >> {}\ncase \"$cmd\" in\n  'test -x '*) test -x {};;\n  *'cat > '*) cat > {}; chmod 700 {};;\n  *) exit 2;;\nesac\n",
+                "#!/bin/sh\ncmd=''\nfor arg in \"$@\"; do cmd=$arg; done\nprintf '%s\\n' \"$*\" >> {}\ncase \"$cmd\" in\n  'test -x '*) test -x {};;\n  *'cat > '*) cat > {}; chmod 700 {};;\n  *) exit 2;;\nesac\n",
                 shell_quote(log.to_str().unwrap()),
                 shell_quote(installed.to_str().unwrap()),
                 shell_quote(installed.to_str().unwrap()),
@@ -1556,29 +2329,34 @@ mod tests {
         let remote = RemoteRuntime {
             binary: binary.clone(),
             cache_key: binary_fingerprint(&binary).unwrap(),
-            password: "secret".to_owned(),
             ssh_program: ssh,
         };
-
         ensure_remote_binary(
-            Path::new("/bin/false"),
             &remote,
             "host",
+            Path::new("/tmp/ncx-test-control"),
             Instant::now() + Duration::from_secs(1),
         )
         .await
         .unwrap();
         ensure_remote_binary(
-            Path::new("/bin/false"),
             &remote,
             "host",
+            Path::new("/tmp/ncx-test-control"),
             Instant::now() + Duration::from_secs(1),
         )
         .await
         .unwrap();
 
         assert_eq!(std::fs::read(installed).unwrap(), b"standalone ncx bytes");
-        assert_eq!(std::fs::read_to_string(log).unwrap().lines().count(), 3);
+        let commands = std::fs::read_to_string(log).unwrap();
+        assert_eq!(commands.lines().count(), 3);
+        assert!(
+            commands
+                .lines()
+                .all(|line| line.contains("-S /tmp/ncx-test-control"))
+        );
+        assert!(!commands.contains("secret"));
     }
 
     #[cfg(target_os = "linux")]
@@ -1602,14 +2380,12 @@ mod tests {
         let remote = RemoteRuntime {
             binary: binary.clone(),
             cache_key: binary_fingerprint(&binary).unwrap(),
-            password: "secret".to_owned(),
             ssh_program: ssh,
         };
-
         let error = ensure_remote_binary(
-            Path::new("/bin/false"),
             &remote,
             "host",
+            Path::new("/tmp/ncx-test-control"),
             Instant::now() + Duration::from_millis(50),
         )
         .await
@@ -1619,6 +2395,33 @@ mod tests {
         assert_eq!(error.status, 504);
         assert_eq!(error.code, "session_start_timeout");
         assert!(!Path::new(&format!("/proc/{pid}")).exists());
+    }
+
+    #[test]
+    fn mux_ssh_commands_use_the_control_path_without_password_environment() {
+        let remote = RemoteRuntime {
+            binary: PathBuf::from("/bin/false"),
+            cache_key: "test".to_owned(),
+            ssh_program: PathBuf::from("ssh"),
+        };
+        let command = mux_ssh_command(&remote, Path::new("/tmp/control"));
+        let arguments = command
+            .as_std()
+            .get_args()
+            .map(|argument| argument.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        assert!(
+            arguments
+                .windows(2)
+                .any(|pair| pair == ["-S", "/tmp/control"])
+        );
+        assert!(arguments.iter().any(|argument| argument == "BatchMode=yes"));
+        assert!(
+            command
+                .as_std()
+                .get_envs()
+                .all(|(name, value)| { name != "NCX_SSH_PASSWORD" || value.is_none() })
+        );
     }
 
     #[test]
@@ -1663,7 +2466,6 @@ mod tests {
             idle_ttl: Duration::from_secs(1),
             limits: Limits::default(),
             remote_ncx: None,
-            ssh_password: None,
         };
 
         assert_eq!(config(10).validate().unwrap().session_limit, 10);

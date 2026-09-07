@@ -74,13 +74,25 @@ enum OpenTarget {
 }
 
 pub async fn run() -> NcxResult<()> {
-    if env::var("NCX_ASKPASS_MODE").ok().as_deref() == Some("1") {
-        let password = env::var("NCX_SSH_PASSWORD")
-            .map_err(|_| "NCX_SSH_PASSWORD is not set for SSH_ASKPASS".to_owned())?;
-        if password.contains(['\r', '\n']) {
-            return Err("NCX_SSH_PASSWORD must not contain a line break".to_owned());
+    if let Ok(path) = env::var("NCX_ASKPASS_PIPE") {
+        use std::io::{Read, Write};
+
+        let input = std::fs::File::open(path)
+            .map_err(|error| format!("cannot open the SSH password pipe: {error}"))?;
+        let mut password = Vec::new();
+        input
+            .take(1025)
+            .read_to_end(&mut password)
+            .map_err(|error| format!("cannot read the SSH password: {error}"))?;
+        if password.len() > 1024 || password.contains(&b'\n') || password.contains(&b'\r') {
+            password.fill(0);
+            return Err("the SSH password is invalid".to_owned());
         }
-        println!("{password}");
+        std::io::stdout()
+            .write_all(&password)
+            .and_then(|_| std::io::stdout().write_all(b"\n"))
+            .map_err(|error| format!("cannot answer the SSH password prompt: {error}"))?;
+        password.fill(0);
         return Ok(());
     }
     let arguments = env::args_os()
@@ -278,7 +290,6 @@ fn parse_arguments(arguments: Vec<String>) -> NcxResult<ParsedCommand> {
                 idle_ttl,
                 limits,
                 remote_ncx,
-                ssh_password: None,
             },
         })
     } else {
