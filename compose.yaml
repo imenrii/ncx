@@ -5,7 +5,7 @@ services:
     image: ncx-hub:local
     platform: linux/amd64
     ports:
-      - "127.0.0.1:8765:8765"
+      - "${NCX_BIND_ADDRESS:?Set NCX_BIND_ADDRESS in .env}:${NCX_PORT:?Set NCX_PORT in .env}:8765"
     command:
       - hub
       - --listen
@@ -22,8 +22,10 @@ services:
       - /usr/local/bin/ncx
     volumes:
       - ncx-binary:/opt/ncx
-      - /srv/netcdf:/data:ro
-      - ./deploy/known_hosts:/home/ncx/.ssh/known_hosts:ro
+      - type: bind
+        source: "${NCX_DATA_ROOT:?Set NCX_DATA_ROOT in .env}"
+        target: /data
+        read_only: true
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m

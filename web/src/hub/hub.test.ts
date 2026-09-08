@@ -56,20 +56,20 @@ if (false) {
 
 test("deep links use the hub base path and decode one URL layer", () => {
   assert.equal(
-    parseHubDeepLink("/ncx/snd2%40hkss11%3A%2Fpath%2Frun%2520.nc", "/ncx"),
-    "snd2@hkss11:/path/run%20.nc",
+    parseHubDeepLink("/ncx/user%40compute.test%3A%2Fpath%2Frun%2520.nc", "/ncx"),
+    "user@compute.test:/path/run%20.nc",
   );
   assert.equal(
-    parseHubDeepLink("/ncx/snd2%40hkss11%3A%2Fpath%2Frun.nc"),
-    "snd2@hkss11:/path/run.nc",
+    parseHubDeepLink("/ncx/user%40compute.test%3A%2Fpath%2Frun.nc"),
+    "user@compute.test:/path/run.nc",
   );
   assert.equal(parseHubDeepLink("/ncx/", "/ncx"), undefined);
   assert.throws(
-    () => parseHubDeepLink("/ncx/snd2%40hkss11%3A%2Fbad%", "/ncx"),
+    () => parseHubDeepLink("/ncx/user%40compute.test%3A%2Fbad%", "/ncx"),
     /URL encoding/,
   );
   assert.throws(
-    () => parseHubDeepLink("/ncx/snd2%40hkss11%3A%2Fbad%00.nc", "/ncx"),
+    () => parseHubDeepLink("/ncx/user%40compute.test%3A%2Fbad%00.nc", "/ncx"),
     /control character/,
   );
   assert.throws(() => parseHubDeepLink("/ncx/data%2Frun.nc", "/ncx"), /remote/);

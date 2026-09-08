@@ -36,7 +36,6 @@ export function HubGate() {
   const hub = hubBasePath() !== undefined;
   const [state, setState] = useState<GateState>("checking");
   const [address, setAddress] = useState(deepLink.address ?? "");
-  const [save, setSave] = useState(false);
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | undefined>(deepLink.error);
   const [activeError, setActiveError] = useState<string>();
@@ -67,7 +66,7 @@ export function HubGate() {
         }
         if (transition === "retarget") {
           setState("retargeting");
-          void retargetHubSession(target!)
+          void retargetHubSession(target!, true)
             .then(() => {
               if (live) {
                 setAddress(target!);
@@ -142,13 +141,13 @@ export function HubGate() {
     const current = currentHubSessionRecord();
     const transition = sessionTransition(current, candidate);
     if (transition === "same") {
-      if (save) rememberAddress(candidate);
+      rememberAddress(candidate);
       setState("active");
       return;
     }
     if (transition === "retarget") {
       setState("retargeting");
-      void retargetHubSession(candidate, save)
+      void retargetHubSession(candidate, true)
         .then(() => setState("active"))
         .catch(restoreActive);
       return;
@@ -163,8 +162,8 @@ export function HubGate() {
     setOpening(true);
     setState("retargeting");
     const openingSession = current
-      ? replaceHubSession(candidate, { save })
-      : createHubSession(candidate, { save }).then((record) => ({ record, cleanupWarning: undefined }));
+      ? replaceHubSession(candidate, { save: true })
+      : createHubSession(candidate, { save: true }).then((record) => ({ record, cleanupWarning: undefined }));
     void openingSession
       .then((result) => acceptReplacement(result.cleanupWarning))
       .catch(restoreActive)
@@ -179,8 +178,8 @@ export function HubGate() {
     const current = currentHubSessionRecord();
     setOpening(true);
     const openingSession = current
-      ? replaceHubSession(address.trim(), { password: entered, save })
-      : createHubSession(address.trim(), { password: entered, save }).then((record) => ({ record, cleanupWarning: undefined }));
+      ? replaceHubSession(address.trim(), { password: entered, save: true })
+      : createHubSession(address.trim(), { password: entered, save: true }).then((record) => ({ record, cleanupWarning: undefined }));
     void openingSession
       .then((result) => acceptReplacement(result.cleanupWarning))
       .catch((cause: unknown) => {
@@ -255,38 +254,40 @@ export function HubGate() {
   return (
     <>
       <main className="hub-open">
-        <form className="hub-open-panel" onSubmit={submitAddress}>
-          <strong className="brand">ncx</strong>
-          <h1>Open NetCDF</h1>
-          <label htmlFor="hub-address">Server or SSH address</label>
-          <input
-            id="hub-address"
-            list="hub-saved-addresses"
-            value={address}
-            onChange={(event) => setAddress(event.currentTarget.value)}
-            placeholder="/data/run.nc or user@host:/path/run.nc"
-            autoComplete="off"
-            spellCheck={false}
-            autoFocus
-            required
-          />
-          <datalist id="hub-saved-addresses">
-            {addresses.map((item) => <option value={item} key={item} />)}
-          </datalist>
-          <label className="hub-save">
-            <input type="checkbox" checked={save} onChange={(event) => setSave(event.currentTarget.checked)} />
-            Save this address in this browser
-          </label>
-          {error && <p className="hub-error" role="alert">{error}</p>}
-          <div className="dialog-actions">
-            {currentHubSessionRecord() && (
-              <button type="button" onClick={cancelToActive}>Cancel</button>
-            )}
-            <button type="submit" disabled={opening || state === "prompt" || !address.trim()}>
-              {state === "prompt" ? "Connect…" : opening ? "Opening…" : "Connect"}
-            </button>
+        <section className="hub-workspace" aria-label="Open NetCDF">
+          <header className="hub-heading">
+            <strong className="brand">ncx<span aria-hidden="true">/</span></strong>
+          </header>
+          <div className="hub-grid">
+            <form className="hub-open-panel" onSubmit={submitAddress}>
+              <label className="hub-label" htmlFor="hub-address">Dataset address</label>
+              <input
+                id="hub-address"
+                list="hub-saved-addresses"
+                value={address}
+                onChange={(event) => setAddress(event.currentTarget.value)}
+                placeholder="/data/run.nc or user@host:/path/run.nc"
+                autoCapitalize="none"
+                autoComplete="off"
+                spellCheck={false}
+                autoFocus
+                required
+              />
+              <datalist id="hub-saved-addresses">
+                {addresses.map((item) => <option value={item} key={item} />)}
+              </datalist>
+              {error && <p className="hub-error" role="alert">{error}</p>}
+              <div className="dialog-actions">
+                {currentHubSessionRecord() && (
+                  <button type="button" onClick={cancelToActive}>Cancel</button>
+                )}
+                <button type="submit" disabled={opening || state === "prompt" || !address.trim()}>
+                  {state === "prompt" ? "Connect…" : opening ? "Opening…" : "Open dataset"}
+                </button>
+              </div>
+            </form>
           </div>
-        </form>
+        </section>
       </main>
       {hub && (
         <dialog
@@ -300,7 +301,7 @@ export function HubGate() {
         >
           <form onSubmit={submitPassword}>
             <h2 id="hub-password-title">Connect to SSH</h2>
-            <p>Enter the password for <code>{address}</code>.</p>
+            <p><code>{address}</code></p>
             <label htmlFor="hub-password">SSH password</label>
             <input
               id="hub-password"

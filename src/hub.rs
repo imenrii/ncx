@@ -1068,8 +1068,22 @@ async fn command_status_until(
     }
 }
 
-fn authenticated_ssh_command(remote: &RemoteRuntime) -> Command {
+fn hub_ssh_command(remote: &RemoteRuntime) -> Command {
     let mut command = Command::new(&remote.ssh_program);
+    // This intranet deployment explicitly trusts all SSH hosts. Ignore both
+    // known-hosts files so changed keys cannot disable password authentication.
+    command
+        .arg("-o")
+        .arg("StrictHostKeyChecking=no")
+        .arg("-o")
+        .arg("UserKnownHostsFile=/dev/null")
+        .arg("-o")
+        .arg("GlobalKnownHostsFile=/dev/null");
+    command
+}
+
+fn authenticated_ssh_command(remote: &RemoteRuntime) -> Command {
+    let mut command = hub_ssh_command(remote);
     command
         .arg("-o")
         .arg("BatchMode=no")
@@ -1083,7 +1097,7 @@ fn authenticated_ssh_command(remote: &RemoteRuntime) -> Command {
 }
 
 fn mux_ssh_command(remote: &RemoteRuntime, control_path: &Path) -> Command {
-    let mut command = Command::new(&remote.ssh_program);
+    let mut command = hub_ssh_command(remote);
     command
         .arg("-S")
         .arg(control_path)
@@ -2412,6 +2426,28 @@ mod tests {
     }
 
     #[test]
+    fn hub_ssh_commands_skip_unknown_and_changed_host_key_checks() {
+        let remote = RemoteRuntime {
+            binary: PathBuf::from("/bin/false"),
+            cache_key: "test".to_owned(),
+            ssh_program: PathBuf::from("ssh"),
+        };
+        for command in [
+            authenticated_ssh_command(&remote),
+            mux_ssh_command(&remote, Path::new("/tmp/control")),
+        ] {
+            let arguments = command.as_std().get_args().collect::<Vec<_>>();
+            for option in [
+                "StrictHostKeyChecking=no",
+                "UserKnownHostsFile=/dev/null",
+                "GlobalKnownHostsFile=/dev/null",
+            ] {
+                assert!(arguments.windows(2).any(|pair| pair == ["-o", option]));
+            }
+        }
+    }
+
+    #[test]
     fn mux_ssh_commands_use_the_control_path_without_password_environment() {
         let remote = RemoteRuntime {
             binary: PathBuf::from("/bin/false"),
@@ -2449,12 +2485,12 @@ mod tests {
     #[test]
     fn remote_target_requires_a_safe_destination_and_absolute_path() {
         let Target::Remote(remote) =
-            resolve_target("snd2@hkss11:/home/snd2/a file's.nc", &[]).unwrap()
+            resolve_target("user@compute.test:/home/user/a file's.nc", &[]).unwrap()
         else {
             panic!("expected remote target");
         };
-        assert_eq!(remote.destination, "snd2@hkss11");
-        assert_eq!(remote.path, "/home/snd2/a file's.nc");
+        assert_eq!(remote.destination, "user@compute.test");
+        assert_eq!(remote.path, "/home/user/a file's.nc");
 
         for address in [
             "-oProxyCommand=bad:/data/a.nc",

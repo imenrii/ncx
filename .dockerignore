@@ -4,6 +4,10 @@
 target
 web/node_modules
 deploy/known_hosts
+**/*.key
+**/*.crt
+.env
+.env.*
 *.swp
 res/gorton-perfected-1.02
 res/gen

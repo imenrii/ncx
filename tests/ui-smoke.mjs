@@ -174,9 +174,27 @@ try {
     );
     if (gate.classList.contains("hub-open-panel")) {
       const input = gate.querySelector("#hub-address");
+      const workspace = document.querySelector(".hub-workspace");
+      const grid = document.querySelector(".hub-grid");
+      const page = document.querySelector(".hub-open");
+      if (!workspace || !grid || !page) failures.push("hub workspace is missing");
+      else {
+        const styles = getComputedStyle(grid);
+        const columns = styles.gridTemplateColumns.split(" ").length;
+        if (columns !== 1) failures.push("hub controls do not share one column");
+        if (page.scrollWidth > page.clientWidth + 1) failures.push("hub page overflows horizontally");
+        if (workspace.getBoundingClientRect().top < 0) failures.push("hub header is clipped");
+        if (workspace.querySelector('input[type="checkbox"], aside, footer, p')) failures.push("hub contains extra descriptions or a save toggle");
+        if (!getComputedStyle(workspace.querySelector(".brand")).fontFamily.startsWith('"Gorton Perfected"')) failures.push("hub wordmark does not use Gorton Perfected");
+        if (!input.placeholder.includes("user@host:")) failures.push("hub address hint is missing");
+        if (!getComputedStyle(input).fontFamily.includes("Commit Mono")) failures.push("hub address does not use the data font");
+        if (!getComputedStyle(gate.querySelector("label")).fontFamily.includes("National Park")) failures.push("hub label does not use the label font");
+        if (input.getBoundingClientRect().height < 40 || gate.querySelector('button[type="submit"]').getBoundingClientRect().height < 40) {
+          failures.push("hub controls are smaller than the spacing grid requires");
+        }
+      }
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(fixture)});
       input.dispatchEvent(new Event("input", { bubbles: true }));
-      gate.querySelector('.hub-save input').click();
       gate.requestSubmit();
     }
   }
@@ -934,7 +952,7 @@ try {
   }
   if (hubMode) {
     if (!localStorage.getItem("ncx.hub.addresses")?.includes("rectilinear.nc")) {
-      failures.push("hub did not save the address after explicit consent");
+      failures.push("hub did not save the address automatically");
     }
     const session = JSON.parse(sessionStorage.getItem("ncx.hub.session") || "null");
     if (!session?.id) {

@@ -2348,44 +2348,98 @@ i .value {
 }
 
 .hub-open {
-  min-height: 100vh;
+  height: 100%;
+  overflow: auto;
   display: grid;
-  place-items: center;
-  padding: 2rem;
+  place-items: safe center;
+  padding: calc(8 * var(--u));
   background: var(--stock);
+  font-size: var(--size-body);
+}
+
+.hub-workspace {
+  width: min(36rem, 100%);
+  min-width: 0;
+  border: var(--stroke-spine) solid var(--ink);
+  background: var(--paper);
+}
+
+.hub-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(3 * var(--u));
+  padding: calc(4 * var(--u)) calc(6 * var(--u));
+  border-bottom: var(--stroke-spine) solid var(--ink);
+}
+
+.hub-heading .brand {
+  padding: 0;
+  font-family: "Gorton Perfected", var(--ui-face);
+}
+
+.hub-label {
+  font-family: var(--label-face);
+  font-feature-settings: normal;
+  font-size: var(--size-micro);
+  font-weight: 400;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+}
+
+.hub-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .hub-open-panel {
-  width: min(36rem, 100%);
+  min-width: 0;
   display: grid;
-  gap: 0.75rem;
-  padding: 2rem;
-  border: 1px solid var(--ink);
-  background: var(--paper);
-  box-shadow: 8px 8px 0 var(--shadow);
+  align-content: start;
+  gap: calc(3 * var(--u));
+  padding: calc(6 * var(--u));
 }
 
-.hub-open-panel h1,
 .hub-open-panel p {
   margin: 0;
 }
 
 .hub-open-panel > input {
-  min-height: var(--hit);
-  padding: 0 0.75rem;
-  border: 1px solid var(--line);
+  width: 100%;
+  min-width: 0;
+  min-height: calc(10 * var(--u));
+  padding: calc(2 * var(--u)) calc(3 * var(--u));
+  border: var(--stroke-spine) solid var(--line);
+  border-radius: 0;
+  background: var(--paper);
+  color: var(--ink);
   font-family: var(--mono);
+  font-feature-settings: var(--mono-features);
   font-size: var(--size-body);
+}
+
+.hub-password-dialog code {
+  font-family: var(--mono);
+  font-feature-settings: var(--mono-features);
+  font-size: inherit;
+}
+
+@media (max-width: 48rem) {
+  .hub-open {
+    padding: calc(4 * var(--u));
+  }
 }
 
 .hub-open-panel .dialog-actions button,
 .hub-session-actions button {
-  min-height: var(--hit);
-  padding: 0 1rem;
-  border: 1px solid var(--ink);
+  min-height: calc(10 * var(--u));
+  padding: var(--u) calc(4 * var(--u));
+  border: var(--stroke-spine) solid var(--ink);
   background: var(--paper);
   color: var(--ink);
   font-family: var(--mono);
+  font-feature-settings: var(--mono-features);
+  font-size: var(--size-tick);
   font-weight: 700;
 }
 
@@ -2393,39 +2447,34 @@ i .value {
 .hub-session-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 0.5rem;
+  gap: calc(2 * var(--u));
 }
 
 .hub-open-panel .dialog-actions button:last-child {
   background: var(--amber);
 }
 
-.hub-save {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  min-height: var(--hit);
-}
-
 .hub-error {
-  color: var(--error, #8b1e1e);
+  color: var(--error-ink);
+  overflow-wrap: anywhere;
 }
 
 .hub-password-dialog {
   min-width: min(32rem, 92vw);
   max-width: 92vw;
-  padding: 1.5rem;
-  border: 1px solid var(--ink);
+  padding: calc(6 * var(--u));
+  border: var(--stroke-spine) solid var(--ink);
   background: var(--paper);
   color: var(--ink);
-  box-shadow: 8px 8px 0 var(--shadow);
+  font-size: var(--size-body);
+  overflow-wrap: anywhere;
+  box-shadow: calc(2 * var(--u)) calc(2 * var(--u)) 0 var(--shadow);
 }
 
 .hub-password-dialog::backdrop {
   background: rgb(16 20 24 / 38%);
 }
 
-.hub-open-panel h1,
 .hub-password-dialog h2 {
   font-size: var(--size-title);
   font-weight: 600;
@@ -2433,7 +2482,7 @@ i .value {
 
 .hub-password-dialog form {
   display: grid;
-  gap: 0.75rem;
+  gap: calc(3 * var(--u));
 }
 
 .hub-password-dialog h2,
@@ -2442,8 +2491,9 @@ i .value {
 }
 
 .hub-password-dialog input {
-  min-height: var(--hit);
-  padding: 0 0.75rem;
+  min-width: 0;
+  min-height: calc(10 * var(--u));
+  padding: var(--u) calc(3 * var(--u));
   border: 1px solid var(--line);
   font-size: var(--size-body);
 }
@@ -2456,8 +2506,8 @@ i .value {
 }
 
 .hub-password-dialog button {
-  min-height: var(--hit);
-  padding: 0 1rem;
+  min-height: calc(10 * var(--u));
+  padding: var(--u) calc(4 * var(--u));
 }
 
 .hub-password-dialog .primary {
