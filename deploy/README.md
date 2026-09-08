@@ -12,17 +12,23 @@ cp .env.example .env
 chmod 600 .env
 ```
 
-Edit the three local settings:
+Edit the local settings:
 
 | Setting | Meaning |
 | --- | --- |
 | NCX_BIND_ADDRESS | Host IPv4 interface; use 0.0.0.0 for all interfaces |
 | NCX_PORT | Published port |
+| NCX_DNS_NDOTS | DNS search threshold; defaults to 1 for short hostnames |
 | NCX_DATA_ROOT | Absolute host directory containing NetCDF files |
 
 .env is ignored by Git and excluded from image builds. Do not put SSH passwords
 in it. deploy/compose.sh passes it to Docker Compose; NCX_ENV_FILE can select a
 different settings file. Container UID 10001 must be able to read the data.
+
+The container inherits DNS search suffixes. Keep NCX_DNS_NDOTS at 1 for
+single-label SSH hostnames. With 0, the musl resolver skips search suffixes,
+even when they appear in resolv.conf. Recreate the container after changing DNS
+settings; a restart does not apply them.
 
 ## Start
 
@@ -62,24 +68,29 @@ configuration only on a network where these risks are accepted.
 Exit status 255 can also mean a wrong password, a network error, or an SSH
 policy failure. Check the logs before changing settings.
 
-## Locally licensed build
+## Build and install locally
 
-Public releases omit Gorton Perfected. A local build can embed an installed,
-licensed copy; see ../res/README.md. Do not publish that binary. After tests pass:
+After tests pass, use the existing release script. It embeds the WOFF2 subsets
+and checks every font in viewer and hub modes. Full font sources and separate
+font files are not release assets. See ../res/README.md for the licence scope.
 
 ```bash
-cd web && npm run build && cd ..
-env -u NCX_PUBLIC_RELEASE -u CMAKE_PREFIX_PATH -u HDF5_DIR -u NETCDF_DIR \
-  -u PKG_CONFIG_PATH -u CPATH -u LD_LIBRARY_PATH -u CC -u CXX \
-  cargo zigbuild --locked --release --target x86_64-unknown-linux-musl \
-  --features netcdf/static
-sh deploy/compose.sh cp target/x86_64-unknown-linux-musl/release/ncx ncx:/opt/ncx/ncx.next
-sh deploy/compose.sh exec -u 0 ncx chmod 755 /opt/ncx/ncx.next
-sh deploy/compose.sh exec ncx mv -f /opt/ncx/ncx.next /opt/ncx/ncx
+sh deploy/package-release.sh
+sh deploy/compose.sh exec -T ncx sh -eu -c '
+  file=$(mktemp /opt/ncx/.install.XXXXXX)
+  cleanup() { rm -f "$file"; }
+  trap cleanup EXIT
+  cat > "$file"
+  chmod 755 "$file"
+  "$file" --help >/dev/null
+  mv -f "$file" /opt/ncx/ncx
+' < target/release-assets/ncx-x86_64-unknown-linux-musl
 sh deploy/compose.sh restart ncx
 ```
 
-A later update.sh run restores the public release and its system-font fallback.
+The stream creates the file as the service user. This avoids copied host
+ownership; UID 0 cannot bypass ownership checks after capabilities are dropped.
+Do not run update.sh at the same time as a local install.
 
 ## Checks
 

@@ -40,15 +40,6 @@ fn main() {
     let cached_dir = root.join("res/gen");
     let script = root.join("web/scripts/subset-fonts.py");
 
-    println!("cargo::rerun-if-env-changed=NCX_PUBLIC_RELEASE");
-    if env::var("NCX_PUBLIC_RELEASE").as_deref() == Ok("1") {
-        // Public binaries must not expose the locally licensed font or its cache.
-        for (name, _) in FACES {
-            fs::write(out.join(name), b"").expect("write public release placeholder");
-        }
-        return;
-    }
-
     println!("cargo::rerun-if-changed=web/scripts/subset-fonts.py");
     println!("cargo::rerun-if-changed=res/gen");
 

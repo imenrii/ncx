@@ -22,6 +22,7 @@ services=$(awk '/^volumes:/ {exit} /^  [a-zA-Z0-9_-]+:/ {print $1}' compose.yaml
 grep -Fq 'source: "${NCX_DATA_ROOT:?' compose.yaml
 grep -Fq '${NCX_BIND_ADDRESS:?' compose.yaml
 grep -Fq '${NCX_PORT:?' compose.yaml
+grep -Fq '"ndots:${NCX_DNS_NDOTS:-1}"' compose.yaml
 grep -Fq 'http://127.0.0.1:8765/ncx/healthz' compose.yaml
 if grep -nE 'NCX_SSH_PASSWORD|seccomp=unconfined' compose.yaml; then
     echo 'Unexpected deployment setting.' >&2; exit 1
@@ -43,7 +44,7 @@ with socket.socket() as listener:
 PY
 )
 export NCX_ENV_FILE="$work/settings.env"
-export NCX_BIND_ADDRESS=127.0.0.1 NCX_PORT="$port" NCX_DATA_ROOT="$work/data"
+export NCX_BIND_ADDRESS=127.0.0.1 NCX_PORT="$port" NCX_DATA_ROOT="$work/data" NCX_DNS_NDOTS=1
 printf 'NCX_BIND_ADDRESS=127.0.0.1\nNCX_PORT=%s\nNCX_DATA_ROOT="%s/data"\n' "$port" "$work" > "$NCX_ENV_FILE"
 compose() {
     docker compose --env-file "$NCX_ENV_FILE" -f compose.yaml -f "$work/override.yaml" -p "$project" "$@"
@@ -58,6 +59,12 @@ cp tests/data/rectilinear.nc "$work/data/"
 cat > "$work/override.yaml" <<EOF
 services:
   ncx:
+    dns_search:
+      - search.test
+    networks:
+      default:
+        aliases:
+          - lookup.search.test
     volumes: !override
       - ncx-binary:/opt/ncx
       - "$work/data:/data:ro,Z"
@@ -65,6 +72,9 @@ EOF
 compose config --quiet
 compose build
 compose up --detach --wait
+# curl uses the same musl resolver as SSH. Only the suffixed alias exists.
+compose exec -T ncx curl --noproxy '*' --fail --silent --show-error \
+    --connect-timeout 3 --max-time 5 http://lookup:8765/ncx/healthz
 compose exec -T ncx sh -ec '
     test "$(id -u)" = 10001
     for tool in cargo rustc node npm cc; do ! command -v "$tool"; done
@@ -118,4 +128,4 @@ fi
 compose down --timeout 10 --remove-orphans --volumes
 trap - EXIT HUP INT TERM
 rm -rf "$work"
-echo 'PASS: single container, local relay, update, port mapping, close, and shutdown.'
+echo 'PASS: DNS search, single container, local relay, update, port mapping, close, and shutdown.'

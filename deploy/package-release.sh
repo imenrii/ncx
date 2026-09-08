@@ -8,7 +8,7 @@ cd "$root"
 (cd web && npm run build)
 env -u CMAKE_PREFIX_PATH -u HDF5_DIR -u NETCDF_DIR -u PKG_CONFIG_PATH \
     -u CPATH -u LD_LIBRARY_PATH -u CC -u CXX \
-    NCX_PUBLIC_RELEASE=1 cargo zigbuild --locked --release --target x86_64-unknown-linux-musl \
+    cargo zigbuild --locked --release --target x86_64-unknown-linux-musl \
         --features netcdf/static
 python3 tests/release-smoke.py target/x86_64-unknown-linux-musl/release/ncx
 out="$root/target/release-assets"

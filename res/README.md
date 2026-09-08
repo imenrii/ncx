@@ -61,9 +61,12 @@ has no grid-fitting tables, while this source carries `gasp`, `fpgm`, `prep` and
    platform sans, per glyph. The viewer is fully usable; it is wearing a
    different face.
 
-For public binaries, set `NCX_PUBLIC_RELEASE=1` when running Cargo. This emits
-empty Gorton font files even when licensed sources or cached subsets are
-present. `deploy/package-release.sh` sets this option for release assets.
+Release authorization for this project covers WOFF2 subsets embedded in the
+executable. It does not cover full font sources or separate font downloads.
+Keep both sources and generated subsets out of Git and release attachments.
+`deploy/package-release.sh` checks that every embedded font is available in
+viewer and hub modes and stops if a required font is missing. Subsetting alone
+does not change the original licence terms.
 
 ## Regenerating the subset
 

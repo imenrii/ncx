@@ -83,9 +83,11 @@ sh deploy/package-release.sh
 ```
 
 Upload both files from target/release-assets to a release for the source commit
-used by the build. The script sets NCX_PUBLIC_RELEASE=1 to exclude commercial
-font data. The updater uses the latest published release, not a draft or
-prerelease. The checksum detects damaged downloads; it is not a signature.
+used by the build. The executable embeds the WOFF2 subsets, including Gorton
+Perfected. Packaging fails if a font is missing in viewer or hub mode. Do not
+upload full font sources or separate font files. The updater uses the latest
+published release, not a draft or prerelease. The checksum detects damaged
+downloads; it is not a signature.
 
 ## Viewer options
 

@@ -21,4 +21,26 @@ if sh "$root/deploy/compose.sh" config --quiet >"$work/error" 2>&1; then
     echo 'Missing deployment settings were accepted.' >&2; exit 1
 fi
 test ! -e "$DOCKER_ARGUMENTS"
-echo 'PASS: Compose receives the local settings file and rejects a missing file.'
+python3 - "$root/deploy/README.md" "$work" <<'PY'
+import os
+import pathlib
+import subprocess
+import sys
+
+text = pathlib.Path(sys.argv[1]).read_text()
+command = text.split("sh deploy/compose.sh exec -T ncx sh -eu -c '\n", 1)[1].split("\n' <", 1)[0]
+directory = pathlib.Path(sys.argv[2]) / "binary"
+directory.mkdir()
+command = command.replace("/opt/ncx", str(directory))
+valid = b"#!/bin/sh\nexit 0\n"
+subprocess.run(["sh", "-eu", "-c", command], input=valid, check=True)
+binary = directory / "ncx"
+assert binary.read_bytes() == valid
+assert binary.stat().st_uid == os.geteuid()
+assert binary.stat().st_mode & 0o777 == 0o755
+failed = subprocess.run(["sh", "-eu", "-c", command], input=b"#!/bin/sh\nexit 1\n")
+assert failed.returncode != 0
+assert binary.read_bytes() == valid
+assert list(directory.iterdir()) == [binary]
+PY
+echo 'PASS: Compose settings and service-user local install instructions.'
