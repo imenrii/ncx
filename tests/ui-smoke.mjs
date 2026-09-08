@@ -208,6 +208,14 @@ try {
       failures.push("hub reload created a new session");
     }
   }
+  if (hubMode) {
+    if ([...shell.querySelectorAll(".view-tabs button")].some((button) => button.textContent === "Compare")) {
+      failures.push("hub viewer exposed Compare");
+    }
+    if (shell.querySelector(".comparison-figure, .comparison-field-figure")) {
+      failures.push("hub viewer mounted comparison plots");
+    }
+  }
   const topbar = shell.querySelector(".topbar");
   if (chromeHidden) {
     if (topbar || shell.querySelector(".statusbar")) failures.push("hidden chrome remains mounted");

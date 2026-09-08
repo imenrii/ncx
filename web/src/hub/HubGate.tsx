@@ -236,7 +236,7 @@ export function HubGate() {
           <button className="hub-close" onClick={close}>Close session</button>
         </div>
         {activeError && <p className="hub-error hub-active-error" role="alert">{activeError}</p>}
-        <App />
+        <App allowComparison={false} />
       </div>
     );
   }

@@ -4,7 +4,7 @@ import { defaultVariable, type DatasetSummary, type Metadata } from "../data/mod
 import { Viewer } from "./Viewer";
 
 /** Dataset selection stays mounted while the viewer changes variables and plots. */
-export function App() {
+export function App({ allowComparison = true }: { allowComparison?: boolean }) {
   const [metadata, setMetadata] = useState<Metadata>();
   const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
   const [collection, setCollection] = useState(false);
@@ -71,6 +71,7 @@ export function App() {
   }, [selectedDataset]);
 
   return <Viewer
+    allowComparison={allowComparison}
     metadata={metadata} datasets={datasets} collection={collection}
     selectedDataset={selectedDataset} selectedPath={selectedPath}
     startupError={startupError} status={status} onStatus={setStatus}

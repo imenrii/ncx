@@ -72,6 +72,7 @@ and access policy. The container is not a development environment.
 
 The hub saves successful addresses in the browser automatically. It never
 saves passwords. Local paths must be inside a configured data directory.
+Comparison is available in standalone viewers, not hub sessions.
 
 ### Publish a Linux release
 

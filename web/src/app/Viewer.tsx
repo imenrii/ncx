@@ -50,9 +50,10 @@ import {
 import type { ViewBounds } from "../plots/view";
 
 export function Viewer({
-  metadata, datasets, collection, selectedDataset, selectedPath, startupError, status,
+  allowComparison, metadata, datasets, collection, selectedDataset, selectedPath, startupError, status,
   onStatus: updateStatus, onSelectDataset, onSelectVariable, onDatasetReady, onDatasetUnavailable,
 }: {
+  allowComparison: boolean;
   metadata: Metadata | undefined;
   datasets: DatasetSummary[];
   collection: boolean;
@@ -70,14 +71,14 @@ export function Viewer({
   const embedded = query.get("embedded") === "1";
   const chromeHidden = query.get("chrome") === "none";
   const generation = Number(query.get("generation"));
-  const comparisonGeneration = query.get("comparison_host") === "1"
+  const comparisonGeneration = allowComparison && query.get("comparison_host") === "1"
     && Number.isSafeInteger(generation) && generation > 0 ? generation : undefined;
   const configuredTimeZone = parseDisplayTimeZone(query.get("display_zone"));
   const displayTimeZones = configuredTimeZone && configuredTimeZone.label !== "UTC"
     ? [configuredTimeZone, UTC_TIME_ZONE]
     : [UTC_TIME_ZONE];
   const [selection, updateSelection] = useReducer(updateVariableState, undefined, () => initialVariableState());
-  const { display, indices, view, probe, colormap, playDirection, frameReady,
+  const { display, indices, view: requestedView, probe, colormap, playDirection, frameReady,
     colorRange, rangeLocked, coordinatePaths, curveAlong } = selection;
   const [settled, setSettled] = useState(false);
   const [scale, setScale] = useState<ColorScale>("linear");
@@ -103,6 +104,8 @@ export function Viewer({
   }, []);
 
   const variable = metadata?.variables.find((candidate) => candidate.path === selectedPath);
+  const view = !allowComparison && requestedView === "compare"
+    ? initialVariableState(metadata, variable).view : requestedView;
 
   useEffect(() => {
     if (!metadata || !variable) return;
@@ -147,7 +150,7 @@ export function Viewer({
       describeTime(candidate) !== undefined &&
       isTimeCoordinate(candidate),
   );
-  const canCompare = comparisonAvailable(
+  const canCompare = allowComparison && comparisonAvailable(
     variable?.dimensions.length ?? 0,
     datasets.length,
   );
