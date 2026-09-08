@@ -1,43 +1,30 @@
 import { useEffect, useId, useMemo, useRef, useState, type PointerEvent } from "react";
 
-import { fetchCoordinate, fetchSlice } from "./api";
+import { fetchCoordinate, fetchSlice } from "../data/api";
 import { formatNumber } from "./color";
 import {
   findComparisonSeries,
   locationIdentity,
   requestHostComparison,
   verticalDatum,
-} from "./comparison";
+} from "../data/comparison";
 import type { ColorRange } from "./color";
-import type { ColorScale, ComparisonSeries, DataSlice, Metadata, Probe, Variable } from "./model";
-import { attributeText, displayUnit, quantityLabel, variableLabel } from "./model";
-import { curveRequest } from "./selection";
-import { logLadder, tickLadder } from "./ticks";
+import type { ColorScale, ComparisonSeries, DataSlice, Metadata, Probe, Variable } from "../data/model";
+import { attributeText, displayUnit, quantityLabel, variableLabel } from "../data/model";
+import { curveRequest } from "../data/selection";
+import { curveGeometry, sharedCurveDomain, type CurveGeometry, type CurveRange } from "./curve";
 import {
   describeTime,
   formatTimestamp,
   timeInZone,
-  timeAxisTicks,
   type DisplayTimeZone,
   type TimeDescription,
 
-} from "./time";
+} from "../data/time";
 import { useElementSize } from "./useElementSize";
-import {
-  DEFAULT_TYPE,
-  PITCH,
-  axisOffsets,
-  plotMargin,
-  plotType,
-  tickLength,
-  widestLabel,
-  type PlotType,
-} from "./plotgeom";
+import { CurveAxes } from "./CurvePlot";
+import { plotType } from "./plotgeom";
 
-/** A multi-day time axis stacks the time under the date, so reserve two label rows. */
-function curveMargin(type: PlotType) {
-  return plotMargin(type, { colorbar: 28, top: Math.round(type.axis * 1.25), xRows: 2 });
-}
 const MODEL_COLOR = "var(--ink)";
 const REFERENCE_COLOR = "#B58E30";
 const REFERENCE_DASH = "7 3";
@@ -61,11 +48,6 @@ interface CurveViewProps {
 
 interface CurveDrag {
   startX: number;
-}
-
-interface CurveRange {
-  minimum: number;
-  maximum: number;
 }
 
 interface Hover {
@@ -364,7 +346,7 @@ export function CurveView(props: CurveViewProps) {
               </svg>
               <strong>{variableLabel(props.variable)}</strong>
               <span>{modelDatum ?? "datum unspecified"}</span>
-              <label>Y offset [{displayUnit(props.variable) || "1"}]
+              <label>Y offset ({displayUnit(props.variable) || "1"})
                 <input
                   type="number"
                   step="any"
@@ -561,318 +543,6 @@ function curveSelectionRange(
   return { minimum: Math.min(start, end), maximum: Math.max(start, end) };
 }
 
-export interface CurveDomain {
-  xMinimum: number;
-  xMaximum: number;
-  yMinimum: number;
-  yMaximum: number;
-}
-
-/** Value to page, on a linear or a log y axis. Shared so the curve and the
- *  ladder beside it cannot disagree about where a value sits. */
-export function curveYScale(
-  log: boolean,
-  minimum: number,
-  maximum: number,
-  top: number,
-  height: number,
-) {
-  const at = log ? Math.log10 : (value: number) => value;
-  const low = at(minimum);
-  const span = at(maximum) - low;
-  return (value: number) =>
-    top + (1 - (span === 0 ? 0.5 : (at(value) - low) / span)) * height;
-}
-
-export function curveGeometry(
-  values: Float32Array | undefined,
-  coordinate: Float32Array | Float64Array | undefined,
-  width: number,
-  height: number,
-  fixedDomain?: CurveDomain,
-  type: PlotType = DEFAULT_TYPE,
-  {
-    log = false,
-    xRange,
-    yRange,
-  }: { log?: boolean; xRange?: CurveRange; yRange?: { minimum: number; maximum: number } } = {},
-) {
-  if (!values?.length) return undefined;
-  const xValues = coordinate?.length === values.length
-    ? coordinate
-    : Float32Array.from({ length: values.length }, (_, index) => index);
-  let yMinimum = Number.POSITIVE_INFINITY;
-  let yMaximum = Number.NEGATIVE_INFINITY;
-  for (const value of values) {
-    if (!Number.isFinite(value)) continue;
-    yMinimum = Math.min(yMinimum, value);
-    yMaximum = Math.max(yMaximum, value);
-  }
-  if (!Number.isFinite(yMinimum) || !Number.isFinite(yMaximum)) {
-    yMinimum = 0;
-    yMaximum = 1;
-  } else if (yMinimum === yMaximum) {
-    const padding = Math.abs(yMinimum) * 0.01 || 1;
-    yMinimum -= padding;
-    yMaximum += padding;
-  }
-  let xMinimum = Number.POSITIVE_INFINITY;
-  let xMaximum = Number.NEGATIVE_INFINITY;
-  for (const value of xValues) {
-    if (!Number.isFinite(value)) continue;
-    xMinimum = Math.min(xMinimum, value);
-    xMaximum = Math.max(xMaximum, value);
-  }
-  if (!Number.isFinite(xMinimum) || !Number.isFinite(xMaximum)) return undefined;
-  if (xMinimum === xMaximum) {
-    xMinimum -= 0.5;
-    xMaximum += 0.5;
-  }
-  if (fixedDomain) ({ xMinimum, xMaximum, yMinimum, yMaximum } = fixedDomain);
-  if (
-    xRange && Number.isFinite(xRange.minimum) && Number.isFinite(xRange.maximum) &&
-    xRange.minimum < xRange.maximum
-  ) {
-    xMinimum = xRange.minimum;
-    xMaximum = xRange.maximum;
-  }
-  // The reader's own limits win over both, because a locked range is the one
-  // thing on this axis that was asked for rather than measured.
-  if (yRange && yRange.minimum < yRange.maximum) {
-    yMinimum = yRange.minimum;
-    yMaximum = yRange.maximum;
-  }
-  // A log axis has no room for zero or a negative, so the floor climbs to the
-  // smallest decade the data still reaches rather than silently dropping the
-  // whole curve.
-  if (log && !(yMinimum > 0)) yMinimum = yMaximum > 0 ? yMaximum / 1000 : 1;
-  const margin = curveMargin(type);
-  const plot = {
-    left: margin.left,
-    top: margin.top,
-    width: Math.max(1, width - margin.left - margin.right),
-    height: Math.max(1, height - margin.top - margin.bottom),
-  };
-  const xFor = (index: number) =>
-    plot.left + ((xValues[index] - xMinimum) / (xMaximum - xMinimum)) * plot.width;
-  const yFor = curveYScale(log, yMinimum, yMaximum, plot.top, plot.height);
-  let path = "";
-  let drawing = false;
-  for (let index = 0; index < values.length; index += 1) {
-    const value = values[index];
-    if (!Number.isFinite(value) || !Number.isFinite(xValues[index])) {
-      drawing = false;
-      continue;
-    }
-    path += `${drawing ? "L" : "M"}${xFor(index).toFixed(2)} ${yFor(value).toFixed(2)}`;
-    drawing = true;
-  }
-  return {
-    values,
-    xValues,
-    xMinimum,
-    xMaximum,
-    yMinimum,
-    yMaximum,
-    log,
-    plot,
-    type,
-    xFor,
-    yFor,
-    path,
-  };
-}
-
-export type CurveGeometry = NonNullable<ReturnType<typeof curveGeometry>>;
-
-export function sharedCurveDomain(
-  series: Array<{ x: Float32Array | Float64Array; y: Float32Array }>,
-): CurveDomain | undefined {
-  let xMinimum = Number.POSITIVE_INFINITY;
-  let xMaximum = Number.NEGATIVE_INFINITY;
-  let yMinimum = Number.POSITIVE_INFINITY;
-  let yMaximum = Number.NEGATIVE_INFINITY;
-  for (const item of series) {
-    for (const value of item.x) if (Number.isFinite(value)) {
-      xMinimum = Math.min(xMinimum, value);
-      xMaximum = Math.max(xMaximum, value);
-    }
-    for (const value of item.y) if (Number.isFinite(value)) {
-      yMinimum = Math.min(yMinimum, value);
-      yMaximum = Math.max(yMaximum, value);
-    }
-  }
-  if (![xMinimum, xMaximum, yMinimum, yMaximum].every(Number.isFinite)) return undefined;
-  if (xMinimum === xMaximum) { xMinimum -= 0.5; xMaximum += 0.5; }
-  if (yMinimum === yMaximum) {
-    const padding = Math.abs(yMinimum) * 0.01 || 1;
-    yMinimum -= padding;
-    yMaximum += padding;
-  }
-  return { xMinimum, xMaximum, yMinimum, yMaximum };
-}
-
-export function CurveAxes({
-  geometry,
-  dimension,
-  time,
-  valueLabel,
-  timeNote,
-}: {
-  geometry: CurveGeometry;
-  dimension: string;
-  time: TimeDescription | undefined;
-  valueLabel: string;
-  timeNote?: string;
-}) {
-  const { plot } = geometry;
-  const bottom = plot.top + plot.height;
-  const type = geometry.type ?? DEFAULT_TYPE;
-  const xSpan = geometry.xMaximum - geometry.xMinimum;
-  // A time axis lands on the clock: midnight majors carrying the date, minor
-  // ticks on the hours between. A numeric axis snaps to round values like every
-  // other axis in the app.
-  const numeric = time
-    ? undefined
-    : tickLadder(geometry.xMinimum, geometry.xMaximum, plot.width, type.tick);
-  // Two digits of label, so DCL's two-label-height minimum is the whole rule.
-  const timeTicks = time
-    ? timeAxisTicks(
-        geometry.xMinimum,
-        geometry.xMaximum,
-        time,
-        (xSpan / Math.max(1, plot.width)) * type.tick * PITCH.time,
-      )
-    : [];
-  const xAt = (value: number) =>
-    plot.left + (xSpan === 0 ? 0.5 : (value - geometry.xMinimum) / xSpan) * plot.width;
-  const y = geometry.log
-    ? logLadder(geometry.yMinimum, geometry.yMaximum)
-    : tickLadder(geometry.yMinimum, geometry.yMaximum, plot.height, type.tick, { across: true });
-  const tick = tickLength(type);
-  const yAt = curveYScale(
-    geometry.log,
-    geometry.yMinimum,
-    geometry.yMaximum,
-    plot.top,
-    plot.height,
-  );
-  const offset = axisOffsets(type, widestLabel(y.major, y.format), time ? 2 : 1);
-  const minorTick = tickLength(type, true);
-  return (
-    <g
-      className="plot-axis curve-axis"
-      data-x-domain={`${geometry.xMinimum},${geometry.xMaximum}`}
-      data-y-domain={`${geometry.yMinimum},${geometry.yMaximum}`}
-    >
-      {y.major.map((value) => (
-        <line
-          key={`grid-${value}`}
-          className="gridline"
-          x1={plot.left}
-          x2={plot.left + plot.width}
-          y1={yAt(value)}
-          y2={yAt(value)}
-        />
-      ))}
-      <rect x={plot.left} y={plot.top} width={plot.width} height={plot.height} />
-      {numeric?.minor.map((value) => {
-        const x = xAt(value);
-        return (
-          <g key={`xm-${value}`}>
-            <line x1={x} x2={x} y1={bottom} y2={bottom + minorTick} />
-            <line x1={x} x2={x} y1={plot.top} y2={plot.top - minorTick} />
-          </g>
-        );
-      })}
-      {y.minor.map((value) => (
-        <g key={`ym-${value}`}>
-          <line x1={plot.left} x2={plot.left - minorTick} y1={yAt(value)} y2={yAt(value)} />
-          <line
-            x1={plot.left + plot.width}
-            x2={plot.left + plot.width + minorTick}
-            y1={yAt(value)}
-            y2={yAt(value)}
-          />
-        </g>
-      ))}
-      {numeric?.major.map((value) => {
-        const x = xAt(value);
-        return (
-          <g key={`x-${value}`}>
-            <line x1={x} x2={x} y1={bottom} y2={bottom + tick} />
-            <line x1={x} x2={x} y1={plot.top} y2={plot.top - tick} />
-            <text x={x} y={bottom + offset.xRow(0)} textAnchor="middle">
-              {numeric.format(value)}
-            </text>
-          </g>
-        );
-      })}
-      {timeTicks.map((entry) => {
-        const x = xAt(entry.value);
-        return (
-          <g key={`x-${entry.value}`}>
-            <line x1={x} x2={x} y1={bottom} y2={bottom + (entry.major ? tick : minorTick)} />
-            <line
-              x1={x}
-              x2={x}
-              y1={plot.top}
-              y2={plot.top - (entry.major ? tick : minorTick)}
-            />
-            {/* 0.27 minor em is the difference between the full and half tick
-                lengths. It keeps the gap from each tick tip equal while the
-                hour and date keep separate baselines. */}
-            <text
-              className={entry.major ? "time-day" : "time-hour"}
-              x={x}
-              y={bottom + offset.xRow(0)}
-              dy={entry.major ? undefined : "-0.27em"}
-              textAnchor="middle"
-            >
-              {entry.primary}
-            </text>
-            {entry.month && (
-              <text className="time-day" x={x} y={bottom + offset.xRow(1)} textAnchor="middle">
-                {entry.month}
-              </text>
-            )}
-          </g>
-        );
-      })}
-      {y.major.map((value) => (
-        <g key={`y-${value}`}>
-          <line x1={plot.left - tick} x2={plot.left} y1={yAt(value)} y2={yAt(value)} />
-          <line
-            x1={plot.left + plot.width}
-            x2={plot.left + plot.width + tick}
-            y1={yAt(value)}
-            y2={yAt(value)}
-          />
-          <text x={plot.left - offset.yLabel} y={yAt(value)} dy="0.32em" textAnchor="end">
-            {y.format(value)}
-          </text>
-        </g>
-      ))}
-      <text
-        className="axis-label"
-        x={plot.left + plot.width / 2}
-        y={bottom + offset.xTitle}
-        dy="0.32em"
-        textAnchor="middle"
-      >
-        {time ? `Time (${time.zoneLabel}${timeNote ? `; ${timeNote}` : ""})` : dimension}
-      </text>
-      <text
-        className="axis-label"
-        transform={`translate(${plot.left - offset.yTitle} ${plot.top + plot.height / 2}) rotate(-90)`}
-        dy="0.32em"
-        textAnchor="middle"
-      >
-        {valueLabel}
-      </text>
-    </g>
-  );
-}
 
 function nearestXIndex(values: Float32Array | Float64Array, target: number): number {
   const ascending = values[0] <= values[values.length - 1];

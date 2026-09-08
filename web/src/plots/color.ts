@@ -18,9 +18,9 @@ import {
   NCVIEW_LEGACY,
   NCVIEW_LEGACY_CLASS,
   NCVIEW_LEGACY_NAMES,
-} from "./ncview_legacy.ts";
-import { SCM, SCM_CLASS, type ScmClass } from "./scm.ts";
-import type { ColorScale } from "./model.ts";
+} from "../generated/ncview_legacy.ts";
+import { SCM, SCM_CLASS, type ScmClass } from "../generated/scm.ts";
+import type { ColorScale } from "../data/model.ts";
 
 type Rgb = readonly [number, number, number];
 

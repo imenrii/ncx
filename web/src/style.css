@@ -1,11 +1,12 @@
 /* ---------------------------------------------------------------------------
-   Four faces, four jobs.
+   Five families, five roles.
 
-   Gorton Perfected  interface text. An engraving face: monoline, geometric,
+   Gorton Perfected  interface prose, headings, and brand text. An engraving face: monoline, geometric,
                      drawn for a pantograph rather than a press. It is the
                      right voice for an instrument, and it needs handling --
                      see the tracking and leading ladders below.
-   Commit Mono       every variable name, value, coordinate and unit. True
+   National Park     uppercase structural labels; also the plot glyph fallback.
+   Commit Mono       controls, variable names, values, coordinates and units. True
                      monospace, so a column of numbers is a column. Gorton is
                      not monospaced and must never be asked to align data.
    AVHershey Simplex plot glyphs, matching the project's printed figures, with
@@ -382,6 +383,15 @@ output {
 /* File-derived values use one face, one spacing model and one feature set.
    Keep the registry here so adding a data role cannot leave half its typography
    behind in another selector. */
+button,
+input,
+select,
+textarea,
+code,
+pre,
+.save-dialog .chip,
+.save-dialog .hint.derived,
+.save-dialog .hint.syntax,
 .path,
 .path i,
 .dataset-switcher select,
@@ -411,6 +421,21 @@ output {
   font-feature-settings: var(--mono-features);
 }
 
+code, pre, textarea { font-variant-ligatures: none; }
+
+/* Structural labels do not inherit Gorton's alternate glyph sets. */
+.dataset-switcher,
+.display-controls label,
+.series-control label,
+.metadata-panel th,
+.metadata-summary dt,
+.timeline-dimension,
+.save-dialog .row-label,
+.save-dialog form > label:not(.switch) {
+  font-feature-settings: normal;
+  word-spacing: normal;
+}
+
 button,
 select,
 input[type="search"],
@@ -424,6 +449,12 @@ input[type="number"] {
 button {
   padding: 0 8px;
   cursor: pointer;
+  font-size: var(--size-tick);
+  font-weight: 400;
+}
+
+button strong, button b, .series-control > strong {
+  font-weight: 700;
 }
 
 button:hover:not(:disabled),
@@ -476,6 +507,62 @@ button:disabled {
 
 .shell[data-sidebar="closed"] {
   grid-template-columns: 0 minmax(0, 1fr);
+}
+
+/* Keep row indices stable while the embedding host supplies both bars. */
+.shell[data-chrome="none"] {
+  --topbar-height: 0px;
+  --status-height: 0px;
+}
+
+.embedded-navigation {
+  display: flex;
+  flex: none;
+  align-items: center;
+  align-self: flex-start;
+  height: var(--toolbar-height);
+  border-right: 1px solid var(--line);
+}
+
+.embedded-navigation .dataset-switcher select {
+  max-width: 16ch;
+}
+
+/* Embedded controls share the tab row when space permits. Keep wrapping
+   available because the host and variable sidebars reduce the work pane. */
+.shell[data-chrome="none"] .toolbar {
+  flex-wrap: wrap;
+}
+
+.shell[data-chrome="none"] .view-tabs,
+.shell[data-chrome="none"] .toolbar-actions {
+  align-self: flex-start;
+  min-height: var(--toolbar-height);
+  height: var(--toolbar-height);
+}
+
+.shell[data-chrome="none"] .display-controls {
+  display: contents;
+}
+
+.shell[data-chrome="none"] .control-group {
+  flex-wrap: wrap;
+  max-width: 100%;
+  margin: 4px 8px 4px 0;
+}
+
+/* Keep navigation and Save together before the wrapping control groups. */
+.shell[data-chrome="none"] .embedded-navigation,
+.shell[data-chrome="none"] .view-tabs {
+  order: -2;
+}
+
+.shell[data-chrome="none"] .toolbar-actions {
+  order: -1;
+}
+
+.shell[data-chrome="none"] .control-group:last-child {
+  margin-right: 0;
 }
 
 .topbar {
@@ -536,9 +623,10 @@ button:disabled {
 
 .brand {
   padding: 0 12px;
-  font-family: var(--plot-face);
-  font-size: var(--size-title);
-  font-weight: 700;
+  font-family: var(--ui-face);
+  font-feature-settings: var(--ui-features);
+  font-size: var(--size-figure);
+  font-weight: 600;
   letter-spacing: var(--track-small);
 }
 
@@ -653,7 +741,7 @@ button:disabled {
   gap: 4px;
   margin-top: 8px;
   color: var(--ink-medium);
-  font: var(--mono);
+  font-family: var(--ui-face);
   font-size: var(--size-micro);
   letter-spacing: var(--track-small);
 }
@@ -681,7 +769,7 @@ button:disabled {
 .series-control input[type="checkbox"]:checked::before,
 .save-dialog input[type="checkbox"]:checked::before {
   content: "\00d7";
-  font-size: 14px;
+  font-size: var(--size-body);
   line-height: 1;
 }
 
@@ -798,7 +886,7 @@ button:disabled {
 }
 
 .variable-row span {
-  font-size: 0.78125rem;
+  font-size: var(--size-tick);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -868,7 +956,7 @@ button:disabled {
 
 .view-tabs button.active {
   color: var(--accent);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .view-tabs button.active::after {
@@ -980,8 +1068,7 @@ button:disabled {
   flex: none;
   min-height: 28px;
   font-size: var(--size-tick);
-  letter-spacing: var(--track-small);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .stage {
@@ -1095,10 +1182,7 @@ button:disabled {
 
 .curve-range-reset {
   flex: none;
-  font-family: var(--label-face);
-  font-size: var(--size-micro);
-  letter-spacing: var(--track-caps);
-  text-transform: uppercase;
+  font-size: var(--size-tick);
 }
 
 .comparison-controls {
@@ -1140,8 +1224,7 @@ button:disabled {
   color: var(--ink-quiet);
 }
 
-/* Same job as a toolbar control label, so the same face and case. It was the
-   one control label left in the chrome face. */
+/* Unit-bearing labels retain their case: m and M are different units. */
 .series-control label {
   display: flex;
   align-items: center;
@@ -1149,7 +1232,7 @@ button:disabled {
   color: var(--ink-medium);
   font-size: var(--size-micro);
   font-weight: 400;
-  text-transform: uppercase;
+  text-transform: none;
   font-family: var(--label-face);
   letter-spacing: var(--track-caps);
 }
@@ -1248,7 +1331,7 @@ button:disabled {
 }
 
 .scalar-value strong {
-  font-size: clamp(38px, 8cqi, 88px);
+  font-size: clamp(2.375rem, 8cqi, 5.5rem);
   font-weight: 400;
   line-height: 1;
 }
@@ -1345,9 +1428,8 @@ button:disabled {
      pressing it takes the thickness away. */
   box-shadow: 0 2px 0 var(--ink);
   background: var(--paper);
-  font-size: var(--size-micro);
-  letter-spacing: var(--track-small);
-  font-weight: 600;
+  font-size: var(--size-tick);
+  font-weight: 700;
 }
 
 .view-controls button:hover {
@@ -1420,7 +1502,7 @@ button:disabled {
 
 .plot-axis .axis-label {
   font-size: var(--plot-axis-size);
-  font-weight: 700;
+  font-weight: 400;
   fill: var(--ink);
 }
 
@@ -1457,7 +1539,7 @@ button:disabled {
 
 .colorbar-axis .axis-label {
   font-size: var(--plot-axis-size);
-  font-weight: 700;
+  font-weight: 400;
   fill: var(--ink);
 }
 
@@ -1677,7 +1759,6 @@ button:disabled {
   border-left: 1px solid var(--ink);
   background: var(--paper);
   font-size: var(--size-tick);
-  letter-spacing: var(--track-small);
 }
 
 .playback button:first-child {
@@ -1724,7 +1805,9 @@ button:disabled {
 
 .timeline strong {
   font-size: var(--size-tick);
-  letter-spacing: var(--track-small);
+  font-weight: 400;
+  font-feature-settings: normal;
+  word-spacing: normal;
   text-transform: uppercase;
   font-family: var(--label-face);
   letter-spacing: var(--track-caps);
@@ -1886,6 +1969,15 @@ button:disabled {
     box-shadow: 8px 0 22px var(--shadow);
   }
 
+  .shell[data-chrome="none"][data-sidebar="open"] .sidebar {
+    /* Leave the relocated toggle reachable above the overlay. */
+    top: var(--toolbar-height);
+  }
+
+  .shell[data-chrome="none"] .embedded-navigation {
+    min-height: var(--toolbar-height);
+  }
+
   .main {
     grid-column: 2;
   }
@@ -2030,7 +2122,7 @@ i .value {
      label column is ragged, and its short rows already read as white. Equal
      numbers here look like a block pushed against the right wall. */
   padding: calc(var(--s) * 2) calc(var(--s) * 4) calc(var(--s) * 2.5) calc(var(--s) * 2.5);
-  font-family: var(--mono);
+  font-family: var(--ui-face);
 }
 
 .save-dialog form > * {
@@ -2047,18 +2139,22 @@ i .value {
   grid-column: 1 / -1;
   margin: 0 0 calc(var(--s) / 2);
   font-family: var(--ui-face);
+  font-feature-settings: var(--ui-features);
   font-size: var(--size-title);
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: var(--track-small);
 }
 
 .save-dialog .row-label,
 .save-dialog form > label:not(.switch) {
+  font-family: var(--label-face);
+  font-feature-settings: normal;
+  word-spacing: normal;
   grid-column: 1;
   justify-self: end;
   color: var(--ink-quiet);
   font-size: var(--size-micro);
-  letter-spacing: var(--track-small);
+  letter-spacing: var(--track-caps);
   text-transform: uppercase;
 }
 
@@ -2137,7 +2233,7 @@ i .value {
   box-shadow: none;
   transform: translateY(2px);
   background: var(--dither-strong), var(--paper);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .save-dialog .chip:has(input:focus-visible),
@@ -2192,14 +2288,22 @@ i .value {
 .save-dialog .hint.derived {
   margin-top: calc(var(--s) / -2);
   padding-left: 8px;
-  font-size: 0.6875rem;
+  font-size: var(--size-micro);
+  font-family: var(--mono);
+  font-feature-settings: var(--mono-features);
+  letter-spacing: normal;
+  word-spacing: normal;
 }
 
 /* The syntax note belongs to no single field, so it opens its own section. */
 .save-dialog .hint.syntax {
   margin-top: var(--s);
   padding-left: 8px;
-  font-size: 0.6875rem;
+  font-size: var(--size-micro);
+  font-family: var(--mono);
+  font-feature-settings: var(--mono-features);
+  letter-spacing: normal;
+  word-spacing: normal;
 }
 
 .save-dialog .hint .preview {
@@ -2224,7 +2328,19 @@ i .value {
 .save-dialog .dialog-actions .primary {
   border-color: var(--ink);
   background: var(--amber);
-  font-weight: 600;
+  font-weight: 700;
+}
+
+.save-dialog .export-error {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 8px;
+  color: var(--error-ink);
+  background: var(--error-bg);
+  font-family: var(--ui-face);
+  font-feature-settings: var(--ui-features);
+  font-size: var(--size-body);
+  line-height: var(--line-height);
 }
 
 .hub-active {
@@ -2270,7 +2386,7 @@ i .value {
   background: var(--paper);
   color: var(--ink);
   font-family: var(--mono);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .hub-open-panel .dialog-actions,
@@ -2309,6 +2425,12 @@ i .value {
   background: rgb(16 20 24 / 38%);
 }
 
+.hub-open-panel h1,
+.hub-password-dialog h2 {
+  font-size: var(--size-title);
+  font-weight: 600;
+}
+
 .hub-password-dialog form {
   display: grid;
   gap: 0.75rem;
@@ -2341,7 +2463,7 @@ i .value {
 .hub-password-dialog .primary {
   border-color: var(--ink);
   background: var(--amber);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .hub-session-actions {

@@ -61,6 +61,10 @@ has no grid-fitting tables, while this source carries `gasp`, `fpgm`, `prep` and
    platform sans, per glyph. The viewer is fully usable; it is wearing a
    different face.
 
+For public binaries, set `NCX_PUBLIC_RELEASE=1` when running Cargo. This emits
+empty Gorton font files even when licensed sources or cached subsets are
+present. `deploy/package-release.sh` sets this option for release assets.
+
 ## Regenerating the subset
 
 Needs `pip install fonttools brotli`. `build.rs` runs this for you; call it

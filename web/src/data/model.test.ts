@@ -10,6 +10,7 @@ import {
   isTimeCoordinate,
   meshGeometryPaths,
   quantityLabel,
+  supportingVariablePaths,
 } from "./model.ts";
 
 const variable = (name: string, attributes: Variable["attributes"] = []): Variable => ({
@@ -73,6 +74,65 @@ test("identifies UGRID geometry without hiding mesh data fields", () => {
     [...meshGeometryPaths(metadata)].sort(),
     ["/Mesh2D", "/Mesh2D_face_nodes", "/Mesh2D_face_x", "/Mesh2D_node_x", "/Mesh2D_node_y"],
   );
+});
+
+test("unreferenced projected mesh coordinates are supporting variables even with a mesh attribute", () => {
+  const topology = variable("Mesh2D", [
+    { name: "cf_role", dtype: "string", value: "mesh_topology" },
+  ]);
+  const mesh = { name: "mesh", dtype: "string", value: "Mesh2D" };
+  const coordinates = ["x", "y"].map((axis) => variable(`Mesh2D_face_${axis}`, [
+    mesh,
+    { name: "standard_name", dtype: "string", value: `projection_${axis}_coordinate` },
+  ]));
+  const data = variable("Mesh2D_temperature", [mesh]);
+  const metadata = { dimensions: [], variables: [topology, ...coordinates, data] } as unknown as Metadata;
+  assert.deepEqual([...supportingVariablePaths(metadata)].sort(), [
+    "/Mesh2D", "/Mesh2D_face_x", "/Mesh2D_face_y",
+  ]);
+  assert.equal(defaultVariable(metadata)?.path, "/Mesh2D_temperature");
+});
+
+test("mesh membership does not turn static geometry and solver maps into data fields", () => {
+  const topology = variable("Mesh2D", [{ name: "cf_role", dtype: "string", value: "mesh_topology" }]);
+  const mesh = { name: "mesh", dtype: "string", value: "Mesh2D" };
+  const names = [
+    "face_static_mask", "face_area", "edge_length", "edge_normal_x", "edge_normal_y",
+    "edge_type", "input_face_id", "input_edge_id", "solver_face_id", "solver_edge_id", "solver_edge_sign",
+  ];
+  const helpers = names.map((name) => ({
+    ...variable(`Mesh2D_${name}`, [mesh]),
+    dimensions: [{ path: name.includes("face") ? "/faces" : "/edges", name: "elements", length: 3 }],
+  }));
+  const physical = { ...variable("Mesh2D_node_depth", [mesh]), dimensions: helpers[0].dimensions };
+  const metadata = { dimensions: [], variables: [topology, ...helpers, physical] } as unknown as Metadata;
+  assert.deepEqual([...supportingVariablePaths(metadata)].sort(), ["/Mesh2D", ...helpers.map(v => v.path)].sort());
+  helpers[1].dimensions = [{ path: "/time", name: "time", length: 2 }, ...helpers[1].dimensions];
+  assert.ok(!supportingVariablePaths(metadata).has(helpers[1].path));
+});
+
+test("grid mappings are supporting metadata in simple and expanded CF references", () => {
+  for (const value of ["crs", "crs: x y"]) {
+    const field = variable("height", [{ name: "grid_mapping", dtype: "string", value }]);
+    const metadata = { dimensions: [], variables: [field, variable("crs"), variable("x"), variable("y")] } as unknown as Metadata;
+    assert.ok(supportingVariablePaths(metadata).has("/crs"));
+    assert.ok(!supportingVariablePaths(metadata).has("/height"));
+    assert.equal(supportingVariablePaths(metadata).has("/x"), value.includes(":"));
+    assert.equal(supportingVariablePaths(metadata).has("/y"), value.includes(":"));
+  }
+});
+
+test("static helper names must belong to the matching topology in their group", () => {
+  const topology = { ...variable("Mesh2D", [{ name: "cf_role", dtype: "string", value: "mesh_topology" }]), path: "/nested/Mesh2D" };
+  const area = {
+    ...variable("Mesh2D_face_area", [{ name: "mesh", dtype: "string", value: "/nested/Mesh2D" }]),
+    path: "/nested/Mesh2D_face_area",
+    dimensions: [{ path: "/nested/face", name: "face", length: 3 }],
+  };
+  const metadata = { dimensions: [], variables: [topology, area] } as unknown as Metadata;
+  assert.ok(supportingVariablePaths(metadata).has(area.path));
+  area.attributes[0].value = "/other/Mesh2D";
+  assert.ok(!supportingVariablePaths(metadata).has(area.path));
 });
 
 const gridded = (

@@ -9,7 +9,7 @@ from the viewer would hand every reader a complete, installable copy of it.
 So the binary never contains one. This script writes a subset carrying only
 the characters below, and `src/server.rs` embeds *that*.
 
-The subset is committed, like `web/dist/` and `src/scm.ts` before it, so a
+The subset is committed, like `web/dist/` and `src/generated/scm.ts` before it, so a
 plain `cargo build` never needs Python or fontTools present. Re-run this only
 when the character set changes or the font is updated.
 

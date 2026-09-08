@@ -4,10 +4,10 @@ import {
   type ColormapChoice,
   type ColorRange,
 } from "./color";
-import type { ColorScale } from "./model";
+import type { ColorScale } from "../data/model";
 import { canvasPng, validateCanvasSize } from "./capture";
 import type { Bounds, MeshGeometry } from "./mesh";
-import { PERFORMANCE_MEASURE, measurePerformance } from "./performance";
+import { PERFORMANCE_MEASURE, measurePerformance } from "../data/performance";
 
 const VERTEX_SHADER = `#version 300 es
 layout(location = 0) in vec2 source_position;

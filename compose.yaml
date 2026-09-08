@@ -3,6 +3,7 @@ services:
     build:
       context: .
     image: ncx-hub:local
+    platform: linux/amd64
     ports:
       - "127.0.0.1:8765:8765"
     command:
@@ -20,6 +21,7 @@ services:
       - --remote-ncx
       - /usr/local/bin/ncx
     volumes:
+      - ncx-binary:/opt/ncx
       - /srv/netcdf:/data:ro
       - ./deploy/known_hosts:/home/ncx/.ssh/known_hosts:ro
     read_only: true
@@ -39,3 +41,6 @@ services:
       timeout: 3s
       retries: 6
       start_period: 10s
+
+volumes:
+  ncx-binary:

@@ -5,7 +5,7 @@ import type {
   SliceRequest,
   Variable,
 } from "./model";
-import { currentHubCacheKey, sessionFetch } from "./hub.ts";
+import { currentHubCacheKey, sessionFetch } from "../hub/hub.ts";
 import {
   PERFORMANCE_MEASURE,
   measurePerformance,

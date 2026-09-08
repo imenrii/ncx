@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { fetchCoordinate, fetchMetadata, fetchSlice } from "./api";
-import { findCompatibleVariable, locationIdentity, verticalDatum } from "./comparison";
-import { CurveAxes, curveGeometry, sharedCurveDomain } from "./CurveView";
-import type { DatasetSummary, Metadata, Variable } from "./model";
-import { attributeText, displayUnit, quantityLabel, variableLabel } from "./model";
-import { curveRequest, defaultCurveDimension, defaultIndices } from "./selection";
-import { describeTime, timeInZone, type DisplayTimeZone, type TimeDescription } from "./time";
+import { fetchCoordinate, fetchMetadata, fetchSlice } from "../data/api";
+import { findCompatibleVariable, locationIdentity, verticalDatum } from "../data/comparison";
+import { CurveAxes } from "./CurvePlot";
+import { curveGeometry, sharedCurveDomain } from "./curve";
+import type { DatasetSummary, Metadata, Variable } from "../data/model";
+import { attributeText, displayUnit, quantityLabel, variableLabel } from "../data/model";
+import { curveRequest, defaultCurveDimension, defaultIndices } from "../data/selection";
+import { describeTime, timeInZone, type DisplayTimeZone, type TimeDescription } from "../data/time";
 import { useElementSize } from "./useElementSize";
 import { plotType } from "./plotgeom";
 
@@ -159,7 +160,7 @@ export function ComparisonCurveView({
               </svg>
               <strong>{item.label}</strong>
               <span>{displayUnit(item.variable)} · {item.quantity ?? item.basis}{item.locationId ? ` · ${item.locationId}` : ""}</span>
-              <label>Y offset [{displayUnit(item.variable) || "1"}]
+              <label>Y offset ({displayUnit(item.variable) || "1"})
                 <input type="number" step="any" value={offset.y} onChange={(event) =>
                   setOffsets((current) => ({ ...current, [item.id]: { ...offset, y: finiteInput(event.currentTarget) } }))
                 } />

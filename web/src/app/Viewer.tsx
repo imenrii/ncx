@@ -1,49 +1,42 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type SetStateAction } from "react";
+import { initialVariableState, updateVariableState } from "./viewerState";
 
-import { fetchCoordinate, fetchDatasets, fetchMetadata } from "./api";
-import { comparisonAvailable } from "./comparison";
-import { ComparisonCurveView } from "./ComparisonCurveView";
-import { ComparisonFieldView } from "./ComparisonFieldView";
-import { CurveView } from "./CurveView";
-import { exportPlotPng } from "./export";
+import { fetchCoordinate } from "../data/api";
+import { CollectionBrowser, DatasetBrowser } from "./DatasetBrowser";
+import { comparisonAvailable } from "../data/comparison";
+import { ComparisonCurveView } from "../plots/ComparisonCurveView";
+import { ComparisonFieldView } from "../plots/ComparisonFieldView";
+import { CurveView } from "../plots/CurveView";
 import { SaveDialog } from "./SaveDialog";
-import { FieldView } from "./FieldView";
-import { MeshFieldView } from "./MeshFieldView";
+import { SpatialField } from "../plots/SpatialField";
 import { MetadataPanel } from "./MetadataPanel";
 import {
   COLORMAP_GROUPS,
-  defaultColormap,
   formatNumber,
   type ColormapChoice,
   type ColorRange,
-} from "./color";
+} from "../plots/color";
 import type {
   ColorScale,
   DatasetSummary,
   Metadata,
   Probe,
   Variable,
-  ViewName,
-} from "./model";
+} from "../data/model";
 import {
   attributeText,
-  defaultVariable,
   derivedValueLabel,
   displayUnit,
   isNumeric,
   isTimeCoordinate,
-  resolveVariableReference,
-  supportingVariablePaths,
   variableLabel,
-} from "./model";
-import { formatProbePosition } from "./projection";
+} from "../data/model";
+import { formatProbePosition } from "../plots/projection";
 import {
   defaultCurveDimension,
-  defaultDisplayDimensions,
-  defaultIndices,
   SETTLE_DELAY_MS,
   type DisplayDimensions,
-} from "./selection";
+} from "../data/selection";
 import {
   describeTime,
   formatTimestamp,
@@ -53,12 +46,29 @@ import {
   UTC_TIME_ZONE,
   type DisplayTimeZone,
   type TimeDescription,
-} from "./time";
-import type { ViewBounds } from "./view";
+} from "../data/time";
+import type { ViewBounds } from "../plots/view";
 
-export function App() {
+export function Viewer({
+  metadata, datasets, collection, selectedDataset, selectedPath, startupError, status,
+  onStatus: updateStatus, onSelectDataset, onSelectVariable, onDatasetReady, onDatasetUnavailable,
+}: {
+  metadata: Metadata | undefined;
+  datasets: DatasetSummary[];
+  collection: boolean;
+  selectedDataset: string;
+  selectedPath: string;
+  startupError: string | undefined;
+  status: string;
+  onStatus: (message: string) => void;
+  onSelectDataset: (id: string) => void;
+  onSelectVariable: (id: string, path: string) => void;
+  onDatasetReady: (id: string, metadata: Metadata) => void;
+  onDatasetUnavailable: (id: string, error: string) => void;
+}) {
   const query = new URLSearchParams(window.location.search);
   const embedded = query.get("embedded") === "1";
+  const chromeHidden = query.get("chrome") === "none";
   const generation = Number(query.get("generation"));
   const comparisonGeneration = query.get("comparison_host") === "1"
     && Number.isSafeInteger(generation) && generation > 0 ? generation : undefined;
@@ -66,36 +76,20 @@ export function App() {
   const displayTimeZones = configuredTimeZone && configuredTimeZone.label !== "UTC"
     ? [configuredTimeZone, UTC_TIME_ZONE]
     : [UTC_TIME_ZONE];
-  const [metadata, setMetadata] = useState<Metadata>();
-  const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
-  const [collection, setCollection] = useState(false);
-  const [selectedDataset, setSelectedDataset] = useState("");
-  const [startupError, setStartupError] = useState<string>();
-  const [selectedPath, setSelectedPath] = useState("");
-  const [display, setDisplay] = useState<DisplayDimensions>({ x: undefined, y: undefined });
-  const [indices, setIndices] = useState<Record<string, number>>({});
+  const [selection, updateSelection] = useReducer(updateVariableState, undefined, () => initialVariableState());
+  const { display, indices, view, probe, colormap, playDirection, frameReady,
+    colorRange, rangeLocked, coordinatePaths, curveAlong } = selection;
   const [settled, setSettled] = useState(false);
-  const [view, setView] = useState<ViewName>("field");
-  const [probe, setProbe] = useState<Probe>();
-  const [colormap, setColormap] = useState<ColormapChoice>("batlow");
   const [scale, setScale] = useState<ColorScale>("linear");
   const [search, setSearch] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [status, setStatus] = useState("opening dataset…");
-  const [playDirection, setPlayDirection] = useState<-1 | 0 | 1>(0);
   const [timelineValues, setTimelineValues] = useState<Float64Array>();
-  const [frameReady, setFrameReady] = useState(true);
-  const [colorRange, setColorRange] = useState<ColorRange>({ minimum: 0, maximum: 1 });
-  const [rangeLocked, setRangeLocked] = useState(false);
-  const [coordinatePaths, setCoordinatePaths] = useState<{ x?: string; y?: string }>({});
   const [mapSource, setMapSource] = useState<"none" | "osm">("none");
-  const [curveAlong, setCurveAlong] = useState<number>();
   const [saving, setSaving] = useState(false);
   const [displayTimeZone, setDisplayTimeZone] = useState<DisplayTimeZone>(
     displayTimeZones[0],
   );
   const fieldViews = useRef(new Map<string, ViewBounds>());
-  const requestedVariable = useRef<{ dataset: string; path: string } | undefined>(undefined);
 
   // A spacing system only stays true if it can be seen; Ctrl+Alt+G lays the
   // unit grid over the running app.
@@ -108,107 +102,11 @@ export function App() {
     return () => { window.removeEventListener("keydown", toggle); };
   }, []);
 
-  useEffect(() => {
-    fetchDatasets()
-      .then(({ datasets: nextDatasets, collection: nextCollection }) => {
-        setDatasets(nextDatasets);
-        setCollection(nextCollection);
-        setSelectedDataset(nextDatasets[0].id);
-      })
-      .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
-        setStartupError(message);
-        setStatus(message);
-      });
-  }, []);
-
-  useEffect(() => {
-    if (!selectedDataset) return;
-    let active = true;
-    setStartupError(undefined);
-    setStatus(`opening ${selectedDataset}…`);
-    fetchMetadata(selectedDataset)
-      .then((nextMetadata) => {
-        if (!active) return;
-        setDatasets((current) => current.map((dataset) =>
-          dataset.id === selectedDataset ? inspectedDataset(dataset, nextMetadata) : dataset));
-        setMetadata(nextMetadata);
-        const requested = requestedVariable.current?.dataset === selectedDataset
-          ? requestedVariable.current.path
-          : undefined;
-        requestedVariable.current = undefined;
-        const initial = requested && nextMetadata.variables.some((candidate) => candidate.path === requested)
-          ? requested
-          : defaultVariable(nextMetadata)?.path ?? "";
-        setSelectedPath(initial);
-        setStatus(`${nextMetadata.variables.length} variables · metadata ready`);
-      })
-      .catch((error: unknown) => {
-        if (!active) return;
-        const message = error instanceof Error ? error.message : String(error);
-        setDatasets((current) => current.map((dataset) =>
-          dataset.id === selectedDataset ? unavailableDataset(dataset, message) : dataset));
-        const next = collection
-          ? datasets.find((dataset) => dataset.id !== selectedDataset && dataset.state !== "unavailable")
-          : undefined;
-        if (next) {
-          setSelectedDataset(next.id);
-          return;
-        }
-        setStartupError(message);
-        setStatus(message);
-      });
-    return () => {
-      active = false;
-    };
-  }, [selectedDataset]);
-
   const variable = metadata?.variables.find((candidate) => candidate.path === selectedPath);
 
   useEffect(() => {
     if (!metadata || !variable) return;
-    const nextIndices = defaultIndices(variable);
-    const nextDisplay = defaultDisplayDimensions(variable);
-    const hint = variable.view_hint;
-    if (hint.kind === "ugrid2d" && hint.location === "edge") {
-      const topology = metadata.variables.find((candidate) => candidate.path === hint.mesh);
-      const edgeNodes = topology && attributeText(topology, "edge_node_connectivity");
-      const edgeDimension = topology && (attributeText(topology, "edge_dimension") ??
-        (edgeNodes && metadata.variables.find((candidate) =>
-          candidate.path === resolveVariableReference(topology.path, edgeNodes))?.dimensions[0]?.name));
-      const edge = variable.dimensions.findIndex((dimension) => dimension.name === edgeDimension);
-      if (edge >= 0) nextDisplay.x = edge;
-    }
-    setDisplay(nextDisplay);
-    setIndices(nextIndices);
-    setProbe(undefined);
-    setPlayDirection(0);
-    setFrameReady(true);
-    setRangeLocked(false);
-    setCurveAlong(undefined);
-    setColorRange({ minimum: 0, maximum: 1 });
-    // The structure of the data picks the map, not the reader: an anomaly
-    // opens diverging and symmetric, a depth opens dark-deep, an angle opens
-    // cyclic. The reader can still override it in the toolbar, but the first
-    // thing they see is already the right claim about the field.
-    setColormap(
-      defaultColormap({
-        standardName: attributeText(variable, "standard_name"),
-        longName: attributeText(variable, "long_name"),
-        name: variable.name,
-        units: attributeText(variable, "units"),
-      }),
-    );
-    setCoordinatePaths(
-      variable.view_hint.kind === "rectilinear" || variable.view_hint.kind === "curvilinear"
-        ? { x: variable.view_hint.x, y: variable.view_hint.y }
-        : {},
-    );
-    setView(
-      variable.dimensions.length === 1 && variable.view_hint.kind !== "ugrid2d"
-        ? "curve"
-        : "field",
-    );
+    updateSelection(initialVariableState(metadata, variable));
   }, [metadata, variable]);
 
   useEffect(() => {
@@ -275,22 +173,24 @@ export function App() {
   useEffect(() => {
     if (!timeline || playDirection === 0 || !frameReady) return;
     const timer = window.setTimeout(() => {
-      setFrameReady(false);
-      setIndices((current) => {
-        const value = current[timeline.dimension.path] ?? 0;
+      updateSelection((current) => {
+        const value = current.indices[timeline.dimension.path] ?? 0;
         const next = (value + playDirection + timeline.dimension.length) % timeline.dimension.length;
-        return { ...current, [timeline.dimension.path]: next };
+        return { frameReady: false, indices: { ...current.indices, [timeline.dimension.path]: next } };
       });
     }, 180);
     return () => window.clearTimeout(timer);
   }, [timeline, playDirection, frameReady]);
 
-  const updateStatus = useCallback((message: string) => setStatus(message), []);
-  const updateIndex = (path: string, value: number) => {
-    setFrameReady(false);
-    setIndices((current) => ({ ...current, [path]: value }));
-  };
-  const markFrameLoaded = useCallback(() => setFrameReady(true), []);
+  const updateIndex = (path: string, value: number) => updateSelection((current) => ({
+    frameReady: false, indices: { ...current.indices, [path]: value },
+  }));
+  const markFrameLoaded = useCallback(() => updateSelection({ frameReady: true }), []);
+  const setProbe = useCallback((probe: Probe) => updateSelection({ probe }), []);
+  const setRangeLocked = (rangeLocked: boolean) => updateSelection({ rangeLocked });
+  const setColorRange = useCallback((range: SetStateAction<ColorRange>) => updateSelection((current) => ({
+    colorRange: typeof range === "function" ? range(current.colorRange) : range,
+  })), []);
   const fieldVariable = useMemo(
     () => metadata && variable
       ? variableWithCoordinates(metadata, variable, display, coordinatePaths)
@@ -357,34 +257,42 @@ export function App() {
   const xCoordinates = compatibleCoordinates(metadata, variable, display, "x");
   const yCoordinates = compatibleCoordinates(metadata, variable, display, "y");
   const geographicField = hasGeographicCoordinates(metadata, fieldVariable);
+  // Embedded hosts replace identity/status, not dataset navigation.
+  const sidebarToggle = (
+    <button
+      className="sidebar-toggle"
+      aria-label="Toggle dataset browser"
+      aria-expanded={sidebarOpen}
+      onClick={() => setSidebarOpen((open) => !open)}
+    />
+  );
+  const datasetSwitcher = datasets.length > 1 && !collection && (
+    <label className="dataset-switcher">
+      Dataset
+      <select value={selectedDataset} onChange={(event) => onSelectDataset(event.target.value)}>
+        {datasets.map((dataset) => (
+          <option key={dataset.id} value={dataset.id}>{dataset.label}</option>
+        ))}
+      </select>
+    </label>
+  );
 
   return (
     <div
       className="shell"
       data-embedded={embedded}
+      data-chrome={chromeHidden ? "none" : "full"}
       data-dataset={metadata.dataset_id}
       data-sidebar={sidebarOpen ? "open" : "closed"}
     >
-      <header className="topbar">
-        <button
-          className="sidebar-toggle"
-          aria-label="Toggle dataset browser"
-          aria-expanded={sidebarOpen}
-          onClick={() => setSidebarOpen((open) => !open)}
-        />
-        <strong className="brand">ncx</strong>
-        {datasets.length > 1 && !collection && (
-          <label className="dataset-switcher">
-            Dataset
-            <select value={selectedDataset} onChange={(event) => setSelectedDataset(event.target.value)}>
-              {datasets.map((dataset) => (
-                <option key={dataset.id} value={dataset.id}>{dataset.label}</option>
-              ))}
-            </select>
-          </label>
-        )}
-        <span className="path"><b>{metadata.dataset.name}</b><i>/</i>{variable.path.slice(1)}</span>
-      </header>
+      {!chromeHidden && (
+        <header className="topbar">
+          {sidebarToggle}
+          <strong className="brand">ncx</strong>
+          {datasetSwitcher}
+          <span className="path"><b>{metadata.dataset.name}</b><i>/</i>{variable.path.slice(1)}</span>
+        </header>
+      )}
 
       {collection ? (
         <CollectionBrowser
@@ -394,17 +302,10 @@ export function App() {
           selectedPath={selectedPath}
           search={search}
           onSearch={setSearch}
-          onReady={(dataset, nextMetadata) => setDatasets((current) => current.map((summary) =>
-            summary.id === dataset ? inspectedDataset(summary, nextMetadata) : summary))}
-          onUnavailable={(dataset, error) => setDatasets((current) => current.map((summary) =>
-            summary.id === dataset ? unavailableDataset(summary, error) : summary))}
+          onReady={onDatasetReady}
+          onUnavailable={onDatasetUnavailable}
           onSelect={(dataset, path) => {
-            if (dataset === selectedDataset) {
-              setSelectedPath(path);
-            } else {
-              requestedVariable.current = { dataset, path };
-              setSelectedDataset(dataset);
-            }
+            onSelectVariable(dataset, path);
             setSidebarOpen(window.innerWidth > 760);
           }}
         />
@@ -415,7 +316,7 @@ export function App() {
           search={search}
           onSearch={setSearch}
           onSelect={(path) => {
-            setSelectedPath(path);
+            onSelectVariable(selectedDataset, path);
             setSidebarOpen(window.innerWidth > 760);
           }}
         />
@@ -423,6 +324,7 @@ export function App() {
 
       <main className="main" data-timeline={timeline ? "shown" : "hidden"}>
         <div className="toolbar">
+          {chromeHidden && <div className="embedded-navigation">{sidebarToggle}{datasetSwitcher}</div>}
           <nav className="view-tabs" aria-label="Variable views">
             {(["field", "curve", "compare", "metadata"] as const)
               .filter((name) => name !== "compare" || canCompare)
@@ -436,8 +338,7 @@ export function App() {
                   (name === "compare" && !canCompare)
                 }
                 onClick={() => {
-                  setFrameReady(false);
-                  setView(name);
+                  updateSelection({ frameReady: false, view: name });
                 }}
               >
                 {name === "field" && variable.dimensions.length === 0
@@ -470,9 +371,8 @@ export function App() {
                     select only repeats it. */}
                 <div className="axis-control">
                   <label>Y <DimensionSelect variable={variable} value={display.y} onChange={(y) => {
-                    setCoordinatePaths({});
-                    setProbe(undefined);
-                    setDisplay((current) => changeDisplayDimension(current, "y", y));
+                    updateSelection((current) => ({ coordinatePaths: {}, probe: undefined,
+                      display: changeDisplayDimension(current.display, "y", y) }));
                   }} /></label>
                   {yCoordinates.length > 1 && (
                     <CoordinateSelect
@@ -480,17 +380,17 @@ export function App() {
                       candidates={yCoordinates}
                       value={coordinatePaths.y}
                       onChange={(y) => {
-                        setCoordinatePaths((current) => ({ ...current, y }));
-                        setProbe(undefined);
+                        updateSelection((current) => ({
+                          coordinatePaths: { ...current.coordinatePaths, y }, probe: undefined,
+                        }));
                       }}
                     />
                   )}
                 </div>
                 <div className="axis-control">
                   <label>X <DimensionSelect variable={variable} value={display.x} onChange={(x) => {
-                    setCoordinatePaths({});
-                    setProbe(undefined);
-                    setDisplay((current) => changeDisplayDimension(current, "x", x));
+                    updateSelection((current) => ({ coordinatePaths: {}, probe: undefined,
+                      display: changeDisplayDimension(current.display, "x", x) }));
                   }} /></label>
                   {xCoordinates.length > 1 && (
                     <CoordinateSelect
@@ -498,8 +398,9 @@ export function App() {
                       candidates={xCoordinates}
                       value={coordinatePaths.x}
                       onChange={(x) => {
-                        setCoordinatePaths((current) => ({ ...current, x }));
-                        setProbe(undefined);
+                        updateSelection((current) => ({
+                          coordinatePaths: { ...current.coordinatePaths, x }, probe: undefined,
+                        }));
                       }}
                     />
                   )}
@@ -512,7 +413,7 @@ export function App() {
                   Along
                   <select
                     value={curveDimension}
-                    onChange={(event) => setCurveAlong(Number(event.target.value))}
+                    onChange={(event) => updateSelection({ curveAlong: Number(event.target.value) })}
                   >
                     {variable.dimensions.map((dimension, index) => (
                       <option key={dimension.path} value={index}>
@@ -557,63 +458,14 @@ export function App() {
                 </label>
               </div>
             )}
-            {/* The same three controls in both views, because they are the same
-                axis: what the colour bar maps in a field is what the y axis
-                spans in a curve. Only the colourmap is field-only. */}
-            {view === "curve" && variable.dimensions.length >= 1 && (
-              <div className="control-group" role="group" aria-label="Value axis">
-                <label>
-                  Scale
-                  <select value={scale} onChange={(event) => setScale(event.target.value as ColorScale)}>
-                    <option value="linear">linear</option>
-                    <option value="log">log</option>
-                  </select>
-                </label>
-                <label>
-                  Range
-                  <select
-                    value={rangeLocked ? "locked" : "auto"}
-                    onChange={(event) => setRangeLocked(event.target.value === "locked")}
-                  >
-                    <option value="auto">auto</option>
-                    <option value="locked">locked</option>
-                  </select>
-                </label>
-                <label className="range-values">
-                  Min
-                  <input
-                    aria-label="Value axis minimum"
-                    type="number"
-                    step="any"
-                    readOnly={!rangeLocked}
-                    value={colorRange.minimum}
-                    onChange={(event) => setColorRange((current) => ({
-                      ...current,
-                      minimum: Math.min(Number(event.target.value), current.maximum - Number.EPSILON),
-                    }))}
-                  />
-                  Max
-                  <input
-                    aria-label="Value axis maximum"
-                    type="number"
-                    step="any"
-                    readOnly={!rangeLocked}
-                    value={colorRange.maximum}
-                    onChange={(event) => setColorRange((current) => ({
-                      ...current,
-                      maximum: Math.max(Number(event.target.value), current.minimum + Number.EPSILON),
-                    }))}
-                  />
-                </label>
-              </div>
-            )}
-            {(view === "field" || (view === "compare" && variable.dimensions.length >= 2)) && variable.dimensions.length >= 1 && (
-              <div className="control-group" role="group" aria-label="Colour">
-                <label>
+            {/* Field colourbars and curve y axes use the same range controls. */}
+            {(view === "curve" || view === "field" || (view === "compare" && variable.dimensions.length >= 2)) && variable.dimensions.length >= 1 && (
+              <div className="control-group" role="group" aria-label={view === "curve" ? "Value axis" : "Colour"}>
+                {view !== "curve" && <label>
                   Colour
                   <select
                     value={colormap}
-                    onChange={(event) => setColormap(event.target.value as ColormapChoice)}
+                    onChange={(event) => updateSelection({ colormap: event.target.value as ColormapChoice })}
                     onWheel={(event) => {
                       const current = event.currentTarget.selectedIndex;
                       const next = Math.max(0, Math.min(
@@ -622,7 +474,7 @@ export function App() {
                       ));
                       if (next === current) return;
                       event.preventDefault();
-                      setColormap(event.currentTarget.options[next].value as ColormapChoice);
+                      updateSelection({ colormap: event.currentTarget.options[next].value as ColormapChoice });
                     }}
                   >
                     {COLORMAP_GROUPS.map((group) => (
@@ -635,13 +487,13 @@ export function App() {
                       </optgroup>
                     ))}
                   </select>
-                </label>
+                </label>}
                 <label>
                   Scale
                   <select value={scale} onChange={(event) => setScale(event.target.value as ColorScale)}>
                     <option value="linear">linear</option>
                     <option value="log">log</option>
-                    <option value="symlog">symlog</option>
+                    {view !== "curve" && <option value="symlog">symlog</option>}
                   </select>
                 </label>
                 <label>
@@ -657,7 +509,7 @@ export function App() {
                 <label className="range-values">
                   Min
                   <input
-                    aria-label="Colour range minimum"
+                    aria-label={view === "curve" ? "Value axis minimum" : "Colour range minimum"}
                     type="number"
                     step="any"
                     readOnly={!rangeLocked}
@@ -669,7 +521,7 @@ export function App() {
                   />
                   Max
                   <input
-                    aria-label="Colour range maximum"
+                    aria-label={view === "curve" ? "Value axis maximum" : "Colour range maximum"}
                     type="number"
                     step="any"
                     readOnly={!rangeLocked}
@@ -755,29 +607,9 @@ export function App() {
                   <span>{figureSubtitle}</span>
                 </header>
               )}
-              {view === "field" && meshField ? (
-                <MeshFieldView
-                  key={fieldViewKey}
-                  metadata={metadata}
-                  variable={fieldVariable}
-                  display={display}
-                  indices={indices}
-                  settled={settled}
-                  colormap={colormap}
-                  scale={scale}
-                  range={colorRange}
-                  rangeLocked={rangeLocked}
-                  mapSource={mapSource}
-                  probe={probe}
-                  initialView={fieldViews.current.get(fieldViewKey)}
-                  onViewChange={rememberFieldView}
-                  onProbe={setProbe}
-                  onRange={setColorRange}
-                  onFrameLoaded={markFrameLoaded}
-                  onStatus={updateStatus}
-                />
-              ) : view === "field" ? (
-                <FieldView
+              {view === "field" ? (
+                <SpatialField
+                  mesh={meshField}
                   key={fieldViewKey}
                   metadata={metadata}
                   variable={fieldVariable}
@@ -826,287 +658,18 @@ export function App() {
           time={timelineTime}
           playing={playDirection}
           onChange={(value) => timeline && updateIndex(timeline.dimension.path, value)}
-          onPlay={setPlayDirection}
+          onPlay={(playDirection) => updateSelection({ playDirection })}
         />
       </main>
 
-      <footer className="statusbar">
-        <span>{status}</span>
-        <span>{shapeText(variable, display)}</span>
-        <span>{probePosition ? `${probePosition} · ${formatNumber(probe!.value)} ${displayUnit(variable)}` : "click field to probe"}</span>
-      </footer>
+      {!chromeHidden && (
+        <footer className="statusbar">
+          <span>{status}</span>
+          <span>{shapeText(variable, display)}</span>
+          <span>{probePosition ? `${probePosition} · ${formatNumber(probe!.value)} ${displayUnit(variable)}` : "click field to probe"}</span>
+        </footer>
+      )}
     </div>
-  );
-}
-
-function DatasetBrowser({
-  metadata,
-  selectedPath,
-  search,
-  onSearch,
-  onSelect,
-}: {
-  metadata: Metadata;
-  selectedPath: string;
-  search: string;
-  onSearch: (value: string) => void;
-  onSelect: (path: string) => void;
-}) {
-  const [showSupporting, setShowSupporting] = useState(false);
-  const query = search.trim().toLowerCase();
-  const supportingPaths = useMemo(() => supportingVariablePaths(metadata), [metadata]);
-  const visibleCount = countVisible(metadata, supportingPaths, showSupporting, selectedPath);
-  return (
-    <aside className="sidebar">
-      <div className="variable-filter">
-        <input
-          className="variable-search"
-          type="search"
-          placeholder={`Filter variables (${visibleCount} variables)`}
-          value={search}
-          onChange={(event) => onSearch(event.target.value)}
-        />
-        {supportingPaths.size > 0 && (
-          <label>
-            <input
-              type="checkbox"
-              checked={showSupporting}
-              onChange={(event) => setShowSupporting(event.target.checked)}
-            />
-            Show coordinates and mesh geometry ({supportingPaths.size})
-          </label>
-        )}
-      </div>
-      <div className="tree">
-        <VariableGroups
-          metadata={metadata}
-          supportingPaths={supportingPaths}
-          showSupporting={showSupporting}
-          query={query}
-          selectedPath={selectedPath}
-          onSelect={onSelect}
-        />
-      </div>
-      <MetadataWarnings metadata={metadata} />
-    </aside>
-  );
-}
-
-type LoadedCollectionFile = {
-  metadata: Metadata;
-  supportingPaths: Set<string>;
-};
-
-function inspectedDataset(dataset: DatasetSummary, metadata: Metadata): DatasetSummary {
-  return {
-    id: dataset.id,
-    label: dataset.label,
-    state: "ready",
-    name: metadata.dataset.name,
-    variables: metadata.variables.length,
-    dimensions: metadata.dimensions.length,
-    warnings: metadata.warnings.length,
-  };
-}
-
-function unavailableDataset(dataset: DatasetSummary, error: string): DatasetSummary {
-  return { id: dataset.id, label: dataset.label, state: "unavailable", error };
-}
-
-function CollectionBrowser({
-  datasets,
-  metadata,
-  selectedDataset,
-  selectedPath,
-  search,
-  onSearch,
-  onReady,
-  onUnavailable,
-  onSelect,
-}: {
-  datasets: DatasetSummary[];
-  metadata: Metadata;
-  selectedDataset: string;
-  selectedPath: string;
-  search: string;
-  onSearch: (value: string) => void;
-  onReady: (dataset: string, metadata: Metadata) => void;
-  onUnavailable: (dataset: string, error: string) => void;
-  onSelect: (dataset: string, path: string) => void;
-}) {
-  const [showSupporting, setShowSupporting] = useState(false);
-  const [loaded, setLoaded] = useState<Map<string, LoadedCollectionFile>>(new Map());
-  const [loading, setLoading] = useState<Set<string>>(new Set());
-  const query = search.trim().toLowerCase();
-
-  useEffect(() => {
-    const id = metadata.dataset_id || selectedDataset;
-    setLoaded((current) => {
-      if (current.get(id)?.metadata === metadata) return current;
-      const next = new Map(current);
-      next.set(id, { metadata, supportingPaths: supportingVariablePaths(metadata) });
-      return next;
-    });
-  }, [metadata, selectedDataset]);
-
-  const load = (dataset: DatasetSummary) => {
-    if (dataset.state === "unavailable" || loaded.has(dataset.id) || loading.has(dataset.id)) return;
-    setLoading((current) => new Set(current).add(dataset.id));
-    void fetchMetadata(dataset.id)
-      .then((nextMetadata) => {
-        setLoaded((current) => new Map(current).set(dataset.id, {
-          metadata: nextMetadata,
-          supportingPaths: supportingVariablePaths(nextMetadata),
-        }));
-        onReady(dataset.id, nextMetadata);
-      })
-      .catch((error: unknown) => {
-        onUnavailable(dataset.id, error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => {
-        setLoading((current) => {
-          const next = new Set(current);
-          next.delete(dataset.id);
-          return next;
-        });
-      });
-  };
-
-  const supportingCount = [...loaded.values()].reduce(
-    (total, file) => total + file.supportingPaths.size,
-    0,
-  );
-  return (
-    <aside className="sidebar collection-sidebar">
-      <div className="dataset-head">
-        <span>{datasets.length} files</span>
-      </div>
-      <div className="variable-filter">
-        <input
-          className="variable-search"
-          type="search"
-          placeholder="Filter loaded variables"
-          value={search}
-          onChange={(event) => onSearch(event.target.value)}
-        />
-        {supportingCount > 0 && (
-          <label>
-            <input
-              type="checkbox"
-              checked={showSupporting}
-              onChange={(event) => setShowSupporting(event.target.checked)}
-            />
-            Show coordinates and mesh geometry ({supportingCount})
-          </label>
-        )}
-      </div>
-      <div className="tree collection-tree">
-        {datasets.map((dataset) => {
-          const file = loaded.get(dataset.id);
-          const fileSelectedPath = dataset.id === selectedDataset ? selectedPath : "";
-          const visibleCount = file
-            ? countVisible(file.metadata, file.supportingPaths, showSupporting, fileSelectedPath)
-            : dataset.state === "ready" ? dataset.variables : undefined;
-          return (
-            <details
-              className={`collection-file ${dataset.state}`}
-              key={dataset.id}
-              open={dataset.id === selectedDataset || undefined}
-              onToggle={(event) => event.currentTarget.open && load(dataset)}
-            >
-              <summary>
-                <strong>{dataset.state === "ready" ? dataset.name : dataset.label}</strong>
-                <span>{dataset.state === "unavailable"
-                  ? "unavailable"
-                  : visibleCount === undefined ? "not inspected" : `${visibleCount} variables`}</span>
-              </summary>
-              {loading.has(dataset.id) && !file && <p className="collection-note">Loading metadata…</p>}
-              {dataset.state === "unavailable" && <p className="collection-error">{dataset.error}</p>}
-              {file && (
-                <>
-                  <VariableGroups
-                    metadata={file.metadata}
-                    supportingPaths={file.supportingPaths}
-                    showSupporting={showSupporting}
-                    query={query}
-                    selectedPath={fileSelectedPath}
-                    onSelect={(path) => onSelect(dataset.id, path)}
-                  />
-                  <MetadataWarnings metadata={file.metadata} />
-                </>
-              )}
-            </details>
-          );
-        })}
-      </div>
-    </aside>
-  );
-}
-
-function VariableGroups({
-  metadata,
-  supportingPaths,
-  showSupporting,
-  query,
-  selectedPath,
-  onSelect,
-}: {
-  metadata: Metadata;
-  supportingPaths: Set<string>;
-  showSupporting: boolean;
-  query: string;
-  selectedPath: string;
-  onSelect: (path: string) => void;
-}) {
-  return metadata.groups.map((group) => {
-    const variables = metadata.variables.filter((variable) => {
-      const parent = variable.path.slice(0, variable.path.lastIndexOf("/")) || "/";
-      return (
-        parent === group.path &&
-        (showSupporting || !supportingPaths.has(variable.path) || variable.path === selectedPath) &&
-        (!query || variable.path.toLowerCase().includes(query))
-      );
-    });
-    if (!variables.length) return null;
-    return (
-      <details className="variable-group" key={group.path} open>
-        <summary>{group.path === "/" ? "root group" : group.path}</summary>
-        {variables.map((variable) => (
-          <button
-            key={variable.path}
-            className="variable-row"
-            data-supporting={supportingPaths.has(variable.path) || undefined}
-            aria-selected={variable.path === selectedPath}
-            title={`${variableLabel(variable)} · ${variable.dimensions.map((dimension) => dimension.name).join(", ") || "scalar"}`}
-            onClick={() => onSelect(variable.path)}
-          >
-            <span>{variable.name}</span>
-            <small>{variable.dtype} · {variable.dimensions.map((dimension) => dimension.length).join("×") || "scalar"}</small>
-          </button>
-        ))}
-      </details>
-    );
-  });
-}
-
-function countVisible(
-  metadata: Metadata,
-  supportingPaths: Set<string>,
-  showSupporting: boolean,
-  selectedPath: string,
-): number {
-  return metadata.variables.filter(
-    (variable) => showSupporting || !supportingPaths.has(variable.path) || variable.path === selectedPath,
-  ).length;
-}
-
-function MetadataWarnings({ metadata }: { metadata: Metadata }) {
-  if (!metadata.warnings.length) return null;
-  return (
-    <details className="warnings">
-      <summary>{metadata.warnings.length} metadata warning{metadata.warnings.length === 1 ? "" : "s"}</summary>
-      {metadata.warnings.map((warning) => <p key={warning}>{warning}</p>)}
-    </details>
   );
 }
 

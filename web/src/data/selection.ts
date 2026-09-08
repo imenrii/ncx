@@ -1,5 +1,5 @@
 import type { SliceRequest, Variable } from "./model";
-import type { ViewBounds } from "./view";
+import type { ViewBounds } from "../plots/view";
 
 export const PREVIEW_SAMPLES_PER_AXIS = 2000;
 export const SETTLE_DELAY_MS = 250;

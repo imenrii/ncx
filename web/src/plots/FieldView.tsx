@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 
-import { LatestSliceLoader, fetchCoordinate, fetchSlice, fetchStaticSlice } from "./api";
+import { LatestSliceLoader, fetchCoordinate, fetchSlice, fetchStaticSlice } from "../data/api";
 import {
   colorForValue,
   finiteRange,
   formatNumber,
-  type ColormapChoice,
   type ColorRange,
+  type ColormapChoice,
 } from "./color";
 import type {
   ColorScale,
@@ -14,56 +14,30 @@ import type {
   Metadata,
   Probe,
   Variable,
-} from "./model";
-import { attributeText, displayUnit, quantityLabel, resolveVariableReference } from "./model";
+} from "../data/model";
+import { attributeText, displayUnit, quantityLabel, resolveVariableReference } from "../data/model";
 import { formatPosition, probeAtPosition } from "./projection";
 import { canvasPng, registerPlotCapture, validateCanvasSize } from "./capture";
-import { fieldRequest, type DisplayDimensions } from "./selection";
+import { fieldRequest, type DisplayDimensions } from "../data/selection";
+import type { FieldProps } from "./SpatialField";
+import { useFieldInteraction } from "./useFieldInteraction";
 import { useElementSize } from "./useElementSize";
-import { plotMargin, plotType, type PlotType } from "./plotgeom";
-import { PERFORMANCE_MEASURE, measurePerformance } from "./performance";
+import { fieldMargin, plotType } from "./plotgeom";
+import { PERFORMANCE_MEASURE, measurePerformance } from "../data/performance";
 import { buildRectilinearAxis, type RectilinearAxis } from "./rectilinear";
 import { MapOverlay } from "./MapOverlay";
-import { Colorbar, PlotAxes, ViewControls, colorbarWidth } from "./plot";
+import { Colorbar, PlotAxes, FieldMarks, ViewControls } from "./plot";
 import {
-  aspectRectangle,
-  boxZoomBounds,
   fitPlotToBounds,
-  panBounds,
   projectRectangle,
   zoomBounds,
   type ViewBounds,
   type ViewRectangle,
 } from "./view";
 
-/** Furniture margin for a field panel, derived from the live type size rather
- *  than fixed: the labels grow with the panel, and so must the room for them. */
-export function fieldMargin(type: PlotType) {
-  return plotMargin(type, { colorbar: 14 + colorbarWidth(type) });
-}
-
-interface FieldViewProps {
-  metadata: Metadata;
-  variable: Variable;
-  display: DisplayDimensions;
-  indices: Record<string, number>;
-  settled: boolean;
-  colormap: ColormapChoice;
-  scale: ColorScale;
-  range: ColorRange;
-  rangeLocked: boolean;
-  sharedRange?: boolean;
-  mapSource: "none" | "osm";
-  probe: Probe | undefined;
-  initialView?: ViewBounds;
-  controlledView?: ViewBounds;
+interface FieldViewProps extends FieldProps {
   controlledWorldView?: ViewBounds;
-  onViewChange: (view: ViewBounds) => void;
   onWorldViewChange?: (view: ViewBounds) => void;
-  onProbe: (probe: Probe) => void;
-  onRange: (range: ColorRange) => void;
-  onFrameLoaded: () => void;
-  onStatus: (status: string) => void;
 }
 
 interface Coordinates {
@@ -83,12 +57,6 @@ interface HoverValue {
   sourceY: number;
 }
 
-interface FieldDrag {
-  mode: "zoom" | "pan";
-  start: { x: number; y: number };
-  view: ViewBounds;
-}
-
 const FULL_FIELD: ViewBounds = { minimumX: 0, maximumX: 1, minimumY: 0, maximumY: 1 };
 
 export function FieldView(props: FieldViewProps) {
@@ -103,8 +71,6 @@ export function FieldView(props: FieldViewProps) {
   const [error, setError] = useState<string>();
   const [hover, setHover] = useState<HoverValue>();
   const [view, setView] = useState<ViewBounds>(props.initialView ?? FULL_FIELD);
-  const [dragBox, setDragBox] = useState<ViewRectangle>();
-  const drag = useRef<FieldDrag | undefined>(undefined);
   const changeView = (nextView: ViewBounds) => {
     setView(nextView);
     props.onViewChange(nextView);
@@ -112,15 +78,6 @@ export function FieldView(props: FieldViewProps) {
       props.onWorldViewChange(worldView(layout, nextView));
     }
   };
-  useEffect(() => {
-    if (props.controlledView) setView(props.controlledView);
-  }, [
-    props.controlledView?.minimumX,
-    props.controlledView?.maximumX,
-    props.controlledView?.minimumY,
-    props.controlledView?.maximumY,
-  ]);
-
   const type = plotType(frame.current);
   const margin = fieldMargin(type);
   const availablePlot = {
@@ -403,23 +360,13 @@ export function FieldView(props: FieldViewProps) {
     ? visibleDomain(layout.yDomain, view.minimumY, view.maximumY)
     : [0, 1] as [number, number];
 
-  const finishPointer = (event: PointerEvent<HTMLCanvasElement>) => {
-    const activeDrag = drag.current;
-    if (!activeDrag) return;
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const end = { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
-    drag.current = undefined;
-    setDragBox(undefined);
-    if (activeDrag.mode === "pan") return;
-    const movedX = Math.abs(end.x - activeDrag.start.x);
-    const movedY = Math.abs(end.y - activeDrag.start.y);
-    if (movedX >= 8 || movedY >= 8) {
-      const box = aspectRectangle(activeDrag.start, end, bounds.width, bounds.height);
-      changeView(boxZoomBounds(activeDrag.view, box, bounds.width, bounds.height));
-    } else {
-      selectProbe(event);
-    }
-  };
+  const { dragBox, handlers } = useFieldInteraction({
+    view,
+    home: FULL_FIELD,
+    onViewChange: changeView,
+    onHover: (event) => setHover(event ? inspectPointer(event) : undefined),
+    onProbe: selectProbe,
+  });
 
   return (
     <div className="plot-frame field-frame" ref={frame}>
@@ -435,49 +382,7 @@ export function FieldView(props: FieldViewProps) {
             ref={canvas}
             className="field-canvas"
             style={{ left: plot.left, top: plot.top, width: plot.width, height: plot.height }}
-            onPointerLeave={() => !drag.current && setHover(undefined)}
-            onDoubleClick={() => changeView(FULL_FIELD)}
-            onAuxClick={(event) => event.preventDefault()}
-            onPointerDown={(event) => {
-              if (event.button !== 0 && event.button !== 1) return;
-              if (event.button === 1) event.preventDefault();
-              const bounds = event.currentTarget.getBoundingClientRect();
-              drag.current = {
-                mode: event.button === 1 ? "pan" : "zoom",
-                start: { x: event.clientX - bounds.left, y: event.clientY - bounds.top },
-                view,
-              };
-              if (event.pointerId) event.currentTarget.setPointerCapture(event.pointerId);
-            }}
-            onPointerMove={(event) => {
-              if (drag.current) {
-                const bounds = event.currentTarget.getBoundingClientRect();
-                const end = { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
-                if (drag.current.mode === "pan") {
-                  changeView(panBounds(
-                    drag.current.view,
-                    FULL_FIELD,
-                    (end.x - drag.current.start.x) / bounds.width,
-                    (end.y - drag.current.start.y) / bounds.height,
-                  ));
-                  setHover(undefined);
-                } else {
-                  setDragBox(aspectRectangle(
-                    drag.current.start,
-                    end,
-                    bounds.width,
-                    bounds.height,
-                  ));
-                }
-              } else {
-                setHover(inspectPointer(event));
-              }
-            }}
-            onPointerUp={finishPointer}
-            onPointerCancel={() => {
-              drag.current = undefined;
-              setDragBox(undefined);
-            }}
+            {...handlers}
             aria-label={`${props.variable.name} field`}
           />
           <svg className="plot-svg" width={frameSize.width} height={frameSize.height} aria-hidden="true">
@@ -498,25 +403,10 @@ export function FieldView(props: FieldViewProps) {
               scale={props.scale}
               label={quantityLabel(props.variable)}
             />
-            {probePosition && (
-              <g
-                className="probe-mark"
-                transform={`translate(${plot.left + probePosition.x * plot.width} ${plot.top + probePosition.y * plot.height})`}
-              >
-                <line x1={-9} x2={9} />
-                <line y1={-9} y2={9} />
-                <circle r={3.5} />
-              </g>
-            )}
-            {dragBox && (
-              <rect
-                className="zoom-box"
-                x={plot.left + dragBox.left}
-                y={plot.top + dragBox.top}
-                width={dragBox.width}
-                height={dragBox.height}
-              />
-            )}
+            <FieldMarks plot={plot} dragBox={dragBox} probe={probePosition && {
+              x: plot.left + probePosition.x * plot.width,
+              y: plot.top + probePosition.y * plot.height,
+            }} />
           </svg>
           {props.mapSource === "osm" && layout && (
             <div className="map-position" style={{ left: plot.left, top: plot.top, width: plot.width, height: plot.height }}>

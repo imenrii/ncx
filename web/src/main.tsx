@@ -1,6 +1,6 @@
 import { createRoot } from "react-dom/client";
 
-import { HubGate } from "./HubGate";
+import { HubGate } from "./hub/HubGate";
 import "./style.css";
 
 const root = document.querySelector("#app");

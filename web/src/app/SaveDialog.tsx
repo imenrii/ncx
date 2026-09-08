@@ -16,8 +16,8 @@ import {
   defaultExportOptions,
   exportPlotPng,
   type ExportOptions,
-} from "./export";
-import { mathToText } from "./mathtext";
+} from "../plots/export";
+import { mathToText } from "../plots/mathtext";
 
 export function SaveDialog({
   name,
@@ -32,6 +32,7 @@ export function SaveDialog({
   const id = useId();
   const [options, setOptions] = useState<ExportOptions>(defaultExportOptions);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
 
   useEffect(() => {
     dialog.current?.showModal();
@@ -43,11 +44,14 @@ export function SaveDialog({
 
   const save = async () => {
     setBusy(true);
+    setError(undefined);
     try {
       await exportPlotPng(name, options);
       onClose();
     } catch (error: unknown) {
-      onError(error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      setError(message);
+      onError(message);
     } finally {
       setBusy(false);
     }
@@ -153,6 +157,8 @@ export function SaveDialog({
         {preview("yTitle")}
 
         <p className="hint syntax">{"Accepts LaTeX: ^{ } _{ } \\alpha \\times \\degree"}</p>
+
+        {error && <p className="export-error" role="alert">{error}</p>}
 
         <div className="dialog-actions">
           <button type="button" onClick={() => dialog.current?.close()}>

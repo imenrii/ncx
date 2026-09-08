@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
-import { App } from "./App";
+import { App } from "../app/App";
 import {
   closeHubSession,
   createHubSession,

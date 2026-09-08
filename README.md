@@ -110,8 +110,9 @@ The resulting executable in `target/release/ncx` is completely self-contained.
 
 ### Persistent intranet hosting
 
-The supplied Compose service builds the standalone Linux x86-64 executable and
-runs `ncx hub` on a Docker bridge. Docker publishes exactly `127.0.0.1:8765` on
+The supplied Compose service downloads the latest published Linux x86-64 musl
+executable from `cchomelon/ncx` and runs `ncx hub` on a Docker bridge. The image
+contains only runtime tools, not source code, Rust, Node.js, or build tools. Docker publishes exactly `127.0.0.1:8765` on
 the host, and Apache maps `/ncx/` to that port. The hub accepts up to 10
 sessions and expires an idle session after 90 seconds.
 
@@ -121,12 +122,28 @@ The Compose file mounts `/srv/netcdf:/data:ro`. Edit the `/srv/netcdf` source in
 container. UID 10001 in the container must be able to read the data directory
 and `known_hosts`.
 
-Build and start the hub:
+Build and start the hub after the first GitHub release is published:
 
 ```bash
 docker compose build
 docker compose up -d
 ```
+
+Update the installed binary from the latest GitHub release:
+
+```bash
+docker exec -it "$(docker compose ps -q ncx)" update.sh
+docker compose restart ncx
+```
+
+The update checks the release SHA-256 digest and executable before it replaces
+the binary. If the update fails, the installed binary stays unchanged. The
+`ncx-binary` volume stores the binary across restarts and container replacement.
+The rest of the container filesystem stays read-only. A new image does not
+replace a binary in an existing volume; use `update.sh` to update it. Restart
+immediately after an update, before opening more sessions. Restart closes all
+active sessions and makes the hub and its child viewers use the same version.
+Do not use `docker compose down -v` unless you intend to delete the binary volume.
 
 Apache HTTPS is required for hosted SSH access. The browser shows a masked
 password prompt for each new remote web session and sends the password once in
@@ -178,6 +195,74 @@ Run the deployment smoke test with `tests/hosting-smoke.sh`. The script performs
 static checks everywhere and runs the container checks when Docker Compose is
 available.
 
+### Publish a Linux release
+
+Run the repository checks first. On the build host, install `cargo-zigbuild`,
+Zig, and the Rust `x86_64-unknown-linux-musl` target. Keep the sibling colour
+table sources available as described in `AGENTS.md`. Then run:
+
+```bash
+sh deploy/package-release.sh
+```
+
+The script builds the embedded UI and static NetCDF executable with
+`NCX_PUBLIC_RELEASE=1`. This excludes the commercial Gorton font, including
+cached subsets, and uses the existing system-font fallback. It writes
+`ncx-x86_64-unknown-linux-musl` and its `.sha256` file to
+`target/release-assets/`. Publish both files on the same GitHub release, from
+the commit used for the build. The container uses GitHub's latest published
+release, not a draft or prerelease. Downloads require public release access.
+The digest detects damaged or mismatched downloads; it is not a signature.
+
+### Typography and figure export
+
+The current browser typography uses these roles. This table and
+`web/src/style.css` replace the older notes under `.tmp/`.
+
+| Role | Face and weight | Spacing |
+| --- | --- | --- |
+| Interface prose, headings, brand | Gorton Perfected 400 / 600 | UI tokens |
+| Uppercase structural labels | National Park 400 | caps tracking; normal features |
+| Controls, paths, values, logs, code | Commit Mono 400 / 700 | normal spacing; mono features |
+| Plot titles, axes, ticks, annotations | AVHershey Simplex 300 / 400 / 700 | plot tokens |
+| Mathematical symbols | CM Math | per-glyph fallback |
+
+Figure and panel titles use Heavy. Axis labels, tick labels, and legends use
+Medium, as specified by `Style/plotstyle/rc.py`; secondary annotations use
+Light. Uppercase labels are structural only. Commands use sentence case,
+and code and variable names retain their original spelling.
+
+The browser size ladder is 12/13/14/16/18 pixels at the default root size,
+expressed in rem. Do not introduce nearby one-off sizes or apply interface
+font features to monospace text. Unit and variable text keeps its case.
+The [Style specification](../Style/design.md) and
+[guidance](../Style/Guidance.md) govern figures; browser controls use the
+roles above, not plot lettering. The console and viewer use the same roles.
+
+Save PNG captures the visible plot data, including browser-injected comparison
+series. Curve exports retain line styles and include a legend with series
+names, datums, and displayed offsets. The export embeds the fonts it uses.
+A failed export shows an error in the Save dialog and can be retried; it does
+not depend on the status bar being visible. Hosts must permit local `blob:`
+images in their content security policy for PNG composition.
+
+### Embedded viewer chrome
+
+Add `chrome=none` to the viewer URL to hide its topbar and status bar.
+Only this exact value enables the mode. Omit it, or use another value, to
+keep the standalone layout. The existing `embedded=1` option remains separate.
+
+The host supplies case identity and status. ncx keeps its variable sidebar,
+dataset selector, view controls, plots, and timeline. The dataset selector and
+sidebar toggle move into the view toolbar so they remain keyboard-accessible,
+including on narrow screens. Hidden bars reserve no layout space and have no
+focusable controls. Plot tooltips and figure labels remain available; the
+hidden status bar does not forward readouts to the host.
+
+This option changes presentation only. It does not change dataset access,
+`generation`, `display_zone`, or `comparison_host` handling. It does not add
+host-specific knowledge or a new message protocol.
+
 ### Frontend Development
 
 To work on the web UI with live hot-reloading:
@@ -190,6 +275,21 @@ ncx serve --port 8765 path/to/dataset.nc
 cd web
 npm run dev
 ```
+
+### Frontend source layout
+
+`web/src` keeps the application and numerical code separate:
+
+- `app/`: dataset selection, viewer state, browser, and controls.
+- `plots/`: plot views, shared interactions, geometry, rendering, and PNG export.
+- `data/`: API decoding, metadata, slice selection, comparison, and time.
+- `hub/`: session UI and lifecycle.
+- `generated/`: colour tables. Use `web/scripts/sync-colormaps.mjs` to update them.
+
+Tests stay beside their modules. Variable-specific controls reset together in
+`app/viewerState.ts`. Viewer preferences and remembered field bounds stay in
+`app/Viewer.tsx`. Raster and mesh renderers share pointer interactions, but keep
+separate data loading, coordinate conversion, and rendering paths.
 
 ---
 
@@ -205,8 +305,37 @@ node tests/ui-smoke.mjs rectilinear
 node tests/ui-smoke.mjs curvilinear
 node tests/ui-smoke.mjs ugrid
 node tests/ui-smoke.mjs ugrid_projected
+node tests/ui-smoke.mjs ugrid_helpers
 node tests/ui-smoke.mjs comparison
 node tests/ui-smoke.mjs collection
+```
+
+The `ugrid_helpers` scenario checks a reduced cuSURGE full-grid fixture. It
+keeps mesh areas, lengths, normals, masks, IDs, and coordinate-system metadata
+out of the data list. To run that check against a full-grid output file with
+the same variables, set `NCX_FIXTURE` to its absolute path.
+
+For fixed Firefox screenshots and PNG export samples, rebuild both layers,
+then run:
+
+```bash
+node tests/ui-visual.mjs /tmp/ncx-visual
+```
+
+This saves desktop and narrow views plus PNG exports for six plot scenarios,
+with extra curve, metadata, save-dialog, and UGRID face/edge views.
+Use the same Firefox version, fonts, and machine when comparing images. Set
+`NCX_BINARY` to an absolute executable path to capture a reference build. These
+samples supplement the interaction smoke tests; they do not cover every UI state.
+
+Set `NCX_CHROME=none` to run a scenario with the embedding layout. The smoke
+check verifies that both bars are absent and that the relocated sidebar toggle
+remains reachable. Set `NCX_VIEWPORT_WIDTH=640` for a 640 by 900 CSS-pixel
+window; `NCX_VIEWPORT_HEIGHT` can override that height. For example:
+
+```bash
+NCX_CHROME=none node tests/ui-smoke.mjs station
+NCX_CHROME=none NCX_VIEWPORT_WIDTH=640 node tests/ui-smoke.mjs rectilinear
 ```
 
 Set `NCX_BENCHMARK=1` to include the latest browser and server timing values in

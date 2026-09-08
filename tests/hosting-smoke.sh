@@ -4,7 +4,7 @@ set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$root"
 
-for file in Dockerfile .dockerignore .gitignore compose.yaml README.md deploy/apache-ncx.conf.example; do
+for file in Dockerfile .dockerignore .gitignore compose.yaml README.md deploy/apache-ncx.conf.example deploy/update.sh deploy/package-release.sh; do
     test -f "$file" || {
         echo "missing hosting file: $file" >&2
         exit 1
@@ -28,8 +28,16 @@ if grep -nE '(^|/)\.env([[:space:]]|$)' .dockerignore .gitignore; then
     exit 1
 fi
 
-grep -Fq -- '--features netcdf/static' Dockerfile
-grep -Fq 'x86_64-unknown-linux-musl' Dockerfile
+sh tests/update-smoke.sh
+if grep -nE 'FROM rust|cargo |COPY \. \.|npm |build-essential' Dockerfile; then
+    echo 'Build tools or source copy found in the runtime image.' >&2
+    exit 1
+fi
+grep -Fq 'RUN update.sh' Dockerfile
+grep -Fq 'deploy/update.sh /usr/local/bin/update.sh' Dockerfile
+grep -Fq 'x86_64-unknown-linux-musl' deploy/update.sh
+grep -Fq 'ncx-binary:/opt/ncx' compose.yaml
+grep -Fq 'platform: linux/amd64' compose.yaml
 grep -Fq '/usr/local/bin/ncx' Dockerfile
 grep -Fq 'ENV HOME=/home/ncx' Dockerfile
 grep -Fq '127.0.0.1:8765:8765' compose.yaml
@@ -83,7 +91,7 @@ compose() {
     docker compose -f compose.yaml -f "$work/override.yaml" -p "$project" "$@"
 }
 cleanup() {
-    compose down --timeout 10 --remove-orphans >/dev/null 2>&1 || true
+    compose down --timeout 10 --remove-orphans --volumes >/dev/null 2>&1 || true
     rm -rf "$work"
 }
 trap cleanup EXIT HUP INT TERM
@@ -94,6 +102,7 @@ services:
     ports: !override
       - "127.0.0.1:$port:8765"
     volumes: !override
+      - ncx-binary:/opt/ncx
       - type: bind
         source: "$root/tests/data"
         target: /data
@@ -107,6 +116,17 @@ EOF
 compose config --quiet
 compose build
 compose up --detach --wait
+compose exec -T ncx sh -ec '
+    test "$(id -u)" = 10001
+    for tool in cargo rustc node npm cc; do
+        ! command -v "$tool"
+    done
+    test -x /usr/local/bin/update.sh
+    test -w /opt/ncx
+    test ! -w /usr/local/bin
+'
+compose exec -T ncx update.sh
+compose restart ncx
 
 base="http://127.0.0.1:$port/ncx"
 python3 - "$base" <<'PY'
@@ -151,7 +171,7 @@ if [ "$(docker inspect --format '{{.State.ExitCode}}' "$container")" != 0 ]; the
     echo 'hosting container did not stop cleanly' >&2
     exit 1
 fi
-compose down --timeout 10 --remove-orphans
+compose down --timeout 10 --remove-orphans --volumes
 if [ -n "$(compose ps --quiet ncx)" ]; then
     echo 'hosting container was not removed' >&2
     exit 1

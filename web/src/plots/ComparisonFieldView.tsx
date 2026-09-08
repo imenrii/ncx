@@ -1,18 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { fetchCoordinate, fetchMetadata } from "./api";
+import { fetchCoordinate, fetchMetadata } from "../data/api";
 import {
   fieldComparisonDatasets,
   findCompatibleVariable,
   nearestFrame,
-} from "./comparison";
-import { FieldView } from "./FieldView";
-import { MeshFieldView } from "./MeshFieldView";
+} from "../data/comparison";
+import { SpatialField } from "./SpatialField";
 import type { ColormapChoice, ColorRange } from "./color";
-import type { ColorScale, DatasetSummary, Metadata, Probe, Variable } from "./model";
-import { derivedValueLabel, variableLabel } from "./model";
-import { defaultDisplayDimensions, defaultIndices, type DisplayDimensions } from "./selection";
-import { describeTime, formatTimestamp, timeInZone, type DisplayTimeZone } from "./time";
+import type { ColorScale, DatasetSummary, Metadata, Probe, Variable } from "../data/model";
+import { derivedValueLabel, variableLabel } from "../data/model";
+import { defaultDisplayDimensions, defaultIndices, type DisplayDimensions } from "../data/selection";
+import { describeTime, formatTimestamp, timeInZone, type DisplayTimeZone } from "../data/time";
 import type { ViewBounds } from "./view";
 
 interface Pane {
@@ -238,14 +237,13 @@ function ComparisonPane({
       </header>
       {pane.unavailable
         ? <div className="comparison-unavailable">{pane.unavailable}</div>
-        : isMesh(pane.variable)
-          ? <MeshFieldView {...common} controlledView={controlledView} onViewChange={onViewChange} />
-          : <FieldView
-              {...common}
-              controlledWorldView={controlledView}
-              onWorldViewChange={onViewChange}
-              onViewChange={ignoreView}
-            />}
+        : <SpatialField
+            {...common}
+            mesh={isMesh(pane.variable)}
+            synchronizedView={controlledView}
+            onSynchronizedViewChange={onViewChange}
+            onViewChange={ignoreView}
+          />}
     </article>
   );
 }

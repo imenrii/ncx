@@ -220,17 +220,20 @@ export function coordinateVariablePaths(metadata: Metadata): Set<string> {
       // A coordinate variable: one dimension, sharing its own name.
       (variable.dimensions.length === 1 && dimensionPaths.has(variable.path)) ||
       (axis !== undefined && /^[XYZT]$/i.test(axis)) ||
-      ["longitude", "latitude", "time", "depth", "altitude"].includes(standard) ||
+      ["longitude", "latitude", "time", "depth", "altitude",
+        "projection_x_coordinate", "projection_y_coordinate"].includes(standard) ||
       /^degrees_(north|east)$/.test(units)
     ) {
       paths.add(variable.path);
     }
   }
   for (const variable of metadata.variables) {
-    for (const attribute of ["coordinates", "bounds", "climatology"]) {
+    for (const attribute of ["coordinates", "bounds", "climatology", "grid_mapping"]) {
       const value = attributeText(variable, attribute);
       if (!value) continue;
-      for (const reference of value.split(/\s+/)) {
+      for (const token of value.split(/\s+/)) {
+        // Expanded CF grid mappings list both the CRS (with a colon) and its coordinates.
+        const reference = attribute === "grid_mapping" ? token.replace(/:$/, "") : token;
         if (reference) paths.add(resolveVariableReference(variable.path, reference));
       }
     }
@@ -246,6 +249,10 @@ export function isTimeCoordinate(variable: Variable): boolean {
   return attributeText(variable, "axis")?.toUpperCase() === "T" ||
     attributeText(variable, "standard_name") === "time";
 }
+
+// These static topology-prefixed helpers can also carry mesh/location attributes.
+// Do not classify physical fields from their prefix or mesh membership alone.
+const STATIC_MESH_HELPER = /^(?:face_(?:area|static_mask)|edge_(?:length|normal_[xy]|type)|(?:input|solver)_(?:face|edge)_id|solver_edge_sign)$/;
 
 export function meshGeometryPaths(metadata: Metadata): Set<string> {
   const paths = new Set<string>();
@@ -267,12 +274,15 @@ export function meshGeometryPaths(metadata: Metadata): Set<string> {
     }
     const parent = topology.path.slice(0, topology.path.lastIndexOf("/"));
     for (const variable of metadata.variables) {
-      // Some UGRID writers omit helper references but keep the topology-name
-      // prefix. A declared `mesh` attribute still identifies a real data field.
+      const mesh = attributeText(variable, "mesh");
       if (
         variable.path.slice(0, variable.path.lastIndexOf("/")) === parent &&
         variable.name.startsWith(`${topology.name}_`) &&
-        attributeText(variable, "mesh") === undefined
+        (mesh === undefined || (
+          resolveVariableReference(variable.path, mesh) === topology.path &&
+          variable.dimensions.length === 1 &&
+          STATIC_MESH_HELPER.test(variable.name.slice(topology.name.length + 1))
+        ))
       ) {
         paths.add(variable.path);
       }

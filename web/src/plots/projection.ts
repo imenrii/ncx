@@ -1,6 +1,6 @@
 import { formatNumber } from "./color.ts";
-import type { Metadata, Probe, Variable, VariableDimension } from "./model.ts";
-import { attributeText, resolveVariableReference } from "./model.ts";
+import type { Metadata, Probe, Variable, VariableDimension } from "../data/model.ts";
+import { attributeText, resolveVariableReference } from "../data/model.ts";
 
 export interface GeographicPosition {
   latitude: number;

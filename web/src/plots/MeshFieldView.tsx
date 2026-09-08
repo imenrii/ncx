@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 
-import { LatestSliceLoader, fetchCoordinate, fetchSlice, fetchStaticSlice } from "./api";
-import { finiteRange, formatNumber, type ColorRange,
-  type ColormapChoice,
-} from "./color";
+import { LatestSliceLoader, fetchCoordinate, fetchSlice, fetchStaticSlice } from "../data/api";
+import { finiteRange, formatNumber } from "./color";
 import { registerPlotCapture } from "./capture";
-import { fieldMargin } from "./FieldView";
-import { plotType } from "./plotgeom";
-import { PERFORMANCE_MEASURE, measurePerformance } from "./performance";
-import { Colorbar, PlotAxes, ViewControls, type PlotBounds } from "./plot";
+import type { FieldProps } from "./SpatialField";
+import { useFieldInteraction } from "./useFieldInteraction";
+import { fieldMargin, plotType } from "./plotgeom";
+import { PERFORMANCE_MEASURE, measurePerformance } from "../data/performance";
+import { Colorbar, PlotAxes, FieldMarks, ViewControls, type PlotBounds } from "./plot";
 import { MapOverlay } from "./MapOverlay";
 import {
   buildCurvilinearGeometry,
@@ -20,51 +19,28 @@ import {
   type MeshHit,
 } from "./mesh";
 import type {
-  ColorScale,
   DataSlice,
   Metadata,
   Probe,
   Variable,
-} from "./model";
-import { attributeNumber, attributeNumbers, attributeText, displayUnit, quantityLabel, resolveVariableReference } from "./model";
+} from "../data/model";
+import { attributeNumber, attributeNumbers, attributeText, displayUnit, quantityLabel, resolveVariableReference } from "../data/model";
 import {
   formatPosition,
   geographicCoordinateVariables,
   probeAtPosition,
 } from "./projection";
-import { fieldRequest, ugridFieldRequest, type DisplayDimensions } from "./selection";
+import { fieldRequest, ugridFieldRequest, type DisplayDimensions } from "../data/selection";
 import { useElementSize } from "./useElementSize";
 import {
-  aspectRectangle,
-  boxZoomBounds,
   fitPlotToBounds,
-  panBounds,
   zoomBounds,
   type ViewBounds,
-  type ViewRectangle,
 } from "./view";
 import { createMeshRenderer, type MeshSurface } from "./webgl";
 
-interface MeshFieldViewProps {
-  metadata: Metadata;
-  variable: Variable;
-  display: DisplayDimensions;
-  indices: Record<string, number>;
-  settled: boolean;
-  colormap: ColormapChoice;
-  scale: ColorScale;
-  range: ColorRange;
-  rangeLocked: boolean;
-  sharedRange?: boolean;
-  mapSource: "none" | "osm";
-  probe: Probe | undefined;
-  initialView?: ViewBounds;
+interface MeshFieldViewProps extends FieldProps {
   controlledView?: ViewBounds;
-  onViewChange: (view: ViewBounds) => void;
-  onProbe: (probe: Probe) => void;
-  onRange: (range: ColorRange) => void;
-  onFrameLoaded: () => void;
-  onStatus: (status: string) => void;
 }
 
 interface PointerValue {
@@ -74,12 +50,6 @@ interface PointerValue {
   value: number;
 }
 
-interface MeshDrag {
-  mode: "zoom" | "pan";
-  start: { x: number; y: number };
-  view: ViewBounds;
-}
-
 type FieldGeometry = MeshGeometry & { edgeFaces?: Int32Array };
 
 export function MeshFieldView(props: MeshFieldViewProps) {
@@ -87,12 +57,10 @@ export function MeshFieldView(props: MeshFieldViewProps) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const renderer = useRef<MeshSurface | undefined>(undefined);
   const loader = useRef(new LatestSliceLoader());
-  const drag = useRef<MeshDrag | undefined>(undefined);
   const [slice, setSlice] = useState<DataSlice>();
   const [geometry, setGeometry] = useState<FieldGeometry>();
   const [view, setView] = useState<Bounds | undefined>(props.initialView);
   const [hover, setHover] = useState<PointerValue>();
-  const [dragBox, setDragBox] = useState<ViewRectangle>();
   const [acceptedLargeMesh, setAcceptedLargeMesh] = useState(false);
   const [rendererReady, setRendererReady] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -343,17 +311,6 @@ export function MeshFieldView(props: MeshFieldViewProps) {
     plot.height,
   ]);
 
-  if (needsConfirmation) {
-    const estimatedMegabytes = Math.ceil((faceCount * 3 * 16) / 1024 / 1024);
-    return (
-      <div className="plot-frame mesh-warning" ref={frame}>
-        <strong>{faceCount.toLocaleString()} mesh faces</strong>
-        <p>About {estimatedMegabytes.toLocaleString()} MiB of browser geometry may be needed.</p>
-        <button onClick={() => setAcceptedLargeMesh(true)}>Load mesh once</button>
-      </div>
-    );
-  }
-
   const axis = meshAxisLabels(props.metadata, props.variable);
   const probePosition = view && props.probe
     ? {
@@ -379,21 +336,8 @@ export function MeshFieldView(props: MeshFieldViewProps) {
     };
   };
 
-  const finishPointer = (event: PointerEvent<HTMLCanvasElement>) => {
-    const activeDrag = drag.current;
-    if (!activeDrag || !view || !slice) return;
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const end = { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
-    drag.current = undefined;
-    setDragBox(undefined);
-    if (activeDrag.mode === "pan") return;
-    const movedX = Math.abs(end.x - activeDrag.start.x);
-    const movedY = Math.abs(end.y - activeDrag.start.y);
-    if (movedX >= 8 || movedY >= 8) {
-      const box = aspectRectangle(activeDrag.start, end, bounds.width, bounds.height);
-      changeView(boxZoomBounds(activeDrag.view, box, bounds.width, bounds.height));
-      return;
-    }
+  const selectProbe = (event: PointerEvent<HTMLCanvasElement>) => {
+    if (!slice) return;
     const inspected = inspect(event);
     if (!inspected || !Number.isFinite(inspected.value)) return;
     const probe = probeFromHit(
@@ -418,6 +362,26 @@ export function MeshFieldView(props: MeshFieldViewProps) {
     ));
   };
 
+  const { dragBox, handlers } = useFieldInteraction({
+    view: view ?? geometry?.bounds ?? { minimumX: 0, maximumX: 1, minimumY: 0, maximumY: 1 },
+    home: geometry?.bounds,
+    canFinish: Boolean(view && slice),
+    onViewChange: changeView,
+    onHover: (event) => setHover(event ? inspect(event) : undefined),
+    onProbe: selectProbe,
+  });
+
+  if (needsConfirmation) {
+    const estimatedMegabytes = Math.ceil((faceCount * 3 * 16) / 1024 / 1024);
+    return (
+      <div className="plot-frame mesh-warning" ref={frame}>
+        <strong>{faceCount.toLocaleString()} mesh faces</strong>
+        <p>About {estimatedMegabytes.toLocaleString()} MiB of browser geometry may be needed.</p>
+        <button onClick={() => setAcceptedLargeMesh(true)}>Load mesh once</button>
+      </div>
+    );
+  }
+
   return (
     <div className="plot-frame mesh-frame" ref={frame}>
       <canvas
@@ -429,49 +393,7 @@ export function MeshFieldView(props: MeshFieldViewProps) {
         data-view={view ? "true" : "false"}
         style={{ left: plot.left, top: plot.top, width: plot.width, height: plot.height }}
         aria-label={`${props.variable.name} ${hint.kind} field`}
-        onDoubleClick={() => geometry && changeView(geometry.bounds)}
-        onAuxClick={(event) => event.preventDefault()}
-        onPointerDown={(event) => {
-          if (event.button !== 0 && event.button !== 1) return;
-          if (event.button === 1) event.preventDefault();
-          const bounds = event.currentTarget.getBoundingClientRect();
-          drag.current = {
-            mode: event.button === 1 ? "pan" : "zoom",
-            start: { x: event.clientX - bounds.left, y: event.clientY - bounds.top },
-            view: view ?? geometry?.bounds ?? { minimumX: 0, maximumX: 1, minimumY: 0, maximumY: 1 },
-          };
-          if (event.pointerId) event.currentTarget.setPointerCapture(event.pointerId);
-        }}
-        onPointerMove={(event) => {
-          if (drag.current) {
-            const bounds = event.currentTarget.getBoundingClientRect();
-            const end = { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
-            if (drag.current.mode === "pan" && geometry) {
-              changeView(panBounds(
-                drag.current.view,
-                geometry.bounds,
-                (end.x - drag.current.start.x) / bounds.width,
-                (end.y - drag.current.start.y) / bounds.height,
-              ));
-              setHover(undefined);
-            } else {
-              setDragBox(aspectRectangle(
-                drag.current.start,
-                end,
-                bounds.width,
-                bounds.height,
-              ));
-            }
-          } else {
-            setHover(inspect(event));
-          }
-        }}
-        onPointerLeave={() => !drag.current && setHover(undefined)}
-        onPointerUp={finishPointer}
-        onPointerCancel={() => {
-          drag.current = undefined;
-          setDragBox(undefined);
-        }}
+        {...handlers}
       />
       <svg className="plot-svg" width={size.width} height={size.height} aria-hidden="true">
         <PlotAxes
@@ -491,22 +413,10 @@ export function MeshFieldView(props: MeshFieldViewProps) {
           scale={props.scale}
           label={quantityLabel(props.variable)}
         />
-        {probePosition && Number.isFinite(probePosition.x) && Number.isFinite(probePosition.y) && (
-          <g className="probe-mark" transform={`translate(${probePosition.x} ${probePosition.y})`}>
-            <line x1={-9} x2={9} />
-            <line y1={-9} y2={9} />
-            <circle r={3.5} />
-          </g>
-        )}
-        {dragBox && (
-          <rect
-            className="zoom-box"
-            x={plot.left + dragBox.left}
-            y={plot.top + dragBox.top}
-            width={dragBox.width}
-            height={dragBox.height}
-          />
-        )}
+        <FieldMarks plot={plot} dragBox={dragBox} probe={
+          probePosition && Number.isFinite(probePosition.x) && Number.isFinite(probePosition.y)
+            ? probePosition : undefined
+        } />
       </svg>
       {geometry && (
         <ViewControls

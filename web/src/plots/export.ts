@@ -27,7 +27,6 @@ import { parseMath } from "./mathtext";
 /** Style's print resolution. */
 export const EXPORT_DPI = 400;
 /** The resolution a CSS pixel is defined against. */
-const CSS_DPI = 96;
 
 /**
  * Presentation properties worth carrying into the isolated SVG document.
@@ -37,6 +36,7 @@ const CSS_DPI = 96;
  */
 const CARRIED = [
   "font-family", "font-size", "font-weight", "font-style", "letter-spacing",
+  "word-spacing", "font-feature-settings", "font-variant-numeric",
   "fill", "fill-opacity", "stroke", "stroke-width", "stroke-opacity",
   "stroke-dasharray", "stroke-linecap", "stroke-linejoin",
   "text-anchor", "dominant-baseline", "opacity", "visibility", "display",
@@ -45,6 +45,9 @@ const CARRIED = [
 /** Faces the plot can set: AVHershey, National Park behind it per glyph, and
  *  CM Math ahead of both for Greek, arrows and operators. */
 const FONT_FILES = [
+  { family: "Commit Mono", weight: 400, url: "fonts/commit-400.woff2" },
+  { family: "Commit Mono", weight: 700, url: "fonts/commit-700.woff2" },
+  { family: "AVHershey Simplex", weight: 300, url: "fonts/hershey-light.woff2" },
   { family: "AVHershey Simplex", weight: 400, url: "fonts/hershey-medium.woff2" },
   { family: "AVHershey Simplex", weight: 700, url: "fonts/hershey-heavy.woff2" },
   { family: "National Park", weight: 400, url: "fonts/nationalpark.woff2" },
@@ -71,16 +74,12 @@ function base64(buffer: ArrayBuffer): string {
 async function embeddedFontCss(): Promise<string> {
   if (fontCache !== undefined) return fontCache;
   const faces = await Promise.all(FONT_FILES.map(async (font) => {
-    try {
-      const response = await fetch(new URL(font.url, document.baseURI));
-      if (!response.ok) return "";
-      const data = base64(await response.arrayBuffer());
-      return `@font-face{font-family:"${font.family}";font-weight:${font.weight};`
-        + (font.range ? `unicode-range:${font.range};` : "")
-        + `src:url(data:font/woff2;base64,${data}) format("woff2")}`;
-    } catch {
-      return "";
-    }
+    const response = await fetch(new URL(font.url, document.baseURI));
+    if (!response.ok) throw new Error(`Cannot load export font ${font.family} (${response.status})`);
+    const data = base64(await response.arrayBuffer());
+    return `@font-face{font-family:"${font.family}";font-weight:${font.weight};`
+      + (font.range ? `unicode-range:${font.range};` : "")
+      + `src:url(data:font/woff2;base64,${data}) format("woff2")}`;
   }));
   fontCache = faces.join("");
   return fontCache;
@@ -189,7 +188,7 @@ function retitleAxis(root: SVGElement, index: number, text: string): void {
   const labels = root.querySelectorAll<SVGTextElement>(".axis-label");
   const label = labels[index];
   if (!label) return;
-  const size = parseFloat(getComputedStyle(label).fontSize) || 14;
+  const size = parseFloat(label.style.fontSize) || 14;
   label.textContent = "";
   appendMath(label, text, size);
 }
@@ -204,17 +203,27 @@ export async function exportPlotPng(name: string, options?: ExportOptions): Prom
     });
   if (!figure || !frames?.length) throw new Error("The current view has no plot to save");
 
+  await document.fonts.ready;
   const settings = options ?? defaultExportOptions();
   const content = figure.querySelector<HTMLElement>(".field-comparison");
-  const contentRect = content?.getBoundingClientRect() ?? enclosingRect(
-    frames.map((frame) => frame.getBoundingClientRect()),
-  );
+  // Long rotated axis titles may extend beyond their SVG viewport. Reserve
+  // their full painted bounds before adding the title/legend band; otherwise
+  // a valid curve is saved with its quantity clipped or printed over a legend.
+  const lettering = frames.flatMap(frame => Array.from(frame.querySelectorAll<SVGTextElement>(
+    ".plot-axis text, .colorbar-axis text",
+  )).map(text => text.getBoundingClientRect())).filter(rect => rect.width > 0 && rect.height > 0);
+  const contentRect = enclosingRect([
+    ...(content ? [content.getBoundingClientRect()] : frames.map(frame => frame.getBoundingClientRect())),
+    ...lettering,
+  ]);
   const heading = { title: settings.title, subtitle: settings.subtitle };
   const titleSize = parseFloat(getComputedStyle(frames[0]).getPropertyValue("--plot-title-size")) || 20;
   const subtitleSize = parseFloat(getComputedStyle(frames[0]).getPropertyValue("--plot-subtitle-size")) || 14;
-  const bandHeight = heading.title
+  const titleHeight = heading.title
     ? Math.round(titleSize * 1.5 + (heading.subtitle ? subtitleSize * 1.5 : 0))
     : 0;
+  const legend = curveLegend(figure, contentRect.width);
+  const bandHeight = titleHeight + legend.height;
   const layout = planCaptureLayout(
     contentRect,
     frames.map((frame) => frame.getBoundingClientRect()),
@@ -237,7 +246,8 @@ export async function exportPlotPng(name: string, options?: ExportOptions): Prom
   paper.setAttribute("height", "100%");
   paper.setAttribute("fill", "#ffffff");
   output.append(paper);
-  appendHeading(output, frames[0], contentRect.width, bandHeight, titleSize, subtitleSize, heading);
+  appendHeading(output, frames[0], contentRect.width, titleHeight, titleSize, subtitleSize, heading);
+  appendCurveLegend(output, legend, titleHeight);
 
   const body = svgElement("g");
   body.setAttribute("transform", `translate(0 ${bandHeight})`);
@@ -303,6 +313,81 @@ export async function exportPlotPng(name: string, options?: ExportOptions): Prom
   link.download = `${name.replace(/[^a-z0-9._-]+/gi, "_") || "ncx-plot"}.png`;
   link.click();
   window.setTimeout(() => URL.revokeObjectURL(download), 0);
+}
+
+interface CurveLegend {
+  height: number;
+  entries: { lines: string[]; style: string; stroke: string; dash: string; weight: string; lineHeight: number }[];
+}
+
+/** Read generic series metadata from the controls, never provider identities. */
+function curveLegend(figure: HTMLElement, width: number): CurveLegend {
+  const controls = Array.from(figure.querySelectorAll<HTMLElement>(".series-control"))
+    .filter(control => control.getBoundingClientRect().height > 0);
+  const hasOffset = controls.some(control => Array.from(control.querySelectorAll<HTMLInputElement>('input[type="number"]'))
+    .some(input => Number(input.value) !== 0));
+  if (controls.length < 2 && !hasOffset) return { height: 0, entries: [] };
+  const context = document.createElement("canvas").getContext("2d");
+  if (!context) throw new Error("The browser could not measure the series legend");
+  const plotFace = getComputedStyle(figure).getPropertyValue("--plot-face");
+  const axis = figure.querySelector(".axis-label");
+  const entries = controls.map(control => {
+    const name = control.querySelector<HTMLElement>(":scope > strong")!;
+    const computed = getComputedStyle(name);
+    const size = parseFloat(getComputedStyle(axis ?? name).fontSize);
+    // A legend is figure lettering, not a copy of the editing controls.
+    context.font = `400 ${size}px ${plotFace}`;
+    const details = Array.from(control.querySelectorAll<HTMLElement>(":scope > span, :scope > label"))
+      .map(element => {
+        const value = element.querySelector<HTMLInputElement>('input[type="number"]');
+        return `${element.textContent?.trim() ?? ""}${value ? ` ${value.value}` : ""}`;
+      });
+    const text = [name.textContent?.trim(), ...details].filter(Boolean).join(" · ");
+    const lines: string[] = [];
+    let line = "";
+    // Splitting long identifiers also keeps the legend inside a narrow export.
+    for (const character of text) {
+      while (line && context.measureText(line + character).width > Math.max(1, width - 40)) {
+        const space = line.lastIndexOf(" ");
+        if (space > 0) { lines.push(line.slice(0, space)); line = line.slice(space + 1); }
+        else { lines.push(line); line = ""; }
+      }
+      line += character;
+    }
+    if (line) lines.push(line.trim());
+    const swatch = control.querySelector(".series-key line");
+    const paint = swatch ? getComputedStyle(swatch) : undefined;
+    return {
+      lines, lineHeight: size * 1.5,
+      style: `font-family:${plotFace};font-size:${size}px;font-weight:400;fill:${computed.color}`,
+      stroke: paint?.stroke ?? computed.color, dash: paint?.strokeDasharray ?? "none",
+      weight: paint?.strokeWidth ?? "1",
+    };
+  });
+  return { entries, height: entries.reduce((sum, entry) => sum + entry.lines.length * entry.lineHeight + 4, 8) };
+}
+
+function appendCurveLegend(output: SVGSVGElement, legend: CurveLegend, top: number): void {
+  const group = svgElement("g");
+  group.setAttribute("class", "export-series-legend");
+  let y = top + 4;
+  for (const entry of legend.entries) {
+    const swatch = svgElement("line");
+    swatch.setAttribute("x1", "8"); swatch.setAttribute("x2", "26");
+    swatch.setAttribute("y1", String(y + entry.lineHeight * 0.5));
+    swatch.setAttribute("y2", String(y + entry.lineHeight * 0.5));
+    swatch.setAttribute("stroke", entry.stroke); swatch.setAttribute("stroke-width", entry.weight);
+    swatch.setAttribute("stroke-dasharray", entry.dash);
+    group.append(swatch);
+    for (const line of entry.lines) {
+      const text = svgElement("text");
+      text.setAttribute("x", "32"); text.setAttribute("y", String(y + entry.lineHeight * 0.8));
+      text.setAttribute("style", entry.style); text.textContent = line;
+      group.append(text); y += entry.lineHeight;
+    }
+    y += 4;
+  }
+  output.append(group);
 }
 
 function enclosingRect(rects: DOMRect[]): CaptureRect {
@@ -395,7 +480,10 @@ async function appendMap(target: SVGGElement, frame: HTMLElement, content: Captu
   attribution.setAttribute("x", String(overlayRect.right - content.left - 4));
   attribution.setAttribute("y", String(overlayRect.bottom - content.top - 4));
   attribution.setAttribute("text-anchor", "end");
-  attribution.setAttribute("style", "font-family:sans-serif;font-size:8px;fill:#101418");
+  const plotFace = getComputedStyle(frame).getPropertyValue("--plot-face");
+  const rootType = getComputedStyle(document.documentElement);
+  const small = parseFloat(rootType.fontSize) * parseFloat(rootType.getPropertyValue("--size-micro"));
+  attribution.setAttribute("style", `font-family:${plotFace};font-size:${small}px;fill:#101418`);
   attribution.textContent = "© OpenStreetMap contributors";
   target.append(attribution);
 }
@@ -424,7 +512,9 @@ function appendComparisonLabels(target: SVGGElement, figure: HTMLElement, conten
     const label = svgElement("text");
     label.setAttribute("x", String(headerRect.left - content.left + 8));
     label.setAttribute("y", String(headerRect.top - content.top + headerRect.height * 0.68));
-    label.setAttribute("style", "font-family:monospace;font-size:11px;font-weight:700;fill:#101418");
+    const type = getComputedStyle(header);
+    const lettering = `font-family:${type.fontFamily};font-size:${type.fontSize};font-feature-settings:${type.fontFeatureSettings};letter-spacing:${type.letterSpacing};word-spacing:${type.wordSpacing}`;
+    label.setAttribute("style", `${lettering};font-weight:${type.fontWeight};fill:${type.color}`);
     label.textContent = header.textContent?.trim() ?? "";
     target.append(label);
     const unavailable = pane.querySelector<HTMLElement>(".comparison-unavailable");
@@ -434,7 +524,7 @@ function appendComparisonLabels(target: SVGGElement, figure: HTMLElement, conten
       note.setAttribute("x", String(unavailableRect.left - content.left + unavailableRect.width / 2));
       note.setAttribute("y", String(unavailableRect.top - content.top + unavailableRect.height / 2));
       note.setAttribute("text-anchor", "middle");
-      note.setAttribute("style", "font-family:monospace;font-size:11px;fill:#4a5058");
+      note.setAttribute("style", `${lettering};font-weight:400;fill:${getComputedStyle(unavailable).color}`);
       note.textContent = unavailable.textContent?.trim() ?? "Unavailable";
       target.append(note);
     }

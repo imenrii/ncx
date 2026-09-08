@@ -36,6 +36,17 @@ variables:
     Mesh2D_face_nodes:cf_role = "face_node_connectivity" ;
     Mesh2D_face_nodes:start_index = 1 ;
     Mesh2D_face_nodes:_FillValue = -1 ;
+  // Auxiliary coordinates need not be listed by the topology variable.
+  double Mesh2D_face_x(face) ;
+    Mesh2D_face_x:standard_name = "projection_x_coordinate" ;
+    Mesh2D_face_x:units = "m" ;
+    Mesh2D_face_x:mesh = "Mesh2D" ;
+    Mesh2D_face_x:location = "face" ;
+  double Mesh2D_face_y(face) ;
+    Mesh2D_face_y:standard_name = "projection_y_coordinate" ;
+    Mesh2D_face_y:units = "m" ;
+    Mesh2D_face_y:mesh = "Mesh2D" ;
+    Mesh2D_face_y:location = "face" ;
   float Mesh2D_node_depth(node) ;
     Mesh2D_node_depth:mesh = "Mesh2D" ;
     Mesh2D_node_depth:location = "node" ;
@@ -57,6 +68,8 @@ data:
     1, 2, 5, _,
     2, 3, 4, 5,
     1, 5, 6, _ ;
+  Mesh2D_face_x = 37246.6667, 38080, 36913.3333 ;
+  Mesh2D_face_y = -74258.6667, -74092, -73925.3333 ;
   Mesh2D_node_depth = 5, 6, 7, 8, 7, 6 ;
   Mesh2D_face_mask = 1, 1, 1 ;
 }

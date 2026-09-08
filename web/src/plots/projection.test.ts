@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { Metadata, Variable } from "./model.ts";
+import type { Metadata, Variable } from "../data/model.ts";
 import { formatPosition, geographicPosition } from "./projection.ts";
 
 const projected: Variable = {

@@ -6,16 +6,19 @@ import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 
 const ncx = dirname(dirname(fileURLToPath(import.meta.url)));
-const binary = join(ncx, "target/debug/ncx");
+const binary = process.env.NCX_BINARY ?? join(ncx, "target/debug/ncx");
 const browserMode = process.argv[2] ?? "rectilinear";
 const benchmark = process.env.NCX_BENCHMARK === "1";
-if (!["rectilinear", "curvilinear", "ugrid", "ugrid_projected", "comparison", "collection", "station", "hub"].includes(browserMode)) {
+const chrome = process.env.NCX_CHROME ?? "";
+const chromeQuery = chrome ? `&chrome=${encodeURIComponent(chrome)}` : "";
+if (!["rectilinear", "curvilinear", "ugrid", "ugrid_projected", "ugrid_helpers", "comparison", "collection", "station", "hub"].includes(browserMode)) {
   throw new Error(`unknown browser fixture ${JSON.stringify(browserMode)}`);
 }
-const fixture = join(ncx, `tests/data/${["comparison", "collection", "hub"].includes(browserMode) ? "rectilinear" : browserMode}.nc`);
+const fixture = process.env.NCX_FIXTURE ?? join(ncx, `tests/data/${["comparison", "collection", "hub"].includes(browserMode) ? "rectilinear" : browserMode}.nc`);
 
 const injected = `<script>
 const collectPerformance = ${JSON.stringify(benchmark)};
+const chromeHidden = ${JSON.stringify(chrome === "none")};
 window.__ncxErrors = [];
 window.__ncxStep = "startup";
 window.__ncxFetches = [];
@@ -129,6 +132,39 @@ const hasCorrectAspect = (canvas) => {
   return Math.abs(dataAspect / (bounds.width / bounds.height) - 1) < 0.04;
 };
 const failures = [];
+const checkSupportingToggle = async (root, supportingName, dataName) => {
+  const toggle = document.querySelector('.variable-filter input[type="checkbox"]');
+  const row = (name) => [...root.querySelectorAll('.variable-row')]
+    .find(button => button.querySelector('span')?.textContent === name);
+  toggle.click();
+  (await waitFor(() => row(supportingName), 'supporting variable did not appear')).click();
+  await waitFor(() => row(supportingName)?.getAttribute('aria-selected') === 'true',
+    'supporting variable was not selected');
+  toggle.click();
+  await waitFor(() => !row(supportingName), 'selected geometry stayed visible after hiding supporting variables');
+  row(dataName).click();
+  await waitFor(() => row(dataName)?.getAttribute('aria-selected') === 'true' &&
+    document.querySelector('.mesh-canvas[data-rendered="true"]') && !document.querySelector('.plot-loading'),
+    'data field did not return after inspecting geometry');
+};
+const checkCancelledDrag = async (pointer) => {
+  const extent = axisExtent();
+  const probe = document.querySelector('.probe-mark')?.getAttribute('transform');
+  pointer('pointerdown', 0.2, 0.2);
+  pointer('pointermove', 0.8, 0.8);
+  await waitFor(() => document.querySelector('.zoom-box'), 'drag box did not appear');
+  pointer('pointercancel', 0.8, 0.8);
+  await waitFor(() => !document.querySelector('.zoom-box'), 'cancelled drag box remained');
+  pointer('pointerup', 0.8, 0.8);
+  pointer('pointerdown', 0.3, 0.3, { button: 2, buttons: 2 });
+  pointer('pointermove', 0.7, 0.7, { button: 2, buttons: 2 });
+  pointer('pointerup', 0.7, 0.7, { button: 2 });
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  if (axisExtent() !== extent || document.querySelector('.zoom-box') ||
+      document.querySelector('.probe-mark')?.getAttribute('transform') !== probe) {
+    failures.push('cancelled or secondary-button drag changed the view or probe');
+  }
+};
 try {
   window.__ncxStep = "initial field";
   if (hubMode) {
@@ -155,11 +191,36 @@ try {
     }
   }
   const topbar = shell.querySelector(".topbar");
-  const topbarBounds = topbar.getBoundingClientRect();
-  if (Math.abs(topbarBounds.height - 32) > 0.1 || Math.abs(topbarBounds.width - document.documentElement.clientWidth) > 0.1) {
-    failures.push("topbar is not full-width by 32 px");
+  if (chromeHidden) {
+    if (topbar || shell.querySelector(".statusbar")) failures.push("hidden chrome remains mounted");
+    const bounds = shell.getBoundingClientRect();
+    const main = shell.querySelector(".main").getBoundingClientRect();
+    if (Math.abs(main.top - bounds.top) > 1 || Math.abs(main.bottom - bounds.bottom) > 1) {
+      failures.push("hidden chrome reserves vertical space");
+    }
+    const toggle = shell.querySelector(".embedded-navigation .sidebar-toggle");
+    if (!toggle) throw new Error("embedded browser toggle missing");
+    toggle.focus();
+    if (document.activeElement !== toggle) failures.push("embedded toggle cannot take keyboard focus");
+    toggle.click();
+    await waitFor(() => shell.dataset.sidebar === "closed", "embedded sidebar did not close");
+    toggle.click();
+    await waitFor(() => shell.dataset.sidebar === "open", "embedded sidebar did not reopen");
+    const box = toggle.getBoundingClientRect();
+    const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+    if (!toggle.contains(hit)) failures.push("sidebar overlay covers embedded toggle");
+    if (innerWidth <= 760) {
+      toggle.click();
+      await waitFor(() => shell.dataset.sidebar === "closed", "narrow sidebar did not close");
+    }
+  } else {
+    const topbarBounds = topbar.getBoundingClientRect();
+    if (Math.abs(topbarBounds.height - 32) > 0.1 || Math.abs(topbarBounds.width - document.documentElement.clientWidth) > 0.1) {
+      failures.push("topbar is not full-width by 32 px");
+    }
+    if (!shell.querySelector(".statusbar")) failures.push("standalone statusbar missing");
   }
-  const menuMark = getComputedStyle(topbar.querySelector(".sidebar-toggle"), "::before");
+  const menuMark = getComputedStyle(shell.querySelector(".sidebar-toggle"), "::before");
   if (menuMark.backgroundImage !== "none" || menuMark.height !== "1.5px" || menuMark.boxShadow === "none") {
     failures.push("sidebar toggle is not three equal 1.5 px solid strokes");
   }
@@ -300,6 +361,33 @@ try {
       () => document.querySelector(".mesh-canvas[data-rendered='true']"),
       "collection UGRID variable did not render",
     );
+    await checkSupportingToggle(ugrid, 'mesh', 'node_temperature');
+    const projected = updatedSummaries[7].parentElement;
+    updatedSummaries[7].click();
+    await waitFor(() => [...projected.querySelectorAll('.variable-row span')]
+      .some(node => node.textContent === 'water_level'), 'projected collection metadata did not load');
+    const projectedNames = [...projected.querySelectorAll('.variable-row span')].map(node => node.textContent);
+    for (const name of ['Mesh2D_face_x', 'Mesh2D_face_y']) {
+      if (projectedNames.includes(name)) failures.push('collection exposed projected coordinate ' + name);
+    }
+    for (const name of ['Mesh2D_node_depth', 'Mesh2D_face_mask']) {
+      if (!projectedNames.includes(name)) failures.push('collection hid mesh data ' + name);
+    }
+  } else if (browserMode === "ugrid_helpers") {
+    await waitFor(() => document.querySelector('.mesh-canvas[data-rendered="true"]') &&
+      !document.querySelector('.plot-loading'), 'mesh helper fixture did not render', 15000);
+    const names = () => [...document.querySelectorAll('.variable-row span')].map(node => node.textContent).sort();
+    const expected = ['bathymetry', 'upwind_land_roughness_reduction', 'bed_roughness_length',
+      'diag_etaMin', 'diag_etaMax', 'diag_pcgIters', 'zeta', 'water_depth',
+      'water_velocity_normal', 'transport_normal', 'water_velocity_x', 'water_velocity_y'].sort();
+    if (JSON.stringify(names()) !== JSON.stringify(expected)) {
+      failures.push('geometry helpers leaked into the data list: ' + names().join(', '));
+    }
+    await checkSupportingToggle(document.querySelector('.sidebar'), 'Mesh2D_face_area', 'zeta');
+    if (JSON.stringify(names()) !== JSON.stringify(expected)) {
+      failures.push('geometry inspection changed the filtered data list: ' + names().join(', '));
+    }
+    window.__ncxVisibleVariables = names();
   } else if (browserMode === "comparison") {
     const dataset = await waitFor(
       () => document.querySelector(".dataset-switcher select"),
@@ -414,6 +502,9 @@ try {
       failures.push("numeric curve exposed a minute offset: " + numericLabels.join(" | "));
     }
   } else if (browserMode !== "rectilinear") {
+    if (browserMode === "ugrid_projected") {
+      await checkSupportingToggle(document.querySelector('.sidebar'), 'Mesh2D', 'water_level');
+    }
     const canvas = await waitFor(() => {
       const node = document.querySelector(".mesh-canvas[data-rendered='true']");
       return node && !document.querySelector(".plot-loading") ? node : null;
@@ -442,10 +533,15 @@ try {
     if (browserMode.startsWith("ugrid")) {
       const visibleVariables = [...document.querySelectorAll(".variable-row span")].map((row) => row.textContent);
       const supporting = browserMode === "ugrid_projected"
-        ? ["Mesh2D", "Mesh2D_node_x", "Mesh2D_node_y", "Mesh2D_node_lon", "Mesh2D_node_lat", "Mesh2D_face_nodes"]
+        ? ["Mesh2D", "Mesh2D_node_x", "Mesh2D_node_y", "Mesh2D_node_lon", "Mesh2D_node_lat", "Mesh2D_face_nodes", "Mesh2D_face_x", "Mesh2D_face_y"]
         : ["mesh", "node_x", "node_y", "face_nodes", "edge_nodes", "edge_faces"];
       if (supporting.some((name) => visibleVariables.includes(name))) {
         failures.push("UGRID geometry variables were not filtered by default: " + visibleVariables.join(", "));
+      }
+      if (browserMode === "ugrid_projected") {
+        for (const name of ["Mesh2D_node_depth", "Mesh2D_face_mask"]) {
+          if (!visibleVariables.includes(name)) failures.push("mesh data field was hidden: " + name);
+        }
       }
     }
 
@@ -459,6 +555,7 @@ try {
       button: options.button ?? 0,
       buttons: options.buttons ?? 0,
     }));
+    await checkCancelledDrag(pointer);
     pointer("pointermove", 0.5, 0.5);
     const meshHover = await waitFor(() => document.querySelector(".plot-tooltip"), "mesh hover readout did not appear");
     if (!/°[NS].*°[EW]/.test(meshHover.textContent)) failures.push("mesh hover readout did not use latitude then longitude");
@@ -491,7 +588,7 @@ try {
     pointer("pointerdown", 0.5, 0.5);
     pointer("pointerup", 0.5, 0.5);
     await waitFor(() => document.querySelector(".probe-mark"), "mesh probe did not appear");
-    if (!/°[NS].*°[EW]/.test(document.querySelector(".statusbar span:last-child")?.textContent ?? "")) failures.push("mesh probe status did not use latitude then longitude");
+    if (!chromeHidden && !/°[NS].*°[EW]/.test(document.querySelector(".statusbar span:last-child")?.textContent ?? "")) failures.push("mesh probe status did not use latitude then longitude");
     if (!/°[NS].*°[EW]/.test(document.querySelector(".figure-head span")?.textContent ?? "")) failures.push("mesh probe subtitle did not use latitude then longitude");
     [...document.querySelectorAll(".view-tabs button")].find((button) => button.textContent === "Curve").click();
     await waitFor(() => document.querySelector(".curve-line")?.getAttribute("d"), "mesh probe curve did not render");
@@ -577,8 +674,8 @@ try {
     const node = document.querySelector(".field-canvas[data-rendered='true']");
     return node && !document.querySelector(".plot-loading") ? node : null;
   }, "field slice did not render");
-  if (!document.querySelector(".path")?.textContent.includes("rectilinear.nc")) failures.push("dataset identity is missing");
-  if (!document.querySelector(".statusbar")?.textContent.includes("dim(")) failures.push("status shape does not identify display dimensions");
+  if (!chromeHidden && !document.querySelector(".path")?.textContent.includes("rectilinear.nc")) failures.push("dataset identity is missing");
+  if (!chromeHidden && !document.querySelector(".statusbar")?.textContent.includes("dim(")) failures.push("status shape does not identify display dimensions");
   await waitFor(() => document.querySelector(".figure-head h1")?.textContent === "2024-07-25 00:00 HKT", "field did not open at the first valid CF time");
   if (!document.querySelector(".figure-head span")?.textContent.includes("Potential temperature")) failures.push("field subtitle lost the variable label");
   const variableRows = [...document.querySelectorAll(".variable-row span")];
@@ -588,13 +685,15 @@ try {
   if (!searchType.fontFamily.includes("Commit Mono")) failures.push("variable filter did not use Commit Mono");
   if (searchType.fontSize !== "12px") failures.push("variable filter is not on the 12 px micro step");
   const variableType = getComputedStyle(variableRows[0]);
-  if (variableType.fontSize !== "12.5px") failures.push("variable names are not 12.5 px (got " + variableType.fontSize + ")");
+  if (variableType.fontSize !== "13px") failures.push("variable names are not on the 13 px tick step (got " + variableType.fontSize + ")");
   if (variableType.wordSpacing !== "0px" || !variableType.fontFeatureSettings.includes("ss05")) {
     failures.push("Commit Mono roles lost fixed spaces or smart kerning");
   }
-  const pathSeparatorSpacing = getComputedStyle(document.querySelector(".path i")).letterSpacing;
-  if (pathSeparatorSpacing !== "normal" && pathSeparatorSpacing !== "0px") failures.push("dataset path separator gained tracking");
-  if (getComputedStyle(document.documentElement).fontSize !== "16px" || getComputedStyle(document.querySelector(".statusbar")).fontSize !== "12px") {
+  if (!chromeHidden) {
+    const pathSeparatorSpacing = getComputedStyle(document.querySelector(".path i")).letterSpacing;
+    if (pathSeparatorSpacing !== "normal" && pathSeparatorSpacing !== "0px") failures.push("dataset path separator gained tracking");
+  }
+  if (getComputedStyle(document.documentElement).fontSize !== "16px" || (!chromeHidden && getComputedStyle(document.querySelector(".statusbar")).fontSize !== "12px")) {
     failures.push("type tokens do not resolve from the browser root size");
   }
   if (document.querySelector(".dataset-head")) failures.push("single-dataset variable count still occupies its own row");
@@ -724,6 +823,7 @@ try {
     button: options.button ?? 0,
     buttons: options.buttons ?? 0,
   }));
+  await checkCancelledDrag(fieldPointer);
   fieldPointer("pointermove", 0.63, 0.44);
   const fieldHover = await waitFor(() => document.querySelector(".plot-tooltip"), "field hover readout did not appear");
   if (!/°[NS].*°[EW]/.test(fieldHover.textContent)) failures.push("field hover readout did not use latitude then longitude");
@@ -768,7 +868,7 @@ try {
   fieldPointer("pointerdown", 0.63, 0.44);
   fieldPointer("pointerup", 0.63, 0.44);
   await waitFor(() => document.querySelector(".probe-mark"), "field probe did not appear");
-  if (!/°[NS].*°[EW]/.test(document.querySelector(".statusbar span:last-child")?.textContent ?? "")) failures.push("field probe status did not use latitude then longitude");
+  if (!chromeHidden && !/°[NS].*°[EW]/.test(document.querySelector(".statusbar span:last-child")?.textContent ?? "")) failures.push("field probe status did not use latitude then longitude");
 
   window.__ncxStep = "curve";
   [...document.querySelectorAll(".view-tabs button")].find((button) => button.textContent === "Curve").click();
@@ -899,7 +999,7 @@ const metrics = collectPerformance
         .map((entry) => ["ncx.server.read", Number(entry.duration.toFixed(3))]),
     ])
   : undefined;
-await fetch("/__result?payload=" + encodeURIComponent(JSON.stringify({ failures, fetches: window.__ncxFetches.length, metrics })));
+await fetch("/__result?payload=" + encodeURIComponent(JSON.stringify({ failures, fetches: window.__ncxFetches.length, metrics, visibleVariables: window.__ncxVisibleVariables })));
 </script>`;
 
 let collectionDirectory;
@@ -969,7 +1069,7 @@ const stationSeries = [{
   y: Array.from({ length: stationSamples }, (_, index) => Math.sin(index / 1440)),
 }];
 const stationHost = `<!doctype html><style>html,body,iframe{width:100%;height:100%;margin:0;border:0}</style>
-<iframe src="/ncx/?display_zone=HKT%2C480&comparison_host=1&generation=1"></iframe>
+<iframe src="/ncx/?display_zone=HKT%2C480&comparison_host=1&generation=1${chromeQuery}"></iframe>
 <script>addEventListener("message",(event)=>{const request=event.data;if(request?.type!=="ncx:comparison-request"||request.quantity!=="sea_surface_height_above_mean_sea_level"||request.units!=="m")return;
 event.source.postMessage({type:"ncx:comparison-ready",request_id:request.request_id,generation:request.generation,series:${JSON.stringify(stationSeries)}},location.origin)});</script>`;
 const proxy = createServer(async (request, response) => {
@@ -1033,11 +1133,13 @@ const browser = spawn(
     "-no-remote",
     "-profile",
     profile,
+    ...(process.env.NCX_VIEWPORT_WIDTH ? ["--width", process.env.NCX_VIEWPORT_WIDTH,
+      "--height", process.env.NCX_VIEWPORT_HEIGHT || "900"] : []),
     browserMode === "station"
       ? `http://127.0.0.1:${proxyPort}/host`
       : browserMode === "hub"
-        ? `http://127.0.0.1:${proxyPort}/ncx/?display_zone=HKT%2C480&comparison_host=1&generation=1`
-        : `http://127.0.0.1:${proxyPort}/?display_zone=HKT%2C480&comparison_host=1&generation=1`,
+        ? `http://127.0.0.1:${proxyPort}/ncx/?display_zone=HKT%2C480&comparison_host=1&generation=1${chromeQuery}`
+        : `http://127.0.0.1:${proxyPort}/?display_zone=HKT%2C480&comparison_host=1&generation=1${chromeQuery}`,
   ],
   { stdio: ["ignore", "ignore", "pipe"] },
 );

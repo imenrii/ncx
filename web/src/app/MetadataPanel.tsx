@@ -1,4 +1,4 @@
-import type { Attribute, Metadata, Variable } from "./model";
+import type { Attribute, Metadata, Variable } from "../data/model";
 
 export function MetadataPanel({ metadata, variable }: { metadata: Metadata; variable: Variable }) {
   return (

@@ -7,7 +7,8 @@
  * label.
  */
 import { colorForValue, colorPosition, type ColorRange } from "./color";
-import type { ColorScale } from "./model";
+import type { ColorScale } from "../data/model";
+import type { ViewRectangle } from "./view";
 import type { ColormapChoice } from "./color";
 import { axisTicks, tickCountForLength, tickLadder } from "./ticks";
 import {
@@ -25,12 +26,6 @@ export interface PlotBounds {
   top: number;
   width: number;
   height: number;
-}
-
-/** Room the colourbar column needs: gap, bar, ticks, labels, rotated caption.
- *  Derived from the live type size -- see `plotgeom.colorbarGeometry`. */
-export function colorbarWidth(type: PlotType): number {
-  return colorbarGeometry(type).total;
 }
 
 const RAMP_STOPS = 24;
@@ -52,7 +47,6 @@ export function PlotAxes({
   yDomain,
   xLabel,
   yLabel,
-  boxed = false,
   grid = false,
   type = DEFAULT_TYPE,
 }: {
@@ -234,6 +228,28 @@ export function Colorbar({
       </text>
     </g>
   );
+}
+
+export function FieldMarks({ plot, probe, dragBox }: {
+  plot: PlotBounds;
+  probe?: { x: number; y: number };
+  dragBox?: ViewRectangle;
+}) {
+  return <>
+    {probe && (
+      <g className="probe-mark" transform={`translate(${probe.x} ${probe.y})`}>
+        <line x1={-9} x2={9} />
+        <line y1={-9} y2={9} />
+        <circle r={3.5} />
+      </g>
+    )}
+    {dragBox && (
+      <rect className="zoom-box"
+        x={plot.left + dragBox.left} y={plot.top + dragBox.top}
+        width={dragBox.width} height={dragBox.height}
+      />
+    )}
+  </>;
 }
 
 export function ViewControls({

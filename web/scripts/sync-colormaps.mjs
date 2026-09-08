@@ -1,5 +1,5 @@
 /**
- * Regenerate `src/scm.ts` from the project style's embedded colour map data.
+ * Regenerate `src/generated/scm.ts` from the project style's embedded colour map data.
  *
  *     node scripts/sync-colormaps.mjs
  *
@@ -19,15 +19,15 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SOURCE = resolve(here, "../../../Style/plotstyle/_scm.py");
-const TARGET = resolve(here, "../src/scm.ts");
+const TARGET = resolve(here, "../src/generated/scm.ts");
 const LEGACY_SOURCE = resolve(here, "../../../lib/ushow/src/cmocean_colormaps.h");
-const LEGACY_TARGET = resolve(here, "../src/ncview_legacy.ts");
+const LEGACY_TARGET = resolve(here, "../src/generated/ncview_legacy.ts");
 
 /**
  * Maps carried into the browser. A deliberately short list: every entry is one
  * the viewer can *choose on its own* from CF metadata, and an entry nothing
  * selects is a colour map someone picks by eye, which is the habit the whole
- * scheme exists to break. See `src/color.ts` for what selects what.
+ * scheme exists to break. See `src/plots/color.ts` for what selects what.
  */
 const WANTED = [
   "batlow", // sequential default
