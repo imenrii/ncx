@@ -8,7 +8,7 @@ itself has to be inside the executable.
 |---|---|---|---|---|
 | `AVHershey/` | AVHershey Simplex | plot glyphs, matching the project's printed figures | WTFPL v2 | yes |
 | `AVHershey/NationalPark.woff2` | National Park | plot fallback and chrome labels | SIL OFL 1.1 | yes |
-| `gorton-perfected-1.02/` | Gorton Perfected | interface text | commercial, per-seat | **no** |
+| `gorton-perfected-1.02/` | [Gorton Perfected](https://shifthappens.site/store/#fonts) | interface text | commercial, per-seat | **no** |
 | `gen/` | Gorton Perfected, subset | what actually ships | same as above | **no** |
 | `CommitMono/commit-*.woff2` | Commit Mono, subset | every variable name, value, coordinate and unit | SIL OFL 1.1 | yes |
 | `CommitMono/src/` | Commit Mono, hinted TrueType | source for the cut above | SIL OFL 1.1 | **no** |
@@ -27,7 +27,7 @@ superscripts at all.
 
 ## Why some of these are gitignored
 
-Gorton Perfected is licensed for use, not redistribution. The terms are
+[Gorton Perfected](https://shifthappens.site/store/#fonts) (Marcin Wichary) is licensed for use, not redistribution (see background: [The Hardest Working Font in Manhattan](https://aresluna.org/the-hardest-working-font-in-manhattan/)). The terms are
 explicit that a subset does not escape them:
 
 > **MODIFICATIONS:** You may also subset and modify the font software itself

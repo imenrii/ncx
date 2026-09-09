@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 
 const ncx = dirname(dirname(fileURLToPath(import.meta.url)));
 const binary = process.env.NCX_BINARY ?? join(ncx, "target/debug/ncx");
+const chromium = process.env.NCX_CHROMIUM;
 const browserMode = process.argv[2] ?? "rectilinear";
 const benchmark = process.env.NCX_BENCHMARK === "1";
 const chrome = process.env.NCX_CHROME ?? "";
@@ -63,6 +64,21 @@ window.fetch = async (...arguments) => {
     if (scalar) window.__ncxScalarReads -= 1;
   }
 };
+const originalObjectUrl = URL.createObjectURL;
+URL.createObjectURL = function(blob) {
+  if (blob.type.startsWith("image/svg+xml")) {
+    window.__ncxExportTitleBand = blob.text().then((markup) => {
+      const svg = new DOMParser().parseFromString(markup, "image/svg+xml").documentElement;
+      window.__ncxExportProbeCount = svg.querySelectorAll(".probe-mark").length;
+      const title = svg.querySelector(":scope > text");
+      return title && {
+        width: Number(svg.getAttribute("width")),
+        height: Number(title.getAttribute("y")) + parseFloat(title.style.fontSize) * 0.3,
+      };
+    });
+  }
+  return originalObjectUrl.call(this, blob);
+};
 const originalAnchorClick = HTMLAnchorElement.prototype.click;
 HTMLAnchorElement.prototype.click = function() {
   if (this.download?.endsWith(".png") && this.href.startsWith("blob:")) {
@@ -82,8 +98,19 @@ HTMLAnchorElement.prototype.click = function() {
         }
         const width = image.width;
         const height = image.height;
+        const titleBand = await window.__ncxExportTitleBand;
+        let titleInk = 0;
+        if (titleBand) {
+          sample.width = width;
+          sample.height = Math.min(height, Math.ceil(titleBand.height * width / titleBand.width));
+          context.drawImage(image, 0, 0);
+          const pixels = context.getImageData(0, 0, sample.width, sample.height).data;
+          for (let index = 0; index < pixels.length; index += 4) {
+            if (pixels[index] < 160 && pixels[index + 1] < 160 && pixels[index + 2] < 160) titleInk++;
+          }
+        }
         image.close();
-        return { width, height, bytes: blob.size, checksum };
+        return { width, height, bytes: blob.size, checksum, titleInk, probeMarks: window.__ncxExportProbeCount };
       });
     return;
   }
@@ -112,6 +139,19 @@ const saveOpenDialog = async (dialog) => {
     15000,
   );
   return result;
+};
+const checkProbeExport = async () => {
+  const probe = document.querySelector(".probe-mark");
+  const position = probe?.getAttribute("transform");
+  if (!probe) throw new Error("export check needs a visible probe");
+  document.querySelector(".screenshot-button").click();
+  const dialog = await waitFor(() => document.querySelector(".save-dialog[open]"), "probe export dialog did not open");
+  const exported = await saveOpenDialog(dialog);
+  if (exported.probeMarks !== 0) throw new Error("PNG composition contains a probe marker");
+  await waitFor(() => !document.querySelector(".save-dialog[open]"), "probe export dialog did not close");
+  if (!probe.isConnected || document.querySelector(".probe-mark")?.getAttribute("transform") !== position) {
+    throw new Error("export changed the viewer probe");
+  }
 };
 // The plotted extent, read from the axes. Comparing tick text instead only
 // detected a view change when it happened to move a label, which a small pan
@@ -614,6 +654,7 @@ try {
     pointer("pointerdown", 0.5, 0.5);
     pointer("pointerup", 0.5, 0.5);
     await waitFor(() => document.querySelector(".probe-mark"), "mesh probe did not appear");
+    await checkProbeExport();
     if (!chromeHidden && !/°[NS].*°[EW]/.test(document.querySelector(".statusbar span:last-child")?.textContent ?? "")) failures.push("mesh probe status did not use latitude then longitude");
     if (!/°[NS].*°[EW]/.test(document.querySelector(".figure-head span")?.textContent ?? "")) failures.push("mesh probe subtitle did not use latitude then longitude");
     [...document.querySelectorAll(".view-tabs button")].find((button) => button.textContent === "Curve").click();
@@ -785,6 +826,9 @@ try {
         failures.push("save dialog lettering fields were not prefilled");
       }
       const plainExport = await saveOpenDialog(dialog);
+      // The title band has no field or tick marks. Image dimensions and a
+      // checksum alone cannot detect an export that omits every text label.
+      if (plainExport.titleInk < 20) failures.push("field export omitted its title text");
       if (plainExport.width !== 2882 || plainExport.height <= 1000 || plainExport.bytes < 1000) {
         failures.push("export PNG has wrong target size or content: " + JSON.stringify(plainExport));
       }
@@ -894,6 +938,7 @@ try {
   fieldPointer("pointerdown", 0.63, 0.44);
   fieldPointer("pointerup", 0.63, 0.44);
   await waitFor(() => document.querySelector(".probe-mark"), "field probe did not appear");
+  await checkProbeExport();
   if (!chromeHidden && !/°[NS].*°[EW]/.test(document.querySelector(".statusbar span:last-child")?.textContent ?? "")) failures.push("field probe status did not use latitude then longitude");
 
   window.__ncxStep = "curve";
@@ -1153,14 +1198,21 @@ user_pref("toolkit.telemetry.reportingpolicy.firstRun", false);
 user_pref("toolkit.telemetry.unified", false);
 `);
 const browser = spawn(
-  "firefox",
+  chromium ?? "firefox",
   [
-    "--headless",
-    "-no-remote",
-    "-profile",
-    profile,
-    ...(process.env.NCX_VIEWPORT_WIDTH ? ["--width", process.env.NCX_VIEWPORT_WIDTH,
-      "--height", process.env.NCX_VIEWPORT_HEIGHT || "900"] : []),
+    ...(chromium ? [
+      "--headless",
+      `--user-data-dir=${profile}`,
+      `--window-size=${process.env.NCX_VIEWPORT_WIDTH || "1280"},${process.env.NCX_VIEWPORT_HEIGHT || "900"}`,
+      ...(process.env.NCX_BROWSER_NO_SANDBOX === "1" ? ["--no-sandbox"] : []),
+    ] : [
+      "--headless",
+      "-no-remote",
+      "-profile",
+      profile,
+      ...(process.env.NCX_VIEWPORT_WIDTH ? ["--width", process.env.NCX_VIEWPORT_WIDTH,
+        "--height", process.env.NCX_VIEWPORT_HEIGHT || "900"] : []),
+    ]),
     browserMode === "station"
       ? `http://127.0.0.1:${proxyPort}/host`
       : browserMode === "hub"
@@ -1176,10 +1228,15 @@ const payload = await Promise.race([
   new Promise((resolve) => setTimeout(() => resolve({ failures: [`browser check timed out after ${proxyHits} HTTP requests: ${browserError.trim()}`], fetches: 0 }), 20000)),
 ]);
 
-browser.kill("SIGTERM");
-child.kill("SIGINT");
+async function stop(process, signal) {
+  if (process.exitCode !== null || process.signalCode !== null) return;
+  const exited = new Promise((resolve) => process.once("exit", resolve));
+  process.kill(signal);
+  await exited;
+}
+await Promise.all([stop(browser, "SIGTERM"), stop(child, "SIGINT")]);
 proxy.close();
-await rm(profile, { recursive: true, force: true });
+await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 if (collectionDirectory) await rm(collectionDirectory, { recursive: true, force: true });
 console.log(JSON.stringify(payload, null, 2));
 process.exitCode = payload.failures.length ? 1 : 0;

@@ -6,11 +6,11 @@ use std::process::Stdio;
 use std::time::Duration;
 use std::time::Instant as StdInstant;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::io::AsyncReadExt;
+use tokio::net::TcpListener;
 use tokio::process::{Child, Command as TokioCommand};
 use tokio::signal;
-use tokio::time::{Instant, sleep, timeout};
+use tokio::time::{Instant, sleep};
 
 use crate::NcxResult;
 use crate::dataset::Dataset;
@@ -631,7 +631,7 @@ async fn wait_until_ready(child: &mut Child, port: u16) -> NcxResult<()> {
         {
             return Err(format!("ssh exited before ncx was ready ({status})"));
         }
-        if server_is_ready(port).await {
+        if server::viewer_is_ready(port).await {
             return Ok(());
         }
         if Instant::now() >= deadline {
@@ -639,28 +639,6 @@ async fn wait_until_ready(child: &mut Child, port: u16) -> NcxResult<()> {
         }
         sleep(Duration::from_millis(100)).await;
     }
-}
-
-async fn server_is_ready(port: u16) -> bool {
-    let check = async {
-        let mut stream = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).await.ok()?;
-        stream
-            .write_all(
-                b"GET /api/datasets HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
-            )
-            .await
-            .ok()?;
-        let mut response = [0_u8; 64];
-        let length = stream.read(&mut response).await.ok()?;
-        response[..length]
-            .starts_with(b"HTTP/1.1 200")
-            .then_some(())
-    };
-    timeout(Duration::from_millis(500), check)
-        .await
-        .ok()
-        .flatten()
-        .is_some()
 }
 
 async fn own_ssh_session(mut child: Child) -> NcxResult<()> {

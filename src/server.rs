@@ -72,6 +72,32 @@ const FONT_PLOT_HEAVY: &[u8] = include_bytes!("../res/AVHershey/AVHersheySimplex
 // `long_name` with an accent or an en-dash still sets in the plot.
 const FONT_PLOT_FALLBACK: &[u8] = include_bytes!("../res/AVHershey/NationalPark.woff2");
 
+pub(crate) async fn viewer_is_ready(port: u16) -> bool {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let check = async {
+        let mut stream = tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port))
+            .await
+            .ok()?;
+        stream
+            .write_all(
+                b"GET /api/datasets HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
+            )
+            .await
+            .ok()?;
+        // TCP can split the status line, especially through an SSH forward.
+        // Keep the read bounded and require the space after the status code.
+        const SUCCESS: &[u8] = b"HTTP/1.1 200 ";
+        let mut response = [0_u8; SUCCESS.len()];
+        stream.read_exact(&mut response).await.ok()?;
+        (response == SUCCESS).then_some(())
+    };
+    tokio::time::timeout(Duration::from_millis(500), check)
+        .await
+        .ok()
+        .flatten()
+        .is_some()
+}
+
 #[derive(Clone, Copy, Serialize)]
 pub struct Limits {
     pub max_response_bytes: u64,
@@ -730,6 +756,67 @@ async fn font_plot_fallback() -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const READINESS_REQUEST: &[u8] =
+        b"GET /api/datasets HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+
+    #[tokio::test]
+    async fn viewer_readiness_handles_split_status_and_rejects_invalid_responses() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        for (chunks, expected) in [
+            (vec!["HTTP/1.1 ", "200 OK\r\n\r\n"], true),
+            (vec!["H", "TTP/1.1 200 OK\r\n\r\n"], true),
+            (vec!["HTTP/1.1 503 Service Unavailable\r\n\r\n"], false),
+            (vec!["HTTP/1.1 2000 Invalid\r\n\r\n"], false),
+            (vec!["HTTP/1.1 20"], false),
+            (vec![""], false),
+        ] {
+            let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+                .await
+                .unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let peer = tokio::spawn(async move {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut request = [0; READINESS_REQUEST.len()];
+                stream.read_exact(&mut request).await.unwrap();
+                assert_eq!(request, READINESS_REQUEST);
+                for chunk in chunks {
+                    if stream.write_all(chunk.as_bytes()).await.is_err() {
+                        break;
+                    }
+                    // A TCP status line can arrive in separate reads through an SSH forward.
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+            });
+            let ready = viewer_is_ready(port).await;
+            peer.await.unwrap();
+            assert_eq!(ready, expected);
+        }
+    }
+
+    #[tokio::test]
+    async fn viewer_readiness_bounds_a_stalled_status_line() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let peer = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = [0; READINESS_REQUEST.len()];
+            stream.read_exact(&mut request).await.unwrap();
+            assert_eq!(request, READINESS_REQUEST);
+            stream.write_all(b"HTTP/1.1 ").await.unwrap();
+            // Keep the response open until the probe closes its connection.
+            assert_eq!(stream.read(&mut request).await.unwrap(), 0);
+        });
+        assert!(
+            !tokio::time::timeout(Duration::from_secs(2), viewer_is_ready(port))
+                .await
+                .unwrap()
+        );
+        peer.await.unwrap();
+    }
 
     #[tokio::test]
     async fn hub_index_sets_the_base_path_and_no_referrer_policy() {

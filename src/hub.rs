@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
-use tokio::time::{Instant, sleep, sleep_until, timeout, timeout_at};
+use tokio::time::{Instant, sleep, sleep_until, timeout_at};
 
 use crate::NcxResult;
 use crate::dataset::Dataset;
@@ -1203,7 +1203,7 @@ async fn wait_for_server(child: &mut Child, port: u16, deadline: Instant) -> Res
             });
         }
         let retry_at = next_server_probe(Instant::now(), deadline)?;
-        if timeout_at(deadline, server_is_ready(port))
+        if timeout_at(deadline, server::viewer_is_ready(port))
             .await
             .unwrap_or(false)
         {
@@ -1211,31 +1211,6 @@ async fn wait_for_server(child: &mut Child, port: u16, deadline: Instant) -> Res
         }
         sleep_until(retry_at).await;
     }
-}
-
-async fn server_is_ready(port: u16) -> bool {
-    let check = async {
-        let mut stream = TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port))
-            .await
-            .ok()?;
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        stream
-            .write_all(
-                b"GET /api/datasets HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
-            )
-            .await
-            .ok()?;
-        let mut response = [0_u8; 64];
-        let length = stream.read(&mut response).await.ok()?;
-        response[..length]
-            .starts_with(b"HTTP/1.1 200")
-            .then_some(())
-    };
-    timeout(Duration::from_millis(500), check)
-        .await
-        .ok()
-        .flatten()
-        .is_some()
 }
 
 pub(crate) struct HubConfig {

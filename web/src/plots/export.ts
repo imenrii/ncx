@@ -277,6 +277,7 @@ export async function exportPlotPng(name: string, options?: ExportOptions): Prom
 
     const furniture = source.cloneNode(true) as SVGSVGElement;
     inlineComputedStyle(source, furniture);
+    for (const probe of furniture.querySelectorAll(".probe-mark")) probe.remove();
     retitleAxis(furniture, 0, settings.xTitle);
     retitleAxis(furniture, 1, settings.yTitle);
     if (!settings.grid) for (const line of furniture.querySelectorAll(".gridline")) line.remove();
@@ -299,7 +300,13 @@ export async function exportPlotPng(name: string, options?: ExportOptions): Prom
   const url = URL.createObjectURL(new Blob([markup], { type: "image/svg+xml;charset=utf-8" }));
   try {
     const image = new Image();
-    image.src = url;
+    // In Chromium, decode() can finish before an SVG's embedded fonts load.
+    // Wait for load first so the canvas does not capture invisible text.
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error("The browser could not load the export image"));
+      image.src = url;
+    });
     await image.decode();
     context.drawImage(image, 0, 0, raster.width, raster.height);
   } finally {

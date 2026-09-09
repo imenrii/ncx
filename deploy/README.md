@@ -1,78 +1,70 @@
-# Deployment
+# Hub Deployment
 
-One runtime-only container runs ncx hub.
-The binary and embedded UI come from the latest published musl release.
+A self-contained Docker Compose service running `ncx hub` as an isolated runtime container.
 
-## Configure
+The binary and embedded web interface are fetched automatically from the latest musl release asset on startup.
 
-For a new installation:
+---
+
+## 1. Quick Setup
+
+Create your environment configuration:
 
 ```bash
 cp .env.example .env
 chmod 600 .env
 ```
 
-Edit the local settings:
+### Configuration Options
 
-| Setting | Meaning |
-| --- | --- |
-| NCX_BIND_ADDRESS | Host IPv4 interface; use 0.0.0.0 for all interfaces |
-| NCX_PORT | Published port |
-| NCX_DNS_NDOTS | DNS search threshold; defaults to 1 for short hostnames |
-| NCX_DATA_ROOT | Absolute host directory containing NetCDF files |
+| Setting | Description | Default / Example |
+| :--- | :--- | :--- |
+| `NCX_BIND_ADDRESS` | Host IPv4 interface (`0.0.0.0` for all interfaces) | `127.0.0.1` |
+| `NCX_PORT` | Published host port | `8765` |
+| `NCX_DATA_ROOT` | Absolute path on host containing NetCDF files | `/path/to/data` |
+| `NCX_DNS_NDOTS` | DNS search threshold (set to `1` for single-label SSH hostnames) | `1` |
 
-.env is ignored by Git and excluded from image builds. Do not put SSH passwords
-in it. deploy/compose.sh passes it to Docker Compose; NCX_ENV_FILE can select a
-different settings file. Container UID 10001 must be able to read the data.
+> **Permissions & Secrets**:
+> - `.env` is ignored by Git and excluded from container builds. Never store SSH passwords in `.env`.
+> - NetCDF files at `NCX_DATA_ROOT` must be readable by container UID `10001` (mounted read-only at `/data`).
+> - Keep `NCX_DNS_NDOTS=1` so musl resolves short local network SSH hostnames.
 
-The container inherits DNS search suffixes. Keep NCX_DNS_NDOTS at 1 for
-single-label SSH hostnames. With 0, the musl resolver skips search suffixes,
-even when they appear in resolv.conf. Recreate the container after changing DNS
-settings; a restart does not apply them.
+---
 
-## Start
+## 2. Container Lifecycle
 
 ```bash
+# Build and start in background
 sh deploy/compose.sh build
 sh deploy/compose.sh up -d --remove-orphans --wait
-```
 
-Open http://HOST:PORT/ncx/ using the host address and configured port. Allow that
-port through the host firewall for the intended clients.
+# Access the Hub
+# Navigate to http://HOST:PORT/ncx/ in your browser
 
-## Update and stop
-
-```bash
+# Update binary to latest release
 sh deploy/compose.sh exec ncx update.sh
 sh deploy/compose.sh restart ncx
+
+# Stop service
 sh deploy/compose.sh down
 ```
 
-The updater verifies the checksum and executable before replacement. A failed
-update leaves the binary unchanged. The ncx-binary volume persists across
-container replacement. Restart immediately after an update so the hub and
-child viewers use the same version. Do not use down -v unless you intend to
-delete that volume.
+> **Update note**: The updater verifies executable integrity and checksums prior to replacement. The `ncx-binary` volume persists across container teardowns. Avoid `compose down -v` unless you explicitly want to purge the cached binary.
 
-## Access policy
+---
 
-Files are mounted read-only at /data. The hub allows 10 sessions and expires
-an idle session after 90 seconds. Successful addresses are saved automatically
-in the browser; passwords are not saved.
+## 3. Access Policy & Security Model
 
-Browser connections are not encrypted. SSH passwords entered in the page are
-sent to the hub in plain text over the network. SSH encrypts the onward
-connection, but the hub deliberately skips host-key verification. Use this
-configuration only on a network where these risks are accepted.
+- **Read-Only Data Mount**: Datasets in `NCX_DATA_ROOT` are mounted read-only at `/data`.
+- **Session Lifecycle**: The hub limits concurrency to 10 simultaneous sessions and reaps idle sessions after 90 seconds.
+- **Credential Handling**: Successful cluster addresses are remembered locally in the browser; passwords are never persisted.
+- **Network Boundaries**: In-page SSH passwords transit from browser to hub unencrypted unless placed behind an external TLS reverse proxy (e.g. Nginx/Caddy). The hub skips SSH host-key verification by design to facilitate dynamic cluster nodes. Only host this on trusted internal networks.
 
-Exit status 255 can also mean a wrong password, a network error, or an SSH
-policy failure. Check the logs before changing settings.
+---
 
-## Build and install locally
+## 4. Local Binary Testing & Smoke Checks
 
-After tests pass, use the existing release script. It embeds the WOFF2 subsets
-and checks every font in viewer and hub modes. Full font sources and separate
-font files are not release assets. See ../res/README.md for the licence scope.
+Install a locally packaged binary into the running container without rebuilding:
 
 ```bash
 sh deploy/package-release.sh
@@ -88,18 +80,14 @@ sh deploy/compose.sh exec -T ncx sh -eu -c '
 sh deploy/compose.sh restart ncx
 ```
 
-The stream creates the file as the service user. This avoids copied host
-ownership; UID 0 cannot bypass ownership checks after capabilities are dropped.
-Do not run update.sh at the same time as a local install.
-
-## Checks
+### Operational Checks
 
 ```bash
+# Check status and logs
 sh deploy/compose.sh ps -a
 sh deploy/compose.sh logs --tail=80 ncx
+
+# Execute comprehensive hosting smoke tests
 sh tests/hosting-smoke.sh
 ```
 
-The smoke test uses separate settings and a temporary Docker project. It checks
-configuration locally and exercises connectivity, relay, update, and shutdown when
-Docker Compose is available.

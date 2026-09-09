@@ -1,160 +1,171 @@
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+
 # ncx
 
-A lightweight, read-only NetCDF viewer with an embedded web interface.
-Open local files, inspect remote files over SSH, and compare datasets in the
-browser.
+> A fast, standalone NetCDF viewer for the terminal and browser.
 
-## Quick start
+Open local files, inspect remote simulations over SSH, and compare complex datasets across meshes—without running heavy notebook servers, bulky desktop GUIs, or server-side regridding pipelines.
+
+---
+
+## Quick Start
 
 ```bash
-# Open one file or browse a directory
+# Open a local file or browse a directory (opens default browser)
 ncx open run.nc
 ncx open output/
 
-# Open a remote file through SSH
+# Inspect a remote file directly across an SSH connection
 ncx open cluster:/path/to/run.nc
 
-# Serve without opening a browser
+# Serve headlessly for web access
 ncx serve --port 8765 run.nc
-
-# Compare named datasets
-ncx serve --dataset baseline=run_a.nc --dataset test=run_b.nc
 ```
 
-Directories include direct regular .nc files. Invalid entries stay in the list
-as unavailable. Do not change collection files during a session.
+---
 
-## Features
+## Highlights
 
-- Rectilinear, curvilinear, and UGRID field views.
-- Time series, profiles, coordinate inspection, and animation.
-- Side-by-side comparison of up to four fields and overlays of up to six curves.
-- CF-based variable matching, with no server-side regridding.
-- Scientific colour scales, point probes, zoom, pan, and fixed colour ranges.
-- PNG export with visible ranges, units, legends, and embedded plot fonts.
-- Optional OpenStreetMap basemap. Export requires successful map tile loading.
+- **Flexible Meshes & Grids**  
+  Native support for rectilinear, curvilinear, and unstructured (UGRID) topologies. Inspect CF-compliant variables without server-side interpolation or loss of native fidelity.
 
-The default response limit is 64 MiB. Use --max-response-bytes to change it.
-Process memory also includes decoded source data and library overhead.
+- **Inspection & Analysis**  
+  Point probes, vertical profiles, time series curves, animations, and coordinate metadata inspection.
+
+- **Dataset Comparison**  
+  Side-by-side field comparison for up to 4 fields and overlay plotting for up to 6 curves simultaneously.
+
+- **Self-Contained & Publication-Ready**  
+  Perceptually uniform scientific colormaps, zoom/pan with fixed color ranges, and direct PNG export with embedded vector glyphs, legible units, and clean legends.
+
+- **Zero-Dependency Deployment**  
+  Shipped as a single static binary with embedded web assets and fonts. No Node.js runtime, Python dependencies, or CDN connections required.
+
+---
 
 ## Installation
 
-Download the standalone x86_64-unknown-linux-musl executable from
-[GitHub releases](https://github.com/cchomelon/ncx/releases), verify the included
-SHA-256 checksum, and make the file executable. The web interface is embedded;
-Node.js is not needed at runtime.
+### Pre-built Binary (Recommended)
 
-### Build from source
-
-Requirements: stable Rust, the NetCDF C library, Node.js, and npm. For example,
-install libnetcdf-dev on Debian/Ubuntu or netcdf through Homebrew on macOS.
-The frontend build reads colour tables from the sibling Style and lib/ushow
-source trees. Do not duplicate those tables in this repository.
+Download the standalone `x86_64-unknown-linux-musl` executable from [GitHub Releases](https://github.com/cchomelon/ncx/releases), verify the SHA-256 checksum, and place it in your `PATH`:
 
 ```bash
+chmod +x ncx-x86_64-unknown-linux-musl
+mv ncx-x86_64-unknown-linux-musl ~/.local/bin/ncx
+```
+
+The musl binary statically links NetCDF and embeds the complete frontend interface and fonts.
+
+### Building from Source
+
+**Requirements**: Stable Rust toolchain, NetCDF C library (`libnetcdf-dev` on Debian/Ubuntu, `netcdf` on Homebrew), Node.js, and npm.
+
+```bash
+# 1. Build frontend assets
 cd web
 npm ci
 npm run build
 cd ..
+
+# 2. Compile Rust binary
 cargo build --release
 ```
 
-The executable is target/release/ncx. A normal source build needs the NetCDF
-runtime library. The published musl build links NetCDF statically.
+The resulting binary is located at `target/release/ncx`.
 
-For font licences and local font setup, see [res/README.md](res/README.md).
+> *Note on embedded fonts*: See [res/README.md](res/README.md) for font licensing notes and local subset configuration.
 
-### Container hosting
+---
 
-The supplied Compose service runs the released binary in one container.
-See [deploy/README.md](deploy/README.md) for local settings, data mounts, updates,
-and access policy. The container is not a development environment.
+## Usage & Viewer Options
 
-The hub saves successful addresses in the browser automatically. It never
-saves passwords. Local paths must be inside a configured data directory.
-Comparison is available in standalone viewers, not hub sessions.
+### URL Parameters
 
-### Publish a Linux release
+- **Clean Embeds**: Append `chrome=none` to the viewer URL to hide the top header and status bar while preserving essential navigation controls in the toolbar.
+- **Embedded Mode**: Use `embedded=1` for clean iframe integrations.
 
-After the tests pass, install cargo-zigbuild, Zig, and the
-x86_64-unknown-linux-musl Rust target on the build host, then run:
+### Exporting Figures
+
+PNG export renders the active viewport with crisp typography and units. Probe markers remain interactive in the UI and are excluded from exported figures. Ensure hosting policies allow blob image rendering for image composition.
+
+---
+
+## Container Deployment
+
+A lightweight Docker Compose setup is provided to host an `ncx hub` server for team access:
 
 ```bash
-sh deploy/package-release.sh
+cp deploy/.env.example deploy/.env
+sh deploy/compose.sh up -d --wait
 ```
 
-Upload both files from target/release-assets to a release for the source commit
-used by the build. The executable embeds the WOFF2 subsets, including Gorton
-Perfected. Packaging fails if a font is missing in viewer or hub mode. Do not
-upload full font sources or separate font files. The updater uses the latest
-published release, not a draft or prerelease. The checksum detects damaged
-downloads; it is not a signature.
+For network configuration, data directory mounts, session policies, and update routines, see [deploy/README.md](deploy/README.md).
 
-## Viewer options
+---
 
-Add chrome=none to the viewer URL to hide its topbar and status bar. The dataset
-selector and sidebar toggle remain in the toolbar. This setting does not
-change dataset access. The embedded=1 option remains separate.
+## Development & Verification
 
-PNG export preserves the visible range. Failed exports show an error in the
-Save dialog and can be retried. Hosting policies must permit local blob images
-for export composition.
+### Dev Server
 
-## Development
+Run the backend and frontend in separate terminals with hot-reload enabled:
 
 ```bash
 # Backend
 ncx serve --port 8765 path/to/dataset.nc
 
-# Frontend, in another terminal
-cd web
-npm run dev
+# Frontend (Vite dev server)
+cd web && npm run dev
 ```
 
-## Verification
+### Verification Suite
 
 ```bash
+# Linting & Rust tests
 cargo fmt --check
 cargo test
 cargo clippy --all-targets -- -D warnings
+
+# Frontend tests & build
 cd web && npm test && npm run build && cd ..
 cargo build
 ```
 
-Browser checks need Firefox and temporary loopback ports. Rebuild the frontend
-and Rust binary first, because the browser assets are embedded at compile time.
+### UI & Smoke Tests
+
+UI smoke tests run against headless Firefox (or Chromium via `NCX_CHROMIUM=/path/to/chrome`):
 
 ```bash
 node tests/ui-smoke.mjs rectilinear
 node tests/ui-smoke.mjs curvilinear
 node tests/ui-smoke.mjs ugrid
-node tests/ui-smoke.mjs ugrid_projected
-node tests/ui-smoke.mjs ugrid_helpers
 node tests/ui-smoke.mjs comparison
-node tests/ui-smoke.mjs collection
-node tests/ui-smoke.mjs station
 node tests/ui-smoke.mjs hub
 sh tests/hosting-smoke.sh
 ```
 
-NCX_FIXTURE selects a fixture path. NCX_BINARY selects an executable.
-NCX_VIEWPORT_WIDTH and NCX_VIEWPORT_HEIGHT set the browser size. For example:
+**Test configuration environment variables**:
+- `NCX_FIXTURE`: Custom NetCDF fixture path.
+- `NCX_BINARY`: Target binary path under test.
+- `NCX_VIEWPORT_WIDTH` / `NCX_VIEWPORT_HEIGHT`: Browser viewport dimensions (e.g. `360x640` for mobile hub testing).
+- `NCX_BENCHMARK=1`: Enables opt-in benchmark timing output.
+- `NCX_BROWSER_NO_SANDBOX=1`: Disables browser sandbox in constrained CI environments.
+
+---
+
+## Publishing Releases
+
+Packaging statically linked musl releases with embedded font subsets requires `cargo-zigbuild`, Zig, and the `x86_64-unknown-linux-musl` target:
 
 ```bash
-NCX_VIEWPORT_WIDTH=360 NCX_VIEWPORT_HEIGHT=640 node tests/ui-smoke.mjs hub
-NCX_CHROME=none node tests/ui-smoke.mjs station
-NCX_CHROME=none NCX_VIEWPORT_WIDTH=640 node tests/ui-smoke.mjs rectilinear
-node tests/ui-visual.mjs /tmp/ncx-visual
-NCX_BENCHMARK=1 node tests/ui-smoke.mjs rectilinear
+sh deploy/package-release.sh
 ```
 
-Visual checks save screenshots and PNG export samples. Use the same browser,
-fonts, and machine when comparing them. Benchmark output is opt-in and is not
-a CI performance gate.
+Upload the artifacts in `target/release-assets` to the matching GitHub release tag.
 
-Build after the tests pass:
+---
 
-```bash
-cd web && npm run build && cd ..
-cargo build --release
-```
+## Typography & Credits
+
+The UI chrome is set in [Gorton Perfected](https://shifthappens.site/store/#fonts) by Marcin Wichary. If you enjoy typography history, check out his wonderful essay on [the hardest working font in Manhattan](https://aresluna.org/the-hardest-working-font-in-manhattan/).
+
+
