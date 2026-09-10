@@ -1,3 +1,5 @@
+@import "./commit-mono.css";
+
 /* ---------------------------------------------------------------------------
    Five families, five roles.
 
@@ -45,10 +47,8 @@
   font-display: swap;
 }
 
-/* Commit Mono, SIL OFL 1.1, cut to the same 307 characters as Gorton
-   (web/scripts/subset-fonts.py). Both faces need the same coverage because
-   either can be handed the same `long_name`, and a units string that drops out
-   of Commit Mono mid-word loses the alignment it is carried for. */
+/* Legacy Commit Mono cuts remain the plot fallback. The web-only family in
+   commit-mono.css does not change plot lettering or its exported fallback. */
 @font-face {
   font-family: "Commit Mono";
   src: url("../fonts/commit-400.woff2") format("woff2");
@@ -270,9 +270,8 @@
      the platform. It is never reached for text; only for what the three
      faces in front of it cannot draw. */
   --plot-face: "CM Math", "AVHershey Simplex", "National Park", "Commit Mono", system-ui, sans-serif;
-  /* Every variable name, value, coordinate and unit. Commit Mono first, the
-     platform monospace behind it -- both align, which is the whole job. */
-  --mono: "CM Math", "Commit Mono", ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, monospace;
+  /* --mono comes from commit-mono.css. CM Math remains first, so mixed math
+     text has proportional symbols; use layout cells, not space padding. */
   /* All-caps labels are set in National Park, not Gorton.
      Gorton Perfected was drawn for an engraving pantograph, one glyph cut at a
      time on a plate, and its capitals inherit that: a perfectly circular O, a
@@ -288,7 +287,6 @@
   --label-face: "CM Math", "National Park", ui-sans-serif, system-ui, sans-serif;
   --ui-face: "CM Math", "Gorton Perfected", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --ui-features: "ss02" 1, "ss04" 1, "ss06" 1, "ss12" 1;
-  --mono-features: "cv03" 1, "ss05" 1;
   --hit: 24px; /* WCAG 2.2 SC 2.5.8, minimum target */
 
   /* Status colours. Never the only channel -- each is paired with a word or an
@@ -380,9 +378,9 @@ output {
   font-feature-settings: inherit;
 }
 
-/* File-derived values use one face, one spacing model and one feature set.
-   Keep the registry here so adding a data role cannot leave half its typography
-   behind in another selector. */
+/* Web data roles share a family and untracked metrics. Profile overrides below
+   set features on the element itself; changing a variable alone on a child
+   cannot change an already computed inherited font-feature-settings value. */
 button,
 input,
 select,
@@ -416,12 +414,43 @@ pre,
 .timeline-zone,
 .statusbar {
   font-family: var(--mono);
+  font-weight: var(--mono-weight);
+  font-style: normal;
+  line-height: var(--mono-ui-leading);
   letter-spacing: normal;
   word-spacing: normal;
+  font-kerning: none;
+  font-variant-numeric: normal;
+  font-variant-ligatures: none;
+  font-synthesis: none;
   font-feature-settings: var(--mono-features);
 }
 
-code, pre, textarea { font-variant-ligatures: none; }
+input,
+textarea,
+code,
+pre,
+.dimension-readout output,
+.variable-row small,
+.metadata-summary dd,
+.metadata-panel tbody td,
+.save-dialog .hint.syntax {
+  --mono-features: var(--mono-literal-features);
+  font-feature-settings: var(--mono-features);
+  line-height: var(--mono-literal-leading);
+}
+
+.metadata-panel .attribute-value[data-typography="read"] {
+  --mono-features: var(--mono-read-features);
+  font-feature-settings: var(--mono-features);
+  font-size: var(--size-body);
+  line-height: var(--mono-read-leading);
+}
+
+.metadata-panel .dimension-length,
+.metadata-panel .attribute-value[data-typography="number"] {
+  text-align: right;
+}
 
 /* Structural labels do not inherit Gorton's alternate glyph sets. */
 .dataset-switcher,
@@ -450,11 +479,11 @@ button {
   padding: 0 8px;
   cursor: pointer;
   font-size: var(--size-tick);
-  font-weight: 400;
+  font-weight: var(--mono-weight);
 }
 
 button strong, button b, .series-control > strong {
-  font-weight: 700;
+  font-weight: var(--mono-strong);
 }
 
 button:hover:not(:disabled),
@@ -528,43 +557,6 @@ button:disabled {
   max-width: 16ch;
 }
 
-/* Embedded controls share the tab row when space permits. Keep wrapping
-   available because the host and variable sidebars reduce the work pane. */
-.shell[data-chrome="none"] .toolbar {
-  flex-wrap: wrap;
-}
-
-.shell[data-chrome="none"] .view-tabs,
-.shell[data-chrome="none"] .toolbar-actions {
-  align-self: flex-start;
-  min-height: var(--toolbar-height);
-  height: var(--toolbar-height);
-}
-
-.shell[data-chrome="none"] .display-controls {
-  display: contents;
-}
-
-.shell[data-chrome="none"] .control-group {
-  flex-wrap: wrap;
-  max-width: 100%;
-  margin: 4px 8px 4px 0;
-}
-
-/* Keep navigation and Save together before the wrapping control groups. */
-.shell[data-chrome="none"] .embedded-navigation,
-.shell[data-chrome="none"] .view-tabs {
-  order: -2;
-}
-
-.shell[data-chrome="none"] .toolbar-actions {
-  order: -1;
-}
-
-.shell[data-chrome="none"] .control-group:last-child {
-  margin-right: 0;
-}
-
 .topbar {
   grid-column: 1 / -1;
   display: flex;
@@ -604,21 +596,12 @@ button:disabled {
 .sidebar-toggle {
   align-self: stretch;
   min-width: 38px;
+  padding: 0 12px;
   border: 0;
   border-right: 1px solid var(--line);
   border-radius: 0;
   background: transparent;
   font-size: var(--size-body);
-}
-
-.sidebar-toggle::before {
-  content: "";
-  display: block;
-  width: 14px;
-  height: 1.5px;
-  margin: 0 auto;
-  background: currentColor;
-  box-shadow: 0 -4.25px 0 currentColor, 0 4.25px 0 currentColor;
 }
 
 .brand {
@@ -630,11 +613,17 @@ button:disabled {
   letter-spacing: var(--track-small);
 }
 
+.topbar-identity {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+}
+
 .path {
   display: flex;
   min-width: 0;
   overflow: hidden;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
   color: var(--ink-medium);
   white-space: nowrap;
@@ -789,7 +778,7 @@ button:disabled {
   color: var(--ink-medium);
   cursor: pointer;
   font-size: var(--size-tick);
-  font-weight: 700;
+  font-weight: var(--mono-strong);
   /* The UA marker is a character as well, and not one this binary ships. */
   list-style: none;
 }
@@ -835,7 +824,7 @@ button:disabled {
   flex: none;
   margin-left: auto;
   color: var(--ink-quiet);
-  font-weight: 400;
+  font-weight: var(--mono-weight);
 }
 
 .collection-file > .variable-group > summary {
@@ -931,6 +920,7 @@ button:disabled {
 
 .toolbar {
   display: flex;
+  flex-wrap: wrap;
   min-width: 0;
   min-height: var(--toolbar-height);
   align-items: stretch;
@@ -956,7 +946,7 @@ button:disabled {
 
 .view-tabs button.active {
   color: var(--accent);
-  font-weight: 700;
+  font-weight: var(--mono-strong);
 }
 
 .view-tabs button.active::after {
@@ -972,14 +962,14 @@ button:disabled {
 .display-controls {
   display: flex;
   min-width: 0;
-  flex: 1 1 0;
+  flex: 1 1 100%;
+  order: 1;
   align-items: center;
-  /* Wraps instead of scrolling: a control scrolled past the edge of a bar with
-     an overlay scrollbar is a control the reader cannot find. Costs a second
-     row only on windows too narrow to hold one. */
+  border-top: 1px solid var(--line);
+  /* A full-width control row cannot be squeezed by navigation or export. */
   flex-wrap: wrap;
   gap: 4px 0;
-  padding: 4px 0 4px 8px;
+  padding: 4px 8px;
 }
 
 /* One group per thing being controlled — displayed axes, fixed indices,
@@ -988,6 +978,8 @@ button:disabled {
 .control-group {
   display: flex;
   flex: none;
+  flex-wrap: wrap;
+  max-width: 100%;
   align-items: center;
   gap: 8px;
   margin-right: 24px;
@@ -1007,6 +999,7 @@ button:disabled {
 
 .toolbar-actions {
   display: flex;
+  margin-left: auto;
   flex: none;
   align-items: center;
   gap: 8px;
@@ -1035,8 +1028,14 @@ button:disabled {
   height: 28px;
   color: var(--ink);
   font-size: var(--size-tick);
-  font-weight: 400;
+  font-weight: var(--mono-weight);
   text-transform: none;
+}
+
+.display-controls select:disabled {
+  color: var(--ink-weak);
+  background: var(--ink-faint);
+  cursor: not-allowed;
 }
 
 .display-controls input[type="number"] {
@@ -1060,7 +1059,7 @@ button:disabled {
 .dimension-readout output {
   color: var(--ink);
   font-size: var(--size-tick);
-  font-weight: 400;
+  font-weight: var(--mono-weight);
   text-transform: none;
 }
 
@@ -1068,7 +1067,7 @@ button:disabled {
   flex: none;
   min-height: 28px;
   font-size: var(--size-tick);
-  font-weight: 700;
+  font-weight: var(--mono-strong);
 }
 
 .stage {
@@ -1139,20 +1138,29 @@ button:disabled {
   white-space: nowrap;
 }
 
-.comparison-figure {
-  grid-template-rows: auto auto minmax(0, 1fr);
-}
-
 .curve-figure {
   grid-template-rows: minmax(0, 1fr);
 }
 
 .single-curve {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   min-height: 0;
-  grid-template-rows: auto minmax(0, 1fr);
 }
+
+.single-curve > .plot-frame { flex: 1; min-height: 120px; }
+.curve-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 4px 8px; }
+.curve-legend span { overflow-wrap: anywhere; }
+.curve-series-controls, .source-participation { align-self: flex-start; max-width: 100%; padding: 8px; }
+.curve-series-controls summary, .source-participation summary { cursor: pointer; min-height: 24px; }
+.curve-series-controls .curve-offset-controls { display: grid; gap: 8px; max-height: min(18rem, 30vh); overflow: auto; }
+.curve-series-controls .series-control { flex-wrap: wrap; }
+.source-participation > label, .field-pane-selection > label { display: flex; gap: 8px; padding: 4px; }
+.curve-range-reset { position: absolute; right: 8px; top: 4px; z-index: 1; font-size: var(--size-tick); }
+.dataset-head .dataset-switcher { min-width: 0; max-width: 100%; }
+.dataset-head .dataset-switcher select { min-width: 0; max-width: 100%; }
+input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
 
 .curve-head {
   align-items: center;
@@ -1163,38 +1171,18 @@ button:disabled {
   margin-left: auto;
 }
 
-.curve-head .curve-offset-controls {
-  flex: 0 1 auto;
+.curve-toolbar-slot {
+  display: contents;
+}
+
+.curve-offset-controls .series-control {
+  gap: 8px;
   padding: 0;
   border: 0;
-  background: transparent;
 }
 
-.curve-head .series-control {
-  padding: 0 12px;
-}
-
-/* The heading already names the primary series. Repeating it inside the same
-   row wastes the width needed by its datum and offset control. */
-.curve-head .curve-offset-controls > .series-control:first-child > strong {
-  display: none;
-}
-
-.curve-range-reset {
-  flex: none;
+.curve-offset-controls button {
   font-size: var(--size-tick);
-}
-
-.comparison-controls {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 12px;
-  overflow-x: auto;
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--line);
-  background: var(--panel);
-  white-space: nowrap;
 }
 
 .series-control {
@@ -1254,7 +1242,12 @@ button:disabled {
 
 .comparison-field-figure {
   position: relative;
+  display: flex;
+  flex-direction: column;
 }
+
+.comparison-field-figure > .field-comparison { flex: 1; }
+.field-pane-selection { padding: 4px 8px; }
 
 .field-comparison {
   display: grid;
@@ -1364,31 +1357,16 @@ button:disabled {
   touch-action: none;
 }
 
-.map-position {
-  position: absolute;
-  z-index: 1;
-  overflow: hidden;
+.coastline-overlay {
   pointer-events: none;
 }
 
-.map-overlay {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  mix-blend-mode: multiply;
-  opacity: 0.42;
-}
-
-.map-overlay img {
-  position: absolute;
-  display: block;
-  max-width: none;
-  filter: grayscale(1) contrast(1.35) brightness(1.35);
-}
-
-
-.map-overlay a {
-  color: inherit;
+.coastline-overlay path {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: var(--stroke-spine);
+  stroke-linejoin: round;
+  opacity: 1;
 }
 
 .zoom-box {
@@ -1429,7 +1407,7 @@ button:disabled {
   box-shadow: 0 2px 0 var(--ink);
   background: var(--paper);
   font-size: var(--size-tick);
-  font-weight: 700;
+  font-weight: var(--mono-strong);
 }
 
 .view-controls button:hover {
@@ -1543,6 +1521,22 @@ button:disabled {
   fill: var(--ink);
 }
 
+.wind-key {
+  font-family: var(--plot-face);
+  font-size: var(--plot-tick-size);
+  fill: var(--ink);
+  stroke: none;
+}
+
+.wind-barb:focus-visible > rect {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.wind-readout {
+  pointer-events: none;
+}
+
 .plot-tooltip {
   position: absolute;
   z-index: 4;
@@ -1654,6 +1648,7 @@ button:disabled {
 
 .metadata-panel h2 {
   font-size: var(--size-title);
+  font-weight: var(--mono-strong);
   line-height: var(--line-height-tight);
 }
 
@@ -1697,6 +1692,8 @@ button:disabled {
 
 .metadata-panel table {
   width: 100%;
+  /* Keep raw values readable on narrow screens; the panel already scrolls. */
+  min-width: 32rem;
   border-collapse: collapse;
   font-size: var(--size-tick);
   letter-spacing: var(--track-small);
@@ -1722,7 +1719,7 @@ button:disabled {
 .metadata-panel tbody th,
 .metadata-panel tbody td:first-of-type {
   width: 18ch;
-  font-weight: 400;
+  font-weight: var(--mono-weight);
 }
 
 .attribute-value {
@@ -1884,7 +1881,7 @@ button:disabled {
 
 .timeline-zone {
   color: var(--ink-quiet);
-  font-weight: 400;
+  font-weight: var(--mono-weight);
   text-transform: none;
 }
 
@@ -1920,6 +1917,8 @@ button:disabled {
   background: var(--plate);
   color: var(--plate-quiet);
   font-size: var(--size-micro);
+  font-weight: var(--mono-inverse-weight);
+  font-feature-settings: var(--mono-literal-features);
 }
 
 .statusbar span {
@@ -1961,21 +1960,12 @@ button:disabled {
   .shell[data-sidebar="open"] .sidebar {
     position: fixed;
     z-index: 20;
-    top: var(--topbar-height);
+    top: calc(var(--topbar-height) + var(--toolbar-height));
     bottom: var(--status-height);
     left: 0;
     width: var(--sidebar-width);
     visibility: visible;
     box-shadow: 8px 0 22px var(--shadow);
-  }
-
-  .shell[data-chrome="none"][data-sidebar="open"] .sidebar {
-    /* Leave the relocated toggle reachable above the overlay. */
-    top: var(--toolbar-height);
-  }
-
-  .shell[data-chrome="none"] .embedded-navigation {
-    min-height: var(--toolbar-height);
   }
 
   .main {
@@ -2050,8 +2040,7 @@ button:disabled {
 .prose,
 .warnings p,
 .collection-error,
-.plot-error p,
-.metadata-panel td {
+.plot-error p {
   max-width: 36em;
   line-height: var(--line-height);
   letter-spacing: var(--track-body);
@@ -2233,7 +2222,7 @@ i .value {
   box-shadow: none;
   transform: translateY(2px);
   background: var(--dither-strong), var(--paper);
-  font-weight: 700;
+  font-weight: var(--mono-strong);
 }
 
 .save-dialog .chip:has(input:focus-visible),
@@ -2328,7 +2317,7 @@ i .value {
 .save-dialog .dialog-actions .primary {
   border-color: var(--ink);
   background: var(--amber);
-  font-weight: 700;
+  font-weight: var(--mono-strong);
 }
 
 .save-dialog .export-error {
@@ -2440,7 +2429,7 @@ i .value {
   font-family: var(--mono);
   font-feature-settings: var(--mono-features);
   font-size: var(--size-tick);
-  font-weight: 700;
+  font-weight: var(--mono-strong);
 }
 
 .hub-open-panel .dialog-actions,
@@ -2513,7 +2502,7 @@ i .value {
 .hub-password-dialog .primary {
   border-color: var(--ink);
   background: var(--amber);
-  font-weight: 700;
+  font-weight: var(--mono-strong);
 }
 
 .hub-session-actions {

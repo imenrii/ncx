@@ -1,0 +1,61 @@
+netcdf wind_ugrid {
+dimensions:
+  time = 4 ;
+  node = 6 ;
+  face = 2 ;
+  nv = 4 ;
+variables:
+  double time(time) ;
+    time:standard_name = "time" ;
+    time:axis = "T" ;
+    time:units = "hours since 2024-01-01 00:00:00Z" ;
+  double lat(node) ;
+    lat:standard_name = "latitude" ;
+    lat:units = "degrees_north" ;
+  double lon(node) ;
+    lon:standard_name = "longitude" ;
+    lon:units = "degrees_east" ;
+  int mesh ;
+    mesh:cf_role = "mesh_topology" ;
+    mesh:topology_dimension = 2 ;
+    mesh:node_coordinates = "lon lat" ;
+    mesh:face_node_connectivity = "face_nodes" ;
+  int face_nodes(face, nv) ;
+    face_nodes:cf_role = "face_node_connectivity" ;
+    face_nodes:start_index = 0 ;
+  float msl(time, node) ;
+    msl:standard_name = "air_pressure_at_mean_sea_level" ;
+    msl:units = "Pa" ;
+    msl:mesh = "mesh" ;
+    msl:location = "node" ;
+  float u10(time, node) ;
+    u10:standard_name = "eastward_wind" ;
+    u10:units = "m s-1" ;
+    u10:mesh = "mesh" ;
+    u10:location = "node" ;
+    u10:_FillValue = -9999.f ;
+  float v10(time, node) ;
+    v10:standard_name = "northward_wind" ;
+    v10:units = "m s-1" ;
+    v10:mesh = "mesh" ;
+    v10:location = "node" ;
+    v10:_FillValue = -9999.f ;
+  :Conventions = "CF-1.8 UGRID-1.0" ;
+data:
+  time = 0, 6, 12, 18 ;
+  lat = 61, 61, 61, 60, 60, 60 ;
+  lon = 0, 1, 3, 0, 1, 3 ;
+  face_nodes = 0, 3, 4, 1, 1, 4, 5, 2 ;
+  msl = 100000, 100100, 100200, 100300, 100400, 100500,
+        101000, 101100, 101200, 101300, 101400, 101500,
+        102000, 102100, 102200, 102300, 102400, 102500,
+        103000, 103100, 103200, 103300, 103400, 103500 ;
+  u10 = 3, 0, -3, 3, 0, -9999,
+        6, 0, -6, 6, 0, -9999,
+        9, 0, -9, 9, 0, -9999,
+        12, 0, -12, 12, 0, -9999 ;
+  v10 = 4, 4, 4, -4, 0, -9999,
+        8, 8, 8, -8, 0, -9999,
+        12, 12, 12, -12, 0, -9999,
+        16, 16, 16, -16, 0, -9999 ;
+}

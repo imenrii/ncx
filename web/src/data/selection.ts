@@ -18,6 +18,36 @@ export function defaultDisplayDimensions(variable: Variable): DisplayDimensions 
   return { x: rank - 1, y: rank - 2 };
 }
 
+/** Cross-dataset extraction must not silently clamp or substitute dimensions. */
+export function comparisonFieldSelection(
+  reference: Variable, referenceDisplay: DisplayDimensions,
+  referenceIndices: Record<string, number>, candidate: Variable, timePath?: string,
+): { display: DisplayDimensions; indices: Record<string, number> } {
+  const mapAxis = (axis: number | undefined) => {
+    if (axis === undefined) return undefined;
+    const name = reference.dimensions[axis]?.name;
+    const mapped = candidate.dimensions.findIndex(dimension => dimension.name === name);
+    if (mapped < 0) throw new Error(`No matching displayed dimension ${name}`);
+    return mapped;
+  };
+  const display = { x: mapAxis(referenceDisplay.x), y: mapAxis(referenceDisplay.y) };
+  const indices: Record<string, number> = {};
+  candidate.dimensions.forEach((dimension, axis) => {
+    if (axis === display.x || axis === display.y || dimension.path === timePath) return;
+    const source = reference.dimensions.find(item => item.name === dimension.name);
+    if (!source) throw new Error(`No matching fixed dimension ${dimension.name}`);
+    const value = referenceIndices[source.path] ?? 0;
+    if (!Number.isInteger(value) || value < 0 || value >= dimension.length) {
+      throw new Error(`Selection outside ${dimension.name}`);
+    }
+    if (reference.dataset_id !== candidate.dataset_id && dimension.length > 1) {
+      throw new Error(`No explicit cross-dataset selection mapping for ${dimension.name}`);
+    }
+    indices[dimension.path] = value;
+  });
+  return { display, indices };
+}
+
 export function defaultIndices(variable: Variable): Record<string, number> {
   return Object.fromEntries(variable.dimensions.map((dimension) => [dimension.path, 0]));
 }

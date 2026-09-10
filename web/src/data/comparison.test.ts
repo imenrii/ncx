@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  comparisonAvailable,
   fieldComparisonDatasets,
   findComparisonSeries,
   findCompatibleVariable,
@@ -85,11 +84,11 @@ test("nearest frames use time and a half-local-step tolerance", () => {
   assert.equal(nearestFrame(0, [0, 0]), undefined);
 });
 
-test("field comparison uses two or four panes and keeps the primary", () => {
+test("field composition supports one through four panes and keeps the primary", () => {
   const datasets = ["a", "b", "c", "d", "e", "f"].map((id) => ({ id })) as DatasetSummary[];
   assert.deepEqual(
     fieldComparisonDatasets(datasets.slice(0, 3), "c").map((item) => item.id),
-    ["c", "a"],
+    ["c", "a", "b"],
   );
   assert.deepEqual(
     fieldComparisonDatasets(datasets, "f").map((item) => item.id),
@@ -97,11 +96,10 @@ test("field comparison uses two or four panes and keeps the primary", () => {
   );
 });
 
-test("comparison requires multiple datasets", () => {
-  assert.equal(comparisonAvailable(0, 2), false);
-  assert.equal(comparisonAvailable(1, 1), false);
-  assert.equal(comparisonAvailable(2, 1), false);
-  assert.equal(comparisonAvailable(2, 2), true);
+test("field composition naturally reduces to one or no source", () => {
+  assert.deepEqual(fieldComparisonDatasets([], undefined), []);
+  const dataset = { id: "a" } as DatasetSummary;
+  assert.deepEqual(fieldComparisonDatasets([dataset], "a"), [dataset]);
 });
 
 test("hosted comparisons match exact location, CF quantity, and units", () => {
@@ -166,7 +164,7 @@ test("a hosted request accepts only its parent's matching reply", async () => {
     addEventListener(_type: string, listener: EventListener) {
       receive = listener as (event: MessageEvent) => void;
     },
-    removeEventListener() {},
+    removeEventListener() { receive = undefined; },
   } as unknown as Window & typeof globalThis;
   try {
     const result = await requestHostComparison({
@@ -199,6 +197,12 @@ test("a hosted request accepts only its parent's matching reply", async () => {
       start_ms: 1,
       end_ms: 2,
     }), /primary_y_offset/);
+    const controller = new AbortController();
+    const cancelled = requestHostComparison({ generation: 3, location_id: "station-01",
+      quantity: "air_pressure", units: "Pa", start_ms: 1, end_ms: 2 }, controller.signal);
+    controller.abort();
+    await assert.rejects(cancelled, /cancelled/);
+    assert.equal(receive, undefined, "cancelled selections remove the reply listener");
   } finally {
     if (previous) host.window = previous;
     else delete host.window;

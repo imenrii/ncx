@@ -2,7 +2,7 @@
  * Print-ready PNG export.
  *
  * Each field supplies a target-size data image. This module then composes all
- * visible panes, map tiles, vector furniture, and the title band into one SVG
+ * visible panes, coastlines, vector furniture, and the title band into one SVG
  * before final PNG encoding. The capture keeps the on-screen coordinate range
  * and pane layout, but it does not enlarge the screen canvas.
  *
@@ -17,6 +17,7 @@
 import {
   canvasPng,
   captureFor,
+  curveLegendFor,
   exportPixelWidth,
   planCaptureLayout,
   validateCanvasSize,
@@ -37,6 +38,7 @@ export const EXPORT_DPI = 400;
 const CARRIED = [
   "font-family", "font-size", "font-weight", "font-style", "letter-spacing",
   "word-spacing", "font-feature-settings", "font-variant-numeric",
+  "font-kerning", "font-variant-ligatures", "font-synthesis",
   "fill", "fill-opacity", "stroke", "stroke-width", "stroke-opacity",
   "stroke-dasharray", "stroke-linecap", "stroke-linejoin",
   "text-anchor", "dominant-baseline", "opacity", "visibility", "display",
@@ -47,6 +49,10 @@ const CARRIED = [
 const FONT_FILES = [
   { family: "Commit Mono", weight: 400, url: "fonts/commit-400.woff2" },
   { family: "Commit Mono", weight: 700, url: "fonts/commit-700.woff2" },
+  // Comparison pane headers are web UI text; plot lettering stays unchanged.
+  { family: "Commit Mono Web", weight: 400, url: "fonts/commit-web-400.woff2" },
+  { family: "Commit Mono Web", weight: 450, url: "fonts/commit-web-450.woff2" },
+  { family: "Commit Mono Web", weight: 600, url: "fonts/commit-web-600.woff2" },
   { family: "AVHershey Simplex", weight: 300, url: "fonts/hershey-light.woff2" },
   { family: "AVHershey Simplex", weight: 400, url: "fonts/hershey-medium.woff2" },
   { family: "AVHershey Simplex", weight: 700, url: "fonts/hershey-heavy.woff2" },
@@ -202,6 +208,13 @@ export async function exportPlotPng(name: string, options?: ExportOptions): Prom
       return rect.width > 0 && rect.height > 0 && !frame.closest(".comparison-unavailable");
     });
   if (!figure || !frames?.length) throw new Error("The current view has no plot to save");
+  if (frames.some(frame => frame.querySelector('[data-coastline]:not([data-coastline="ready"])'))) {
+    throw new Error("Coastline is not ready. Wait for it to load, or set Map to none before export.");
+  }
+
+  if (frames.some(frame => frame.querySelector('[data-wind]:not([data-wind="ready"])'))) {
+    throw new Error("Wind is not ready. Wait for it to load, or set Wind to Off before export.");
+  }
 
   await document.fonts.ready;
   const settings = options ?? defaultExportOptions();
@@ -273,11 +286,10 @@ export async function exportPlotPng(name: string, options?: ExportOptions): Prom
       appendImage(body, await blobDataUrl(blob), canvasRect, contentRect);
       frame.dataset.exportCaptured = "true";
     }
-    await appendMap(body, frame, contentRect);
 
     const furniture = source.cloneNode(true) as SVGSVGElement;
     inlineComputedStyle(source, furniture);
-    for (const probe of furniture.querySelectorAll(".probe-mark")) probe.remove();
+    for (const probe of furniture.querySelectorAll(".probe-mark, .curve-tracker, .curve-zoom-box, .wind-readout")) probe.remove();
     retitleAxis(furniture, 0, settings.xTitle);
     retitleAxis(furniture, 1, settings.yTitle);
     if (!settings.grid) for (const line of furniture.querySelectorAll(".gridline")) line.remove();
@@ -327,29 +339,19 @@ interface CurveLegend {
   entries: { lines: string[]; style: string; stroke: string; dash: string; weight: string; lineHeight: number }[];
 }
 
-/** Read generic series metadata from the controls, never provider identities. */
+/** Scientific legend data comes from the same series model as the live plot. */
 function curveLegend(figure: HTMLElement, width: number): CurveLegend {
-  const controls = Array.from(figure.querySelectorAll<HTMLElement>(".series-control"))
-    .filter(control => control.getBoundingClientRect().height > 0);
-  const hasOffset = controls.some(control => Array.from(control.querySelectorAll<HTMLInputElement>('input[type="number"]'))
-    .some(input => Number(input.value) !== 0));
-  if (controls.length < 2 && !hasOffset) return { height: 0, entries: [] };
+  const series = Array.from(figure.querySelectorAll<HTMLElement>(".plot-frame")).flatMap(frame => [...curveLegendFor(frame)]);
+  if (!series.length) return { height: 0, entries: [] };
   const context = document.createElement("canvas").getContext("2d");
   if (!context) throw new Error("The browser could not measure the series legend");
   const plotFace = getComputedStyle(figure).getPropertyValue("--plot-face");
   const axis = figure.querySelector(".axis-label");
-  const entries = controls.map(control => {
-    const name = control.querySelector<HTMLElement>(":scope > strong")!;
-    const computed = getComputedStyle(name);
-    const size = parseFloat(getComputedStyle(axis ?? name).fontSize);
-    // A legend is figure lettering, not a copy of the editing controls.
+  const computed = getComputedStyle(axis ?? figure);
+  const size = parseFloat(computed.fontSize);
+  const entries = series.map(item => {
     context.font = `400 ${size}px ${plotFace}`;
-    const details = Array.from(control.querySelectorAll<HTMLElement>(":scope > span, :scope > label"))
-      .map(element => {
-        const value = element.querySelector<HTMLInputElement>('input[type="number"]');
-        return `${element.textContent?.trim() ?? ""}${value ? ` ${value.value}` : ""}`;
-      });
-    const text = [name.textContent?.trim(), ...details].filter(Boolean).join(" · ");
+    const text = item.description;
     const lines: string[] = [];
     let line = "";
     // Splitting long identifiers also keeps the legend inside a narrow export.
@@ -362,13 +364,10 @@ function curveLegend(figure: HTMLElement, width: number): CurveLegend {
       line += character;
     }
     if (line) lines.push(line.trim());
-    const swatch = control.querySelector(".series-key line");
-    const paint = swatch ? getComputedStyle(swatch) : undefined;
     return {
       lines, lineHeight: size * 1.5,
       style: `font-family:${plotFace};font-size:${size}px;font-weight:400;fill:${computed.color}`,
-      stroke: paint?.stroke ?? computed.color, dash: paint?.strokeDasharray ?? "none",
-      weight: paint?.strokeWidth ?? "1",
+      stroke: item.color, dash: item.dash, weight: "1.5",
     };
   });
   return { entries, height: entries.reduce((sum, entry) => sum + entry.lines.length * entry.lineHeight + 4, 8) };
@@ -430,7 +429,7 @@ function appendHeading(
     subtitle.setAttribute("y", String(titleSize * 1.05 + subtitleSize * 1.4));
     subtitle.setAttribute("text-anchor", "middle");
     subtitle.setAttribute("style", `font-family:${face};font-size:${subtitleSize}px;fill:#4a5058`);
-    subtitle.textContent = heading.subtitle;
+    appendMath(subtitle, heading.subtitle, subtitleSize);
     output.append(subtitle);
   }
 }
@@ -440,7 +439,6 @@ function appendImage(
   href: string,
   rect: DOMRect,
   content: CaptureRect,
-  style?: string,
 ): void {
   const image = svgElement("image");
   image.setAttribute("x", String(rect.left - content.left));
@@ -449,50 +447,7 @@ function appendImage(
   image.setAttribute("height", String(rect.height));
   image.setAttribute("preserveAspectRatio", "none");
   image.setAttribute("href", href);
-  if (style) image.setAttribute("style", style);
   target.append(image);
-}
-
-async function appendMap(target: SVGGElement, frame: HTMLElement, content: CaptureRect): Promise<void> {
-  const overlay = frame.querySelector<HTMLElement>(".map-overlay");
-  if (!overlay) return;
-  const overlayStyle = getComputedStyle(overlay);
-  for (const source of overlay.querySelectorAll<HTMLImageElement>("img")) {
-    const url = source.currentSrc || source.src;
-    let response: Response;
-    try {
-      response = await fetch(url, { mode: "cors" });
-    } catch (cause: unknown) {
-      throw new Error(`Cannot capture OpenStreetMap tile: ${cause instanceof Error ? cause.message : String(cause)}`);
-    }
-    if (!response.ok) throw new Error(`Cannot capture OpenStreetMap tile: HTTP ${response.status}`);
-    const declaredSize = Number(response.headers.get("content-length"));
-    if (Number.isFinite(declaredSize) && declaredSize > 4 * 1024 * 1024) {
-      throw new Error("Cannot capture OpenStreetMap tile: response is too large");
-    }
-    const blob = await response.blob();
-    if (blob.size > 4 * 1024 * 1024) throw new Error("Cannot capture OpenStreetMap tile: response is too large");
-    if (!blob.type.startsWith("image/")) throw new Error("Cannot capture OpenStreetMap tile: response is not an image");
-    const sourceStyle = getComputedStyle(source);
-    appendImage(
-      target,
-      await blobDataUrl(blob),
-      source.getBoundingClientRect(),
-      content,
-      `opacity:${overlayStyle.opacity};mix-blend-mode:${overlayStyle.mixBlendMode};filter:${sourceStyle.filter}`,
-    );
-  }
-  const overlayRect = overlay.getBoundingClientRect();
-  const attribution = svgElement("text");
-  attribution.setAttribute("x", String(overlayRect.right - content.left - 4));
-  attribution.setAttribute("y", String(overlayRect.bottom - content.top - 4));
-  attribution.setAttribute("text-anchor", "end");
-  const plotFace = getComputedStyle(frame).getPropertyValue("--plot-face");
-  const rootType = getComputedStyle(document.documentElement);
-  const small = parseFloat(rootType.fontSize) * parseFloat(rootType.getPropertyValue("--size-micro"));
-  attribution.setAttribute("style", `font-family:${plotFace};font-size:${small}px;fill:#101418`);
-  attribution.textContent = "© OpenStreetMap contributors";
-  target.append(attribution);
 }
 
 function appendComparisonLabels(target: SVGGElement, figure: HTMLElement, content: CaptureRect): void {
@@ -520,9 +475,20 @@ function appendComparisonLabels(target: SVGGElement, figure: HTMLElement, conten
     label.setAttribute("x", String(headerRect.left - content.left + 8));
     label.setAttribute("y", String(headerRect.top - content.top + headerRect.height * 0.68));
     const type = getComputedStyle(header);
-    const lettering = `font-family:${type.fontFamily};font-size:${type.fontSize};font-feature-settings:${type.fontFeatureSettings};letter-spacing:${type.letterSpacing};word-spacing:${type.wordSpacing}`;
+    const lettering = `font-family:${type.fontFamily};font-size:${type.fontSize};font-feature-settings:${type.fontFeatureSettings};letter-spacing:${type.letterSpacing};word-spacing:${type.wordSpacing};font-kerning:${type.fontKerning};font-variant-ligatures:${type.fontVariantLigatures};font-variant-numeric:${type.fontVariantNumeric};font-synthesis:${type.fontSynthesis}`;
     label.setAttribute("style", `${lettering};font-weight:${type.fontWeight};fill:${type.color}`);
-    label.textContent = header.textContent?.trim() ?? "";
+    label.setAttribute("class", "export-comparison-label");
+    // The header has a strong dataset name and a quiet timestamp. Preserve
+    // those runs instead of flattening both to the header's normal weight.
+    for (const part of header.children) {
+      const span = svgElement("tspan");
+      const partType = getComputedStyle(part);
+      span.setAttribute("dx", label.childElementCount ? type.columnGap : "0");
+      span.style.fontWeight = partType.fontWeight;
+      span.style.fill = partType.color;
+      span.textContent = part.textContent;
+      label.append(span);
+    }
     target.append(label);
     const unavailable = pane.querySelector<HTMLElement>(".comparison-unavailable");
     if (unavailable) {

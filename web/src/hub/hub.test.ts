@@ -46,6 +46,7 @@ const {
   sessionDestination,
   sessionFetch,
   sessionTransition,
+  splitHubAddress,
   withHubSessionTransition,
 } = await import("./hub.ts");
 
@@ -85,6 +86,13 @@ test("remote addresses are the only password-bearing targets", () => {
   assert.equal(sessionTransition(active, active.address), "same");
   assert.equal(sessionTransition(active, "user@host:/data/b.nc"), "retarget");
   assert.equal(sessionTransition(active, "other@host:/data/b.nc"), "new");
+});
+
+test("hub form separates SSH credentials from dataset paths", () => {
+  assert.deepEqual(splitHubAddress("user@host:/data/a.nc"), { credential: "user@host", path: "/data/a.nc" });
+  assert.deepEqual(splitHubAddress("cluster:/data/a.nc"), { credential: "cluster", path: "/data/a.nc" });
+  assert.deepEqual(splitHubAddress("/data/a.nc"), { credential: "", path: "/data/a.nc" });
+  assert.deepEqual(splitHubAddress(""), { credential: "", path: "" });
 });
 
 test("addresses persist only after explicit saving", () => {

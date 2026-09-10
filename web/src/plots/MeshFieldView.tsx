@@ -8,7 +8,8 @@ import { useFieldInteraction } from "./useFieldInteraction";
 import { fieldMargin, plotType } from "./plotgeom";
 import { PERFORMANCE_MEASURE, measurePerformance } from "../data/performance";
 import { Colorbar, PlotAxes, FieldMarks, ViewControls, type PlotBounds } from "./plot";
-import { MapOverlay } from "./MapOverlay";
+import { CoastlineOverlay } from "./CoastlineOverlay";
+import { WindFieldOverlay } from "./WindFieldOverlay";
 import {
   buildCurvilinearGeometry,
   buildUgridGeometry,
@@ -167,6 +168,7 @@ export function MeshFieldView(props: MeshFieldViewProps) {
       reject: (nextError) => {
         setLoading(false);
         setError(nextError.message);
+        props.onFrameError?.();
         props.onStatus(nextError.message);
       },
     });
@@ -179,6 +181,7 @@ export function MeshFieldView(props: MeshFieldViewProps) {
     hint.kind,
     hint.kind === "ugrid2d" ? hint.location : "",
     props.onFrameLoaded,
+    props.onFrameError,
     props.onStatus,
   ]);
 
@@ -197,6 +200,7 @@ export function MeshFieldView(props: MeshFieldViewProps) {
         if (!active) return;
         const message = cause instanceof Error ? cause.message : String(cause);
         setError(message);
+        props.onFrameError?.();
         props.onStatus(message);
       });
     return () => {
@@ -209,6 +213,7 @@ export function MeshFieldView(props: MeshFieldViewProps) {
     props.display,
     request.stride,
     sliceShape,
+    props.onFrameError,
     props.onStatus,
   ]);
 
@@ -396,6 +401,12 @@ export function MeshFieldView(props: MeshFieldViewProps) {
         {...handlers}
       />
       <svg className="plot-svg" width={size.width} height={size.height} aria-hidden="true">
+        {props.wind && geometry && view && <WindFieldOverlay metadata={props.metadata} variable={props.variable}
+          indices={props.indices} bounds={view} plot={plot} geometry={geometry}
+          spatialDimension={props.variable.dimensions[spatialDimension]?.path} onStatus={props.onStatus} />}
+        {props.mapSource === "coastline" && view && (
+          <CoastlineOverlay bounds={view} plot={plot} onStatus={props.onStatus} />
+        )}
         <PlotAxes
           type={type}
           plot={plot}
@@ -424,11 +435,6 @@ export function MeshFieldView(props: MeshFieldViewProps) {
           onZoomOut={() => changeView(zoomBounds(view ?? geometry.bounds, geometry.bounds, 4 / 3))}
           onReset={() => changeView(geometry.bounds)}
         />
-      )}
-      {props.mapSource === "osm" && view && (
-        <div className="map-position" style={{ left: plot.left, top: plot.top, width: plot.width, height: plot.height }}>
-          <MapOverlay bounds={view} width={plot.width} height={plot.height} />
-        </div>
       )}
       {hover && (
         <output

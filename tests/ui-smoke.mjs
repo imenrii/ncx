@@ -12,7 +12,7 @@ const browserMode = process.argv[2] ?? "rectilinear";
 const benchmark = process.env.NCX_BENCHMARK === "1";
 const chrome = process.env.NCX_CHROME ?? "";
 const chromeQuery = chrome ? `&chrome=${encodeURIComponent(chrome)}` : "";
-if (!["rectilinear", "curvilinear", "ugrid", "ugrid_projected", "ugrid_helpers", "comparison", "collection", "station", "hub"].includes(browserMode)) {
+if (!["rectilinear", "curvilinear", "ugrid", "ugrid_projected", "ugrid_helpers", "comparison", "collection", "station", "hub", "wind"].includes(browserMode)) {
   throw new Error(`unknown browser fixture ${JSON.stringify(browserMode)}`);
 }
 const fixture = process.env.NCX_FIXTURE ?? join(ncx, `tests/data/${["comparison", "collection", "hub"].includes(browserMode) ? "rectilinear" : browserMode}.nc`);
@@ -26,7 +26,7 @@ window.__ncxFetches = [];
 window.__ncxSessionRequests = JSON.parse(sessionStorage.getItem("__ncx_smoke_session_requests") || "[]");
 window.__ncxScalarReads = 0;
 window.__ncxMaxScalarReads = 0;
-window.__ncxTileFetches = 0;
+window.__ncxCoastlineFetches = 0;
 window.__ncxExportResult = undefined;
 const reportCrash = (message) => {
   window.__ncxErrors.push(message);
@@ -44,11 +44,15 @@ window.fetch = async (...arguments) => {
     window.__ncxSessionRequests.push({ body: String(requestOptions.body || "") });
     sessionStorage.setItem("__ncx_smoke_session_requests", JSON.stringify(window.__ncxSessionRequests));
   }
-  if (target.startsWith("https://tile.openstreetmap.org/")) {
-    window.__ncxTileFetches += 1;
-    const binary = atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
-    const bytes = Uint8Array.from(binary, (value) => value.charCodeAt(0));
-    return new Response(bytes, { status: 200, headers: { "content-type": "image/png" } });
+  if (target.startsWith("https://raw.githubusercontent.com/nvkelso/natural-earth-vector/")) {
+    window.__ncxCoastlineFetches += 1;
+    if (window.__ncxFailCoastline) return new Response("unavailable", { status: 503 });
+    return Response.json({ type: "FeatureCollection", features: [{ type: "Feature", geometry: {
+      type: "MultiLineString", coordinates: [
+        [[109, 20], [112, 22], [114, 21], [117, 24]],
+        [[114.08, 22.3], [114.09, 22.305], [114.1, 22.31]],
+      ],
+    } }] });
   }
   const scalar = target.includes("/api/data?") && decodeURIComponent(target).includes("path=/temperature");
   if (scalar) {
@@ -70,6 +74,39 @@ URL.createObjectURL = function(blob) {
     window.__ncxExportTitleBand = blob.text().then((markup) => {
       const svg = new DOMParser().parseFromString(markup, "image/svg+xml").documentElement;
       window.__ncxExportProbeCount = svg.querySelectorAll(".probe-mark").length;
+      const faces = svg.querySelector("style")?.textContent ?? "";
+      for (const weight of [400, 450, 600]) {
+        if (!faces.includes('font-family:"Commit Mono Web";font-weight:' + weight + ';')) {
+          throw new Error("Export did not embed Commit Mono Web " + weight);
+        }
+      }
+      if (!faces.includes('font-family:"Commit Mono";font-weight:700;') || !faces.includes("U+0370-03FF")) {
+        throw new Error("Export lost the unchanged plot fallback or CM Math range");
+      }
+      for (const text of svg.querySelectorAll("text")) {
+        if (text.style.fontFamily.includes("Commit Mono Web") &&
+            (text.style.fontKerning !== "none" || text.style.fontVariantLigatures !== "none" || text.style.fontSynthesis !== "none")) {
+          throw new Error("Export lost the web font shaping settings");
+        }
+      }
+      for (const label of svg.querySelectorAll(".export-comparison-label")) {
+        if (label.children.length !== 2 || label.children[0].style.fontWeight !== "600" || label.children[1].style.fontWeight !== "450") {
+          throw new Error("Export flattened the comparison header weights");
+        }
+      }
+      if (window.__ncxExpectedMathLabels) {
+        for (const expected of window.__ncxExpectedMathLabels) {
+          const label = [...svg.querySelectorAll("text")].find(text => text.textContent === expected);
+          if (!label || ![...label.querySelectorAll("tspan")].some(span => Number(span.getAttribute("dy")) < 0)) {
+            throw new Error("Export lost delimited math in " + expected);
+          }
+        }
+        window.__ncxExpectedMathLabels = undefined;
+      }
+      if (window.__ncxExpectedWind) {
+        if (!svg.querySelector(window.__ncxExpectedWind) || !svg.querySelector('.wind-key')) throw new Error("PNG omitted wind marks or their key");
+        window.__ncxExpectedWind = undefined;
+      }
       const title = svg.querySelector(":scope > text");
       return title && {
         width: Number(svg.getAttribute("width")),
@@ -88,8 +125,8 @@ HTMLAnchorElement.prototype.click = function() {
       .then(async (blob) => {
         const image = await createImageBitmap(blob);
         const sample = document.createElement("canvas");
-        sample.width = 32;
-        sample.height = 32;
+        sample.width = 256;
+        sample.height = 256;
         const context = sample.getContext("2d");
         context.drawImage(image, 0, 0, sample.width, sample.height);
         let checksum = 2166136261;
@@ -128,6 +165,22 @@ const waitFor = async (test, message, timeout = 4000) => {
     await new Promise((resolve) => setTimeout(resolve, 40));
   }
   throw new Error(message);
+};
+const checkFontRole = (node, profile, weight) => {
+  const type = getComputedStyle(node);
+  if (!type.fontFamily.startsWith('"CM Math"') || !type.fontFamily.includes("Commit Mono Web")) {
+    failures.push("Web font stack changed for " + profile);
+  }
+  if (type.fontWeight !== String(weight) || type.fontKerning !== "none" || type.fontVariantLigatures !== "none") {
+    failures.push("Web font weight or shaping changed for " + profile);
+  }
+  if (!["normal", "0px"].includes(type.letterSpacing) || type.wordSpacing !== "0px") {
+    failures.push("Web data acquired tracking for " + profile);
+  }
+  for (const [tag, on] of [["ss03", profile === "read"], ["ss04", profile === "read"], ["ss05", profile !== "literal"]]) {
+    const setting = type.fontFeatureSettings.split(",").find(value => value.trim().startsWith('"' + tag + '"'));
+    if (!setting || setting.trim().endsWith(" 0") === on) failures.push("Wrong " + tag + " for " + profile);
+  }
 };
 const saveOpenDialog = async (dialog) => {
   window.__ncxExportResult = undefined;
@@ -214,6 +267,7 @@ try {
     );
     if (gate.classList.contains("hub-open-panel")) {
       const input = gate.querySelector("#hub-address");
+      const credential = gate.querySelector("#Credential");
       const workspace = document.querySelector(".hub-workspace");
       const grid = document.querySelector(".hub-grid");
       const page = document.querySelector(".hub-open");
@@ -226,19 +280,44 @@ try {
         if (workspace.getBoundingClientRect().top < 0) failures.push("hub header is clipped");
         if (workspace.querySelector('input[type="checkbox"], aside, footer, p')) failures.push("hub contains extra descriptions or a save toggle");
         if (!getComputedStyle(workspace.querySelector(".brand")).fontFamily.startsWith('"Gorton Perfected"')) failures.push("hub wordmark does not use Gorton Perfected");
-        if (!input.placeholder.includes("user@host:")) failures.push("hub address hint is missing");
-        if (!getComputedStyle(input).fontFamily.includes("Commit Mono")) failures.push("hub address does not use the data font");
+        if (input.placeholder !== "/path/run.nc") failures.push("hub address must contain only a path");
+        if (credential?.placeholder !== "username@hostname") failures.push("hub credential input is missing");
+        checkFontRole(input, "literal", 450);
+        checkFontRole(credential, "literal", 450);
+        checkFontRole(gate.querySelector('button[type="submit"]'), "ui", 600);
         if (!getComputedStyle(gate.querySelector("label")).fontFamily.includes("National Park")) failures.push("hub label does not use the label font");
         if (input.getBoundingClientRect().height < 40 || gate.querySelector('button[type="submit"]').getBoundingClientRect().height < 40) {
           failures.push("hub controls are smaller than the spacing grid requires");
         }
       }
+      const setInput = (node, value) => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(node, value);
+        node.dispatchEvent(new Event("input", { bubbles: true }));
+      };
+      setInput(credential, "user@host");
+      setInput(input, "/data/remote.nc");
+      gate.requestSubmit();
+      const prompt = await waitFor(() => document.querySelector(".hub-password-dialog[open]"), "split SSH address did not request a password");
+      if (prompt.querySelector("code")?.textContent !== "user@host:/data/remote.nc") failures.push("hub did not compose the SSH target");
+      prompt.querySelector('button[type="button"]').click();
+      await waitFor(() => !prompt.open, "hub password cancel did not close the dialog");
+      if (credential.value !== "user@host" || input.value !== "/data/remote.nc") failures.push("hub cancel did not retain separate fields");
+      setInput(credential, "");
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(fixture)});
       input.dispatchEvent(new Event("input", { bubbles: true }));
       gate.requestSubmit();
     }
   }
   const shell = await waitFor(() => document.querySelector(".shell"), "application shell did not mount", 10000);
+  for (const weight of [400, 450, 600]) {
+    const faces = await document.fonts.load(weight + ' 16px "Commit Mono Web"', "minimum_001");
+    if (faces.length !== 1 || faces[0].status !== "loaded" || faces[0].weight !== String(weight)) {
+      failures.push("Commit Mono Web " + weight + " did not load as a real static face");
+    }
+  }
+  checkFontRole(shell.querySelector(".variable-search"), "literal", 450);
+  checkFontRole(shell.querySelector(".view-tabs button.active"), "ui", 600);
+  if (!chromeHidden) checkFontRole(shell.querySelector(".statusbar"), "literal", 400);
   if (hubMode && !sessionStorage.getItem("__ncx_smoke_reloaded")) {
     sessionStorage.setItem("__ncx_smoke_reloaded", "true");
     const beforeReloadPosts = window.__ncxSessionRequests.length;
@@ -254,6 +333,23 @@ try {
     }
     if (shell.querySelector(".comparison-figure, .comparison-field-figure")) {
       failures.push("hub viewer mounted comparison plots");
+    }
+  }
+  const toolbar = shell.querySelector(".toolbar");
+  const toolbarBounds = toolbar.getBoundingClientRect();
+  for (const control of toolbar.querySelectorAll("select, input, .screenshot-button")) {
+    const bounds = control.getBoundingClientRect();
+    if (bounds.width && (bounds.left < toolbarBounds.left - 1 || bounds.right > toolbarBounds.right + 1)) {
+      failures.push("toolbar control extends outside the work area: " + (control.getAttribute("aria-label") || control.closest("label")?.textContent));
+    }
+  }
+  const windControl = toolbar.querySelector('[aria-label="Wind overlay"] select');
+  if (windControl?.disabled) {
+    if (!windControl.title || windControl.closest('[aria-label="Wind overlay"]').querySelector(".hint")) {
+      failures.push("unavailable wind needs a title, not inline reason text");
+    }
+    if (getComputedStyle(windControl).backgroundColor !== "rgb(228, 231, 234)") {
+      failures.push("unavailable wind is not grey");
     }
   }
   const topbar = shell.querySelector(".topbar");
@@ -285,10 +381,25 @@ try {
       failures.push("topbar is not full-width by 32 px");
     }
     if (!shell.querySelector(".statusbar")) failures.push("standalone statusbar missing");
+    const baselines = [".brand", ".path", ".path b", ".path i"].map(selector => {
+      const marker = document.createElement("span");
+      marker.style.cssText = "display:inline-block;width:0;height:0;padding:0;margin:0";
+      topbar.querySelector(selector).append(marker);
+      const baseline = marker.getBoundingClientRect().bottom;
+      marker.remove();
+      return baseline;
+    });
+    if (Math.max(...baselines) - Math.min(...baselines) > 0.5) failures.push("topbar text baselines differ: " + baselines);
   }
-  const menuMark = getComputedStyle(shell.querySelector(".sidebar-toggle"), "::before");
-  if (menuMark.backgroundImage !== "none" || menuMark.height !== "1.5px" || menuMark.boxShadow === "none") {
-    failures.push("sidebar toggle is not three equal 1.5 px solid strokes");
+  const variableToggle = shell.querySelector(".toolbar .sidebar-toggle");
+  if (variableToggle?.textContent !== "Variables" || variableToggle.getAttribute("aria-label") !== "Variables") {
+    failures.push("Variables toggle is not labelled and stable in the view toolbar");
+  }
+  if (variableToggle) {
+    const bounds = variableToggle.getBoundingClientRect();
+    if (!variableToggle.contains(document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2))) {
+      failures.push("variable browser covers its toolbar toggle");
+    }
   }
   if (browserMode !== "station") {
     const legacy = await waitFor(
@@ -306,9 +417,90 @@ try {
     colour?.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -100 }));
     await waitFor(() => colour?.value === originalColour, "reverse hover-scroll did not restore Colour");
   }
-  if (browserMode === "station") {
+  if (["curvilinear", "ugrid", "ugrid_projected"].includes(browserMode)) {
+    const map = [...document.querySelectorAll('.display-controls label')]
+      .find(label => label.textContent.trim().startsWith("Map"))?.querySelector("select");
+    if (map) {
+      window.__ncxFailCoastline = true;
+      map.value = "coastline";
+      map.dispatchEvent(new Event("change", { bubbles: true }));
+      await waitFor(() => document.querySelector('[data-coastline="error"]'), "coastline failure was not reported");
+      if (document.querySelector(".plot-error")) failures.push("coastline failure hid the dataset");
+      document.querySelector('.screenshot-button').click();
+      const dialog = await waitFor(() => document.querySelector('.save-dialog[open]'), "coastline failure save dialog did not open");
+      dialog.querySelector('button.primary').click();
+      await waitFor(() => dialog.querySelector('.export-error'), "export silently omitted a failed coastline");
+      dialog.close();
+      window.__ncxFailCoastline = false;
+      map.value = "none";
+      map.dispatchEvent(new Event("change", { bubbles: true }));
+      await waitFor(() => !document.querySelector('.coastline-overlay'), "failed coastline did not turn off");
+      map.value = "coastline";
+      map.dispatchEvent(new Event("change", { bubbles: true }));
+      await waitFor(() => document.querySelector('[data-coastline="ready"]'), "coastline retry failed");
+      if (window.__ncxCoastlineFetches !== 2) failures.push("coastline failure/retry made extra requests");
+      map.value = "none";
+      map.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  }
+  if (browserMode === "wind") {
+    const control = (name) => [...document.querySelectorAll('.display-controls label')]
+      .find(label => label.firstChild?.textContent?.trim() === name)?.querySelector('select');
+    const change = (name, value) => { const select = control(name); if (!select) throw new Error(name + ' control missing'); select.value = value; select.dispatchEvent(new Event('change', { bubbles: true })); };
+    const tab = (name) => [...document.querySelectorAll('.view-tabs button')].find(button => button.textContent === name).click();
+    const windReads = () => window.__ncxFetches.filter(url => ['path=/u10', 'path=/v10'].some(path => decodeURIComponent(url).includes(path))).length;
+    const fieldCanvas = () => document.querySelector('.field-canvas, .mesh-canvas');
+    await waitFor(() => fieldCanvas()?.dataset.rendered === 'true', 'wind fixture did not render');
+    const fieldTop = fieldCanvas().style.top;
+    if (windReads() !== 0) failures.push('Wind Off read component data');
+    change('Wind', 'on');
+    await waitFor(() => document.querySelector('.wind-field[data-wind="ready"] .wind-arrows')?.getAttribute('d'), 'wind arrows did not load');
+    if (fieldCanvas().style.top !== fieldTop) failures.push('Wind changed the reserved field strip');
+    window.__ncxExpectedWind = '.wind-arrows';
+    document.querySelector('.screenshot-button').click();
+    await saveOpenDialog(await waitFor(() => document.querySelector('.save-dialog[open]'), 'wind save dialog missing'));
+    tab('Curve');
+    await waitFor(() => document.querySelector('.wind-barb'), 'barbs did not appear above pressure curve');
+    const curveTop = document.querySelector('.curve-axis > rect').getAttribute('y');
+    const axis = () => document.querySelector('.curve-axis')?.dataset.yDomain;
+    const nativeRange = axis().split(',').map(Number);
+    const reads = window.__ncxFetches.length;
+    change('Units', 'hPa');
+    await waitFor(() => axis()?.split(',').every((value, index) => Math.abs(Number(value) - nativeRange[index] / 100) < 0.001), 'pressure unit conversion did not change plotted values');
+    if (window.__ncxFetches.length !== reads) failures.push('unit conversion fetched another slice');
+    change('Range', 'locked');
+    change('Units', 'Pa');
+    await waitFor(() => axis()?.split(',').every((value, index) => Math.abs(Number(value) - nativeRange[index]) < 0.1), 'locked pressure range did not retain physical limits');
+    change('Units', 'hPa'); change('Range', 'auto');
+    const offset = document.querySelector('.series-control label.y-offset-label input') ?? [...document.querySelectorAll('.series-control label')].find(label => label.textContent.startsWith('Y offset'))?.querySelector('input');
+    if (!offset) throw new Error('converted Y offset control missing');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(offset, '1');
+    offset.dispatchEvent(new Event('input', { bubbles: true }));
+    await waitFor(() => Math.abs(Number(axis()?.split(',')[0]) - nativeRange[0] / 100 - 1) < 0.001, 'hPa offset used native Pa instead of displayed hPa');
+    [...document.querySelectorAll('button')].find(button => button.textContent === 'Reset offsets').click();
+    await waitFor(() => Math.abs(Number(axis()?.split(',')[0]) - nativeRange[0] / 100) < 0.001, 'offset reset changed native pressure');
+    const barb = document.querySelector('.wind-barb'); barb.focus();
+    await waitFor(() => document.querySelector('.wind-readout')?.textContent.includes('from'), 'barb focus tooltip missing');
+    if (!barb.getAttribute('aria-label')?.includes('2.5 / 5 / 25')) failures.push('barb tooltip omitted the m/s convention');
+    window.__ncxExpectedWind = '.wind-barbs .wind-barb';
+    document.querySelector('.screenshot-button').click();
+    await saveOpenDialog(await waitFor(() => document.querySelector('.save-dialog[open]'), 'barb save dialog missing'));
+    change('Wind', 'off');
+    await waitFor(() => !document.querySelector('.wind-barbs'), 'barbs did not turn off');
+    if (document.querySelector('.curve-axis > rect').getAttribute('y') !== curveTop) failures.push('Wind changed the reserved curve strip');
+    change('Quantity', 'wind-speed');
+    await waitFor(() => document.querySelector('.figure-head h1')?.textContent.includes('derived') && axis()?.split(',').map(Number).every(Number.isFinite), 'derived wind speed did not load');
+    change('Units', 'Bft');
+    await waitFor(() => document.querySelector('.axis-label')?.parentElement?.textContent.includes('Bft') || [...document.querySelectorAll('.axis-label')].some(label => label.textContent.includes('Bft')), 'Beaufort label missing');
+    if (![...document.querySelectorAll('.curve-line')].some(path => /H.*V/.test(path.getAttribute('d')))) failures.push('Beaufort curve is not stepped');
+    change('Units', 'kt'); change('Wind', 'on');
+    await waitFor(() => document.querySelector('.wind-barb')?.getAttribute('aria-label')?.includes('5 / 10 / 50 kt'), 'knot barb convention did not update');
+    tab('Field');
+    await waitFor(() => fieldCanvas()?.dataset.rendered === 'true', 'field did not resume');
+    if (control('Units')) failures.push('curve units leaked into field');
+  } else if (browserMode === "station") {
     const controls = await waitFor(() => {
-      const items = [...document.querySelectorAll(".single-curve .series-control")];
+      const items = [...document.querySelectorAll(".toolbar .curve-offset-controls .series-control")];
       return items.length === 2 ? items : null;
     }, "hosted station did not receive its comparison series");
     const active = document.querySelector(".view-tabs button.active")?.textContent;
@@ -327,11 +519,11 @@ try {
     if (controls[1].querySelector('input[type="number"]')) {
       failures.push("CD reference exposed duplicate offsets");
     }
-    const cd = controls[1].querySelector('input[type="checkbox"]');
+    const cd = controls[0].querySelector('input[type="checkbox"]');
     if (!cd || !cd.parentElement.textContent.includes("CD")) {
       failures.push("CD offset preset is missing");
     }
-    const modelY = controls[0].querySelector('input[type="number"]');
+    const modelY = controls[0].querySelectorAll('input[type="number"]')[1];
     cd?.click();
     await waitFor(() => modelY?.value === "1.45", "CD preset did not set the primary Y offset");
     await waitFor(
@@ -465,12 +657,8 @@ try {
       () => document.querySelector(".shell")?.dataset.dataset === "case-f",
       "sixth dataset did not become primary",
     );
-    const compare = await waitFor(
-      () => [...document.querySelectorAll(".view-tabs button")].find((button) => button.textContent === "Compare"),
-      "Compare tab did not appear",
-    );
-    if (compare.disabled) failures.push("Compare tab is disabled for multiple datasets");
-    compare.click();
+    if (document.querySelector('.view-tabs')?.textContent.includes('Compare')) failures.push('comparison must not replace the representation');
+    if (!document.querySelector('.source-participation')) failures.push('source participation is missing');
     const panes = await waitFor(
       () => {
         const items = [...document.querySelectorAll(".field-comparison-pane")];
@@ -486,6 +674,12 @@ try {
     if (!panes.every((pane) => pane.querySelector("header")?.textContent.includes("Δ 0.0 min"))) {
       failures.push("field panes did not report their actual matched timestamp delta");
     }
+    const map = [...document.querySelectorAll('.display-controls label')]
+      .find(label => label.textContent.trim().startsWith("Map"))?.querySelector("select");
+    map.value = "coastline";
+    map.dispatchEvent(new Event("change", { bubbles: true }));
+    await waitFor(() => panes.every(pane => pane.querySelector('[data-coastline="ready"]')), "comparison coastlines did not render");
+    if (window.__ncxCoastlineFetches !== 1) failures.push("comparison panes did not share one coastline request");
     const axes = () => [...document.querySelectorAll(".field-comparison-pane .plot-axis")]
       .map((axis) => axis.dataset.xDomain + "|" + axis.dataset.yDomain);
     const before = axes();
@@ -512,6 +706,7 @@ try {
     if (window.__ncxMaxScalarReads > 4) {
       failures.push("field comparison advanced before its slowest pane loaded");
     }
+    if (window.__ncxCoastlineFetches !== 1) failures.push("comparison zoom or playback refetched coastline geometry");
     window.__ncxStep = "comparison export";
     const comparisonReads = window.__ncxFetches.filter((url) =>
       url.includes("/api/data?") && decodeURIComponent(url).includes("path=/temperature")).length;
@@ -531,6 +726,11 @@ try {
     if (comparisonReadsAfter - comparisonReads < panes.length) {
       failures.push("comparison export did not rerender every field pane");
     }
+    document.querySelectorAll('.field-pane-selection input:checked')[2].click();
+    await waitFor(() => {
+      const visible = [...document.querySelectorAll('.field-comparison-pane')];
+      return visible.length === 3 && visible.every(pane => pane.querySelector('.field-canvas[data-rendered="true"]') && pane.getBoundingClientRect().height > 40);
+    }, 'three selected field panes did not render');
     const supporting = [...document.querySelectorAll(".variable-filter label")]
       .find((label) => label.textContent.includes("Show coordinates"))?.querySelector("input");
     supporting.click();
@@ -544,11 +744,9 @@ try {
       "numeric coordinate curve did not open");
     await waitFor(() => document.querySelector(".curve-line")?.getAttribute("d"),
       "numeric coordinate curve did not render");
-    [...document.querySelectorAll(".view-tabs button")]
-      .find((button) => button.textContent === "Compare").click();
     const numericComparison = await waitFor(
-      () => document.querySelector(".comparison-figure .series-control")
-        ? document.querySelector(".comparison-figure")
+      () => document.querySelectorAll('.curve-line[data-kind="model"]').length === 6
+        ? document.querySelector(".main")
         : null,
       "numeric curve comparison did not render",
     );
@@ -661,11 +859,11 @@ try {
     await waitFor(() => document.querySelector(".curve-line")?.getAttribute("d"), "mesh probe curve did not render");
     if (!document.querySelector(".axis-label")?.textContent.includes("Time (HKT)")) failures.push("mesh curve lost CF time");
     const offsetControls = document.querySelector(".curve-offset-controls");
-    if (offsetControls?.parentElement !== document.querySelector(".figure-head")) {
-      failures.push("curve offsets are not in the figure heading");
+    if (!offsetControls?.closest(".toolbar .display-controls")) {
+      failures.push("curve offsets are not in the toolbar");
     }
-    const offsetInputs = [...(offsetControls?.querySelectorAll("input") ?? [])];
-    if (offsetInputs.length !== 1) failures.push("single-case time curve Y offset is missing");
+    const offsetInputs = [...(offsetControls?.querySelectorAll('input[type="number"]') ?? [])].reverse();
+    if (offsetInputs.length !== 2) failures.push("single-case time curve X/Y offsets are missing");
     if (offsetInputs[0]) {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")
         .set.call(offsetInputs[0], "15");
@@ -749,7 +947,8 @@ try {
   const variableSearch = document.querySelector(".variable-search");
   if (variableSearch?.placeholder !== "Filter variables (" + variableRows.length + " variables)") failures.push("variable count did not move into the filter placeholder");
   const searchType = getComputedStyle(variableSearch);
-  if (!searchType.fontFamily.includes("Commit Mono")) failures.push("variable filter did not use Commit Mono");
+  checkFontRole(variableSearch, "literal", 450);
+  checkFontRole(variableRows[0], "ui", 450);
   if (searchType.fontSize !== "12px") failures.push("variable filter is not on the 12 px micro step");
   const variableType = getComputedStyle(variableRows[0]);
   if (variableType.fontSize !== "13px") failures.push("variable names are not on the 13 px tick step (got " + variableType.fontSize + ")");
@@ -825,6 +1024,13 @@ try {
       if (!fields.some((input) => input.value.trim())) {
         failures.push("save dialog lettering fields were not prefilled");
       }
+      const names = ["title_01", "subtitle_01", "x_01", "y_01"];
+      for (let index = 0; index < fields.length; index += 1) {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(fields[index], names[index] + " $x^{2}$");
+        fields[index].dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      await waitFor(() => [...dialog.querySelectorAll(".preview")].every(preview => preview.textContent.includes("x²")), "delimited math preview did not update");
+      window.__ncxExpectedMathLabels = names.map(name => name + " x2");
       const plainExport = await saveOpenDialog(dialog);
       // The title band has no field or tick marks. Image dimensions and a
       // checksum alone cannot detect an export that omits every text label.
@@ -836,26 +1042,37 @@ try {
 
       let mappedExport;
       if (map) {
-        map.value = "osm";
+        if (window.__ncxCoastlineFetches !== 0) failures.push("coastline fetched before it was requested");
+        map.value = "coastline";
         map.dispatchEvent(new Event("change", { bubbles: true }));
-        await waitFor(() => document.querySelector(".map-overlay img"), "OSM overlay did not render");
+        const coast = await waitFor(() => document.querySelector('[data-coastline="ready"] path[d]:not([d=""])'), "coastline did not render");
+        const paint = getComputedStyle(coast);
+        if (paint.opacity !== "1" || paint.fill !== "none" || paint.mixBlendMode !== "normal") failures.push("coastline is not a solid unfilled stroke");
+        if (coast.parentElement.querySelector("text, image")) failures.push("coastline contains labels or raster tiles");
         open.click();
         const mapDialog = await waitFor(
           () => document.querySelector("dialog.save-dialog[open]"),
-          "OSM export dialog did not open",
+          "coastline export dialog did not open",
         );
         mappedExport = await saveOpenDialog(mapDialog);
-        await waitFor(() => !document.querySelector("dialog.save-dialog[open]"), "OSM export dialog did not close");
+        await waitFor(() => !document.querySelector("dialog.save-dialog[open]"), "coastline export dialog did not close");
       }
       const readsAfterExport = window.__ncxFetches.filter((url) =>
         url.includes("/api/data?") && decodeURIComponent(url).includes("path=/temperature")).length;
       if (readsAfterExport <= readsBeforeExport) failures.push("field export reused the screen raster instead of rerendering data");
       if (!document.querySelector(".plot-frame")?.dataset.exportCaptured) failures.push("field capture adapter did not run");
-      if (map && window.__ncxTileFetches === 0) failures.push("OSM tiles were omitted from export composition");
+      if (map && window.__ncxCoastlineFetches !== 1) failures.push("coastline export downloaded geometry again");
       if (mappedExport && mappedExport.checksum === plainExport.checksum) {
-        failures.push("OSM composition did not change the exported pixels");
+        failures.push("coastline composition did not change the exported pixels");
       }
       if (map) {
+        map.value = "none";
+        map.dispatchEvent(new Event("change", { bubbles: true }));
+        await waitFor(() => !document.querySelector(".coastline-overlay"), "coastline did not turn off");
+        map.value = "coastline";
+        map.dispatchEvent(new Event("change", { bubbles: true }));
+        await waitFor(() => document.querySelector('[data-coastline="ready"]'), "cached coastline did not return");
+        if (window.__ncxCoastlineFetches !== 1) failures.push("coastline toggle missed its cache");
         map.value = "none";
         map.dispatchEvent(new Event("change", { bubbles: true }));
       }
@@ -949,8 +1166,20 @@ try {
   }, "probe curve did not render");
   if (!document.querySelector(".axis-label")?.textContent.includes("Time (HKT)")) failures.push("valid CF time did not produce an HKT axis");
   const offsetControls = document.querySelector(".curve-offset-controls");
-  if (offsetControls?.parentElement !== document.querySelector(".figure-head")) {
-    failures.push("curve offsets are not in the figure heading");
+  if (!offsetControls?.closest(".toolbar .display-controls")) failures.push("curve offsets are not in the toolbar");
+  if (!offsetControls?.querySelector(".series-key") || offsetControls?.textContent.includes("datum unspecified")) {
+    failures.push("curve controls do not identify their series correctly");
+  }
+  const offsetInput = offsetControls?.querySelectorAll('input[type="number"]')[1];
+  const rangeInput = document.querySelector('.range-values input');
+  if (offsetInput && rangeInput) {
+    const offsetType = getComputedStyle(offsetInput);
+    const rangeType = getComputedStyle(rangeInput);
+    for (const property of ["fontFamily", "fontSize", "height"]) {
+      if (offsetType[property] !== rangeType[property]) failures.push("Y offset differs from toolbar inputs: " + property);
+    }
+    offsetInput.focus();
+    if (document.activeElement !== offsetInput) failures.push("Y offset cannot take keyboard focus");
   }
 
   const curveBounds = curve.getBoundingClientRect();
@@ -997,6 +1226,27 @@ try {
   await waitFor(() => timelineRange.value !== initialFrame, "frame-paced playback did not advance");
   document.querySelector('button[title="Stop"]').click();
   if (window.__ncxMaxScalarReads > 1) failures.push("animation overlapped scalar reads");
+
+  window.__ncxStep = "metadata typography";
+  [...document.querySelectorAll(".view-tabs button")].find(button => button.textContent === "Metadata").click();
+  const metadata = await waitFor(() => document.querySelector(".metadata-panel"), "metadata did not mount");
+  if (metadata.querySelector("table").getBoundingClientRect().width < 32 * parseFloat(getComputedStyle(document.documentElement).fontSize)) {
+    failures.push("metadata columns collapsed below readable width");
+  }
+  const description = metadata.querySelector('[data-typography="read"]');
+  const numeric = metadata.querySelector('[data-typography="number"]');
+  const literal = metadata.querySelector('[data-typography="literal"]');
+  if (!description || !numeric || !literal) failures.push("metadata profiles are not classified");
+  else {
+    checkFontRole(description, "read", 450);
+    checkFontRole(numeric, "literal", 450);
+    checkFontRole(literal, "literal", 450);
+    if (getComputedStyle(numeric).textAlign !== "right" || getComputedStyle(metadata.querySelector(".dimension-length")).textAlign !== "right") {
+      failures.push("numeric metadata lost column alignment");
+    }
+  }
+  [...document.querySelectorAll(".view-tabs button")].find(button => button.textContent === "Field").click();
+  await waitFor(() => document.querySelector(".field-canvas[data-rendered='true']") && !document.querySelector(".plot-loading"), "field did not return from metadata");
 
   window.__ncxStep = "scalar";
   [...document.querySelectorAll(".variable-row")]
@@ -1051,6 +1301,7 @@ try {
   failures.push(
     window.__ncxStep + ": " + String(error.message || error) +
     " · plot: " + (document.querySelector(".plot-error")?.textContent || "none") +
+    " · export: " + (document.querySelector(".export-error")?.textContent || "none") +
     " · mesh: " + (document.querySelector(".mesh-canvas")?.outerHTML || "none") +
     " · status: " + (document.querySelector(".statusbar")?.textContent || document.querySelector(".hub-error")?.textContent || "none") +
     "\\n" + String(error.stack || ""),

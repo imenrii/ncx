@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cut the interface and data faces down to the glyphs this viewer can set.
+"""Subset Gorton and National Park. Commit Mono fonts are prebuilt web assets.
 
     python3 web/scripts/subset-fonts.py
 
@@ -9,9 +9,9 @@ from the viewer would hand every reader a complete, installable copy of it.
 So the binary never contains one. This script writes a subset carrying only
 the characters below, and `src/server.rs` embeds *that*.
 
-The subset is committed, like `web/dist/` and `src/generated/scm.ts` before it, so a
-plain `cargo build` never needs Python or fontTools present. Re-run this only
-when the character set changes or the font is updated.
+National Park is committed. Gorton sources and subsets are not redistributed.
+Commit Mono Web is built by ../Style/Fonts/Commit_Mono/build.py; this script
+must not overwrite its customized cuts or the legacy plot fallback.
 
     pip install fonttools brotli
 
@@ -24,9 +24,8 @@ outside it falls through to the next family in the CSS stack, per glyph, which
 is what a font stack is for. A missing glyph costs a substituted character; it
 never costs a tofu box.
 
-All three families are cut to the same set. Any of them can be asked to set a
-`long_name`; a units string that drops out of Commit Mono mid-word loses the
-column alignment Commit Mono is carried for.
+This character set applies to Gorton and National Park. Commit Mono Web keeps
+all supported upstream characters. CM Math has its own range and metrics.
 """
 
 from __future__ import annotations
@@ -37,11 +36,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 GORTON = ROOT / "res/gorton-perfected-1.02/Font (not variable)"
-COMMIT = ROOT / "res/CommitMono"
 HERSHEY = ROOT / "res/AVHershey"
 OUT = ROOT / "res/gen"
 
-#: Gorton keeps seven OpenType features, Commit Mono keeps two.
+#: Gorton keeps seven OpenType features.
 #:
 #: `tnum` and `zero` are what `font-variant-numeric: tabular-nums slashed-zero`
 #: resolves to. Without them in the subset that declaration is inert, which is
@@ -52,28 +50,15 @@ OUT = ROOT / "res/gen"
 #: is the opt-in cleanup of precisely the machine forms this interface wants,
 #: so it is neither enabled nor subsetted in.
 GORTON_FEATURES = "kern,tnum,zero,ss02,ss04,ss06,ss12"
-COMMIT_FEATURES = "cv03,ss05"
 
 #: (source, output, features).
 #:
 #: Gorton: 400 for text, 600 for the little that needs weight. Hierarchy here is
 #: built from size, case, tracking and rules rather than weight (see style.css),
 #: so two cuts is the whole range -- shipping seven would be six wasted payloads.
-#:
-#: Commit Mono is monospace, so tabular figures are inherent. `cv03` squares
-#: punctuation to match the engraved chrome; `ss05` moves glyphs inside their
-#: fixed advances for easier reading without breaking columns. Its `calt` and
-#: ligatures stay out: `->` inside a `long_name` is two characters, not an
-#: arrow. Unlike Gorton it is SIL OFL, so its outputs are committed. The source
-#: is the upstream `ttfautohint` TrueType build rather than the CFF OTF: the OTF
-#: carries no grid-fitting tables, while the hinted TTF carries `gasp`, `fpgm`,
-#: `prep` and `cvt ` for small fractional sizes on Windows. The source files are
-#: gitignored under `res/CommitMono/src/` and are needed only to re-cut.
 FACES = [
     (GORTON / "GortonPerfected-Regular.otf", OUT / "gorton-400.woff2", GORTON_FEATURES),
     (GORTON / "GortonPerfected-Semibold.otf", OUT / "gorton-600.woff2", GORTON_FEATURES),
-    (COMMIT / "src/CommitMono-400-Regular.ttf", COMMIT / "commit-400.woff2", COMMIT_FEATURES),
-    (COMMIT / "src/CommitMono-700-Regular.ttf", COMMIT / "commit-700.woff2", COMMIT_FEATURES),
     # National Park does two jobs, and was cut for only the first of them: it
     # backs AVHershey per glyph in the plots, so the original subset carried
     # exactly the ~200 characters an 89-glyph stroke font lacks -- punctuation,
@@ -120,9 +105,8 @@ def main() -> int:
     unicodes = ",".join(f"U+{c:04X}" for c in sorted(CHARSET))
     cut = 0
     for source, target, features in FACES:
-        # A missing source is not fatal. Gorton's is absent for anyone without a
-        # licence, and Commit Mono's is absent in a fresh clone because only the
-        # cut output is committed. In both cases the existing output stands.
+        # A missing source leaves the existing output intact. Gorton's source
+        # is absent in checkouts without a licence.
         if not source.exists():
             print(f"no source, keeping {target.name}: {source}", file=sys.stderr)
             continue

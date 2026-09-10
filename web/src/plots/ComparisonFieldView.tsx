@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { fetchCoordinate, fetchMetadata } from "../data/api";
 import {
@@ -10,7 +10,7 @@ import { SpatialField } from "./SpatialField";
 import type { ColormapChoice, ColorRange } from "./color";
 import type { ColorScale, DatasetSummary, Metadata, Probe, Variable } from "../data/model";
 import { derivedValueLabel, variableLabel } from "../data/model";
-import { defaultDisplayDimensions, defaultIndices, type DisplayDimensions } from "../data/selection";
+import { comparisonFieldSelection, defaultDisplayDimensions, defaultIndices, type DisplayDimensions } from "../data/selection";
 import { describeTime, formatTimestamp, timeInZone, type DisplayTimeZone } from "../data/time";
 import type { ViewBounds } from "./view";
 
@@ -40,11 +40,13 @@ export function ComparisonFieldView({
   range,
   rangeLocked,
   mapSource,
+  wind,
   probe,
   timeZone,
   onProbe,
   onRange,
   onFrameLoaded,
+  onAllUnavailable,
   onStatus,
 }: {
   datasets: DatasetSummary[];
@@ -57,14 +59,19 @@ export function ComparisonFieldView({
   scale: ColorScale;
   range: ColorRange;
   rangeLocked: boolean;
-  mapSource: "none" | "osm";
+  mapSource: "none" | "coastline";
+  wind?: boolean;
   probe: Probe | undefined;
   timeZone: DisplayTimeZone;
   onProbe: (probe: Probe) => void;
   onRange: (range: ColorRange) => void;
   onFrameLoaded: () => void;
+  onAllUnavailable: () => void;
   onStatus: (status: string) => void;
 }) {
+  const [paneIds, setPaneIds] = useState<string[]>();
+  const selectedDatasets = useMemo(() => paneIds ? datasets.filter(item => paneIds.includes(item.id)).slice(0, 4)
+    : fieldComparisonDatasets(datasets, primaryMetadata.dataset_id), [datasets, paneIds, primaryMetadata.dataset_id]);
   const [panes, setPanes] = useState<Pane[]>([]);
   const [error, setError] = useState<string>();
   const [view, setView] = useState<ViewBounds>();
@@ -72,15 +79,17 @@ export function ComparisonFieldView({
   const [paneVersion, setPaneVersion] = useState(0);
   const requestedVersion = useRef(0);
   const loadedPanes = useRef(new Set<string>());
+  const failedPanes = useRef(new Set<string>());
   const frameComplete = useRef(false);
 
   useEffect(() => {
     let active = true;
     const version = ++requestedVersion.current;
     loadedPanes.current.clear();
+    failedPanes.current.clear();
     frameComplete.current = false;
     void loadPanes(
-      fieldComparisonDatasets(datasets, primaryMetadata.dataset_id),
+      selectedDatasets,
       primaryMetadata,
       variable,
       display,
@@ -93,18 +102,21 @@ export function ComparisonFieldView({
         setPaneVersion(version);
         setPaneRanges({});
         setError(undefined);
+        if (next.every(pane => pane.unavailable)) onAllUnavailable();
         onStatus(`${next.filter((pane) => !pane.unavailable).length} synchronized field panes`);
       })
       .catch((cause: unknown) => {
         if (!active) return;
         const message = cause instanceof Error ? cause.message : String(cause);
         setError(message);
+        setPanes([]);
+        onAllUnavailable();
         onStatus(message);
       });
     return () => {
       active = false;
     };
-  }, [datasets, primaryMetadata, variable, display, indices, timeZone, onStatus]);
+  }, [selectedDatasets, primaryMetadata, variable, display, indices, timeZone, onStatus, onAllUnavailable]);
 
   useEffect(() => {
     if (rangeLocked) return;
@@ -124,16 +136,20 @@ export function ComparisonFieldView({
         : { ...current, [id]: next };
     });
   }, []);
-  const recordFrameLoaded = useCallback((id: string) => {
-    if (paneVersion !== requestedVersion.current || frameComplete.current) return;
+  const recordFrameLoaded = useCallback((id: string, failed = false) => {
+    if (paneVersion !== requestedVersion.current) return;
     loadedPanes.current.add(id);
+    if (failed) failedPanes.current.add(id);
     const expected = panes.filter((pane) => !pane.unavailable);
+    if (failed && expected.every(pane => failedPanes.current.has(pane.id))) onAllUnavailable();
+    if (frameComplete.current) return;
     if (expected.length && expected.every((pane) => loadedPanes.current.has(pane.id))) {
       frameComplete.current = true;
-      onFrameLoaded();
+      if (expected.every(pane => failedPanes.current.has(pane.id))) onAllUnavailable();
+      else onFrameLoaded();
     }
-  }, [paneVersion, panes, onFrameLoaded]);
-  const selectedCount = fieldComparisonDatasets(datasets, primaryMetadata.dataset_id).length;
+  }, [paneVersion, panes, onFrameLoaded, onAllUnavailable]);
+  const selectedCount = selectedDatasets.length;
   const derivation = [variable, ...panes.map((pane) => pane.variable)]
     .map(derivedValueLabel)
     .find(Boolean);
@@ -146,6 +162,15 @@ export function ComparisonFieldView({
           derivation,
         ].filter(Boolean).join(" · ")}</span>
       </header>
+      {datasets.length > 4 && <details className="field-pane-selection"><summary>Visible panes ({selectedCount}/4)</summary>
+        {datasets.map(item => <label key={item.id}><input type="checkbox"
+          checked={selectedDatasets.some(source => source.id === item.id)}
+          disabled={selectedCount >= 4 && !selectedDatasets.some(source => source.id === item.id)}
+          onChange={event => { const checked = event.currentTarget.checked;
+            setPaneIds(checked ? [...selectedDatasets.map(source => source.id), item.id]
+              : selectedDatasets.filter(source => source.id !== item.id).map(source => source.id));
+          }} />{item.label}</label>)}
+      </details>}
       <div className="field-comparison" data-count={panes.length}>
         {panes.map((pane) => (
           <ComparisonPane
@@ -157,16 +182,18 @@ export function ComparisonFieldView({
             range={range}
             rangeLocked={rangeLocked}
             mapSource={mapSource}
-            probe={probe}
+            wind={wind}
+            probe={pane.id === primaryMetadata.dataset_id ? probe : undefined}
             controlledView={view}
             onViewChange={setView}
-            onProbe={onProbe}
+            onProbe={pane.id === primaryMetadata.dataset_id ? onProbe : () => onStatus("Select this dataset as primary to use its probe")}
             onRange={recordRange}
             onFrameLoaded={recordFrameLoaded}
             onStatus={onStatus}
           />
         ))}
-        {!panes.length && !error && <span className="plot-loading">opening comparison fields…</span>}
+        {!selectedCount ? <span className="comparison-unavailable">Select a visible pane.</span>
+          : !panes.length && !error && <span className="plot-loading">opening comparison fields…</span>}
         {error && <div className="plot-error">{error}</div>}
       </div>
       {datasets.length > selectedCount && (
@@ -186,6 +213,7 @@ function ComparisonPane({
   range,
   rangeLocked,
   mapSource,
+  wind,
   probe,
   controlledView,
   onViewChange,
@@ -200,17 +228,19 @@ function ComparisonPane({
   scale: ColorScale;
   range: ColorRange;
   rangeLocked: boolean;
-  mapSource: "none" | "osm";
+  mapSource: "none" | "coastline";
+  wind?: boolean;
   probe: Probe | undefined;
   controlledView?: ViewBounds;
   onViewChange: (view: ViewBounds) => void;
   onProbe: (probe: Probe) => void;
   onRange: (id: string, range: ColorRange) => void;
-  onFrameLoaded: (id: string) => void;
+  onFrameLoaded: (id: string, failed?: boolean) => void;
   onStatus: (status: string) => void;
 }) {
   const reportRange = useCallback((next: ColorRange) => onRange(pane.id, next), [onRange, pane.id]);
   const reportFrameLoaded = useCallback(() => onFrameLoaded(pane.id), [onFrameLoaded, pane.id]);
+  const reportFrameError = useCallback(() => onFrameLoaded(pane.id, true), [onFrameLoaded, pane.id]);
   const common = {
     metadata: pane.metadata,
     variable: pane.variable,
@@ -223,10 +253,12 @@ function ComparisonPane({
     rangeLocked,
     sharedRange: true,
     mapSource,
+  wind,
     probe,
     onProbe,
     onRange: reportRange,
     onFrameLoaded: reportFrameLoaded,
+    onFrameError: reportFrameError,
     onStatus,
   };
   return (
@@ -256,50 +288,48 @@ async function loadPanes(
   referenceIndices: Record<string, number>,
   timeZone: DisplayTimeZone,
 ): Promise<Pane[]> {
-  const loaded = await Promise.all(datasets.map(async (dataset) => ({
-    dataset,
-    metadata: dataset.id === primaryMetadata.dataset_id ? primaryMetadata : await fetchMetadata(dataset.id),
-  })));
   const primaryAxis = await fieldTimeAxis(primaryMetadata, reference);
   const primaryIndex = primaryAxis
     ? clampIndex(referenceIndices[primaryAxis.dimension.path], primaryAxis.values.length)
     : undefined;
   const targetMs = primaryAxis && primaryIndex !== undefined ? primaryAxis.epochMs[primaryIndex] : undefined;
-  const panes: Pane[] = [];
-  for (const { dataset, metadata } of loaded) {
-    const match = dataset.id === primaryMetadata.dataset_id
-      ? { variable: reference }
-      : findCompatibleVariable(reference, metadata);
-    if (!match || match.variable.dimensions.length < 2) {
-      panes.push(unavailablePane(dataset, metadata, reference, "No compatible field"));
-      continue;
-    }
-    const variable = match.variable;
-    const display = mappedDisplay(reference, referenceDisplay, variable);
-    const indices = mappedIndices(reference, referenceIndices, variable);
-    const axis = await fieldTimeAxis(metadata, variable);
-    let timestamp: string | undefined;
-    let deltaMs: number | undefined;
-    if (targetMs !== undefined) {
-      if (!axis) {
-        panes.push(unavailablePane(dataset, metadata, variable, "No decodable absolute time axis", display, indices));
-        continue;
+  return Promise.all(datasets.map(async dataset => {
+    let metadata = primaryMetadata;
+    try {
+      metadata = dataset.id === primaryMetadata.dataset_id
+        ? primaryMetadata : await fetchMetadata(dataset.id);
+      const match = dataset.id === primaryMetadata.dataset_id
+        ? { variable: reference }
+        : findCompatibleVariable(reference, metadata);
+      if (!match || match.variable.dimensions.length < 2 && match.variable.view_hint.kind !== "ugrid2d") {
+        return unavailablePane(dataset, metadata, reference, "No compatible field");
       }
-      const frame = nearestFrame(targetMs, axis.epochMs);
-      if (!frame) {
-        panes.push(unavailablePane(dataset, metadata, variable, "No frame within tolerance", display, indices));
-        continue;
+      const variable = match.variable;
+      const axis = await fieldTimeAxis(metadata, variable);
+      const { display, indices } = comparisonFieldSelection(
+        reference, referenceDisplay, referenceIndices, variable, axis?.dimension.path,
+      );
+      let timestamp: string | undefined;
+      let deltaMs: number | undefined;
+      if (targetMs !== undefined) {
+        if (!axis) {
+          return unavailablePane(dataset, metadata, variable, "No decodable absolute time axis", display, indices);
+        }
+        const frame = nearestFrame(targetMs, axis.epochMs);
+        if (!frame) {
+          return unavailablePane(dataset, metadata, variable, "No frame within tolerance", display, indices);
+        }
+        indices[axis.dimension.path] = frame.index;
+        deltaMs = frame.deltaMs;
+        timestamp = formatTimestamp(axis.values[frame.index], timeInZone(axis.time, timeZone)!);
+      } else if (axis) {
+        return unavailablePane(dataset, metadata, variable, "Primary field has no comparable absolute time", display, indices);
       }
-      indices[axis.dimension.path] = frame.index;
-      deltaMs = frame.deltaMs;
-      timestamp = formatTimestamp(axis.values[frame.index], timeInZone(axis.time, timeZone)!);
-    } else if (axis) {
-      panes.push(unavailablePane(dataset, metadata, variable, "Primary field has no comparable absolute time", display, indices));
-      continue;
+      return { id: dataset.id, label: dataset.label, metadata, variable, display, indices, timestamp, deltaMs };
+    } catch (cause) {
+      return unavailablePane(dataset, metadata, reference, cause instanceof Error ? cause.message : String(cause));
     }
-    panes.push({ id: dataset.id, label: dataset.label, metadata, variable, display, indices, timestamp, deltaMs });
-  }
-  return panes;
+  }));
 }
 
 async function fieldTimeAxis(metadata: Metadata, variable: Variable) {
@@ -318,27 +348,6 @@ async function fieldTimeAxis(metadata: Metadata, variable: Variable) {
     };
   }
   return undefined;
-}
-
-function mappedDisplay(reference: Variable, display: DisplayDimensions, variable: Variable): DisplayDimensions {
-  const xName = display.x === undefined ? undefined : reference.dimensions[display.x]?.name;
-  const yName = display.y === undefined ? undefined : reference.dimensions[display.y]?.name;
-  const x = xName === undefined ? -1 : variable.dimensions.findIndex((dimension) => dimension.name === xName);
-  const y = yName === undefined ? -1 : variable.dimensions.findIndex((dimension) => dimension.name === yName);
-  return x >= 0 && y >= 0 && x !== y ? { x, y } : defaultDisplayDimensions(variable);
-}
-
-function mappedIndices(
-  reference: Variable,
-  referenceIndices: Record<string, number>,
-  variable: Variable,
-): Record<string, number> {
-  const result = defaultIndices(variable);
-  for (const dimension of variable.dimensions) {
-    const source = reference.dimensions.find((candidate) => candidate.name === dimension.name);
-    if (source) result[dimension.path] = clampIndex(referenceIndices[source.path], dimension.length);
-  }
-  return result;
 }
 
 function clampIndex(value: number | undefined, length: number): number {

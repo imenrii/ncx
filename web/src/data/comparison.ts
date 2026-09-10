@@ -21,14 +21,7 @@ export function fieldComparisonDatasets(
   primaryId: string | undefined,
 ): DatasetSummary[] {
   const ordered = primaryFirst(datasets, primaryId);
-  return ordered.slice(0, ordered.length >= 4 ? 4 : Math.min(2, ordered.length));
-}
-
-export function comparisonAvailable(
-  dimensions: number,
-  datasets: number,
-): boolean {
-  return dimensions > 0 && datasets >= 2;
+  return ordered.slice(0, 4);
 }
 
 /** Find the same physical quantity without guessing across units or stations. */
@@ -89,7 +82,7 @@ export async function requestHostComparison(request: {
   units: string;
   start_ms: number;
   end_ms: number;
-}): Promise<ComparisonSeries[]> {
+}, signal?: AbortSignal): Promise<ComparisonSeries[]> {
   if (window.parent === window) throw new Error("Comparison host is unavailable");
   const requestId = crypto.randomUUID();
   const origin = window.location.origin;
@@ -109,13 +102,17 @@ export async function requestHostComparison(request: {
     const finish = (error?: string, series?: unknown) => {
       window.clearTimeout(timeout);
       window.removeEventListener("message", receive);
+      signal?.removeEventListener("abort", abort);
       if (error) reject(new Error(error));
       else {
         try { resolve(validateComparisonSeries(series)); }
         catch (cause) { reject(cause); }
       }
     };
+    const abort = () => finish("Reference request cancelled");
     window.addEventListener("message", receive);
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) { abort(); return; }
     window.parent.postMessage({
       type: "ncx:comparison-request",
       request_id: requestId,

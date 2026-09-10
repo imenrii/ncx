@@ -20,7 +20,7 @@ const metadata: Metadata = {
 
 test("a new variable resets coupled controls, probe and playback together", () => {
   const changed = updateVariableState(initialVariableState(metadata, field), {
-    indices: { "/time": 4 }, display: { x: 0, y: 1 }, view: "compare",
+    indices: { "/time": 4 }, display: { x: 0, y: 1 }, view: "curve",
     probe: { indices: { "/time": 4 }, x: 1, y: 2, value: 3 },
     playDirection: -1, frameReady: false, rangeLocked: true,
     colorRange: { minimum: -8, maximum: 9 }, curveAlong: 1,

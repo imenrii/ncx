@@ -40,14 +40,34 @@ const SCRIPT_SCALE = 0.75;
 const SUPERSCRIPT_SHIFT = 0.42;
 const SUBSCRIPT_SHIFT = -0.2;
 
+// Match escapes first so an escaped dollar cannot open a math span.
+const MATH_SPANS = /\\[\s\S]|\$((?:\\[\s\S]|[^\\$])*)\$/g;
+
+/** Parse only paired `$...$` spans. An unmatched dollar stays literal. */
+export function parseMath(source: string): MathRun[] {
+  const runs: MathRun[] = [];
+  const literal = (text: string) => {
+    if (text) runs.push({ text, shift: 0, scale: 1 });
+  };
+  let end = 0;
+  for (const match of source.matchAll(MATH_SPANS)) {
+    literal(source.slice(end, match.index));
+    if (match[1] !== undefined) runs.push(...parseMathBody(match[1]));
+    else literal(match[0] === "\\$" ? "$" : match[0]);
+    end = match.index + match[0].length;
+  }
+  literal(source.slice(end));
+  return runs;
+}
+
 /**
- * Split `source` into baseline runs.
+ * Split a math span into baseline runs.
  *
  * `^{...}` and `_{...}` take a braced group or the single next character, so
  * both `m s^{-1}` and `x^2` work. `\name` becomes its symbol; an unknown name
  * is left as typed rather than silently dropped, so a typo is visible.
  */
-export function parseMath(source: string): MathRun[] {
+function parseMathBody(source: string): MathRun[] {
   const runs: MathRun[] = [];
   let plain = "";
   let index = 0;
@@ -101,7 +121,7 @@ function expandSymbols(source: string): string {
 
 /** True when `source` carries markup worth parsing. */
 export function hasMath(source: string): boolean {
-  return /[\^_\\]/.test(source);
+  return [...source.matchAll(MATH_SPANS)].some((match) => match[1] !== undefined);
 }
 
 /**

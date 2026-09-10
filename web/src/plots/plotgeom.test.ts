@@ -9,6 +9,8 @@ import {
   axisOffsets,
   colorbarGeometry,
   plotMargin,
+  annotationStrip,
+  fieldMargin,
   widestLabel,
   type PlotType,
 } from "./plotgeom.ts";
@@ -111,6 +113,14 @@ test("every axis offset scales with the type size", () => {
     );
   }
   assert.equal(tickLength(large), 2 * tickLength(small));
+});
+
+test("the annotation strip is reserved globally, including explicit curve top padding", () => {
+  for (const type of TYPES) {
+    assert.equal(plotMargin(type, { top: 0 }).top, annotationStrip(type));
+    assert.equal(plotMargin(type, { top: 20 }).top, annotationStrip(type) + 20);
+    assert.ok(fieldMargin(type).top > annotationStrip(type));
+  }
 });
 
 test("widestLabel measures the longest formatted tick", () => {

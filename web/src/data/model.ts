@@ -112,7 +112,7 @@ export interface Probe {
   longitude?: number;
 }
 
-export type ViewName = "field" | "curve" | "compare" | "metadata";
+export type ViewName = "field" | "curve" | "metadata";
 export type ColorScale = "linear" | "log" | "symlog";
 // Colormap lives in ./color, beside the tables it names: the set of legal
 // values is a property of the colour data, not of the dataset model.
@@ -239,6 +239,18 @@ export function coordinateVariablePaths(metadata: Metadata): Set<string> {
     }
   }
   return paths;
+}
+
+export function hasGeographicCoordinates(metadata: Metadata, variable: Variable): boolean {
+  const hint = variable.view_hint;
+  if (hint.kind !== "rectilinear" && hint.kind !== "curvilinear" && hint.kind !== "ugrid2d") return false;
+  const x = metadata.variables.find((candidate) => candidate.path === hint.x);
+  const y = metadata.variables.find((candidate) => candidate.path === hint.y);
+  if (!x || !y) return false;
+  return (
+    (attributeText(x, "standard_name") === "longitude" || (attributeText(x, "units") ?? "").startsWith("degrees_east")) &&
+    (attributeText(y, "standard_name") === "latitude" || (attributeText(y, "units") ?? "").startsWith("degrees_north"))
+  );
 }
 
 export function isNumeric(variable: Variable): boolean {

@@ -24,7 +24,7 @@ export function MetadataPanel({ metadata, variable }: { metadata: Metadata; vari
               return (
                 <tr key={dimension.path}>
                   <th>{dimension.name}</th>
-                  <td>{dimension.length.toLocaleString()}</td>
+                  <td className="dimension-length">{dimension.length.toLocaleString()}</td>
                   <td>{dimension.path}{discovered?.unlimited ? " · unlimited" : ""}</td>
                 </tr>
               );
@@ -49,11 +49,14 @@ function AttributeRow({ attribute }: { attribute: Attribute }) {
   const value = Array.isArray(attribute.value)
     ? attribute.value.map(formatAttributeValue).join(", ")
     : formatAttributeValue(attribute.value);
+  const typography = typeof attribute.value === "number" ? "number"
+    : typeof attribute.value === "string" && ["long_name", "description", "comment", "title", "summary"].includes(attribute.name)
+      ? "read" : "literal";
   return (
     <tr>
       <th>{attribute.name}</th>
       <td>{attribute.dtype}</td>
-      <td className="attribute-value">{value}{attribute.truncated ? " …" : ""}</td>
+      <td className="attribute-value" data-typography={typography}>{value}{attribute.truncated ? " …" : ""}</td>
     </tr>
   );
 }

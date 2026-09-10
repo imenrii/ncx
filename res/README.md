@@ -10,8 +10,9 @@ itself has to be inside the executable.
 | `AVHershey/NationalPark.woff2` | National Park | plot fallback and chrome labels | SIL OFL 1.1 | yes |
 | `gorton-perfected-1.02/` | [Gorton Perfected](https://shifthappens.site/store/#fonts) | interface text | commercial, per-seat | **no** |
 | `gen/` | Gorton Perfected, subset | what actually ships | same as above | **no** |
-| `CommitMono/commit-*.woff2` | Commit Mono, subset | every variable name, value, coordinate and unit | SIL OFL 1.1 | yes |
-| `CommitMono/src/` | Commit Mono, hinted TrueType | source for the cut above | SIL OFL 1.1 | **no** |
+| `CommitMono/commit-web-*.woff2` | Commit Mono Web 400/450/600 | web controls, identifiers, values, descriptive metadata | SIL OFL 1.1 | yes |
+| `CommitMono/commit-400.woff2`, `commit-700.woff2` | Legacy Commit Mono | unchanged browser plot fallback | SIL OFL 1.1 | yes |
+| `CommitMono/src/` | Legacy Commit Mono TrueType | historical source for the plot fallback | SIL OFL 1.1 | **no** |
 | `NewCM/` | New Computer Modern Math | every mathematical symbol, in any face | SIL OFL 1.1 | yes |
 
 Nothing is loaded from a CDN. Commit Mono used to be, which put the one face
@@ -44,11 +45,11 @@ source and the subsets stay out of the repository, and the subset exists only
 inside a binary built by someone holding a licence. `FORMATS` permits WOFF2,
 which is what is served.
 
-`CommitMono/src/` is gitignored for the opposite reason — no licence problem at
-all, just weight. The upstream `ttfautohint` sources total 745 kB; the two WOFF2
-cuts total 48 kB. The hinted TrueType build is deliberate: Commit Mono's CFF OTF
-has no grid-fitting tables, while this source carries `gasp`, `fpgm`, `prep` and
-`cvt ` through to WOFF2 for small fractional sizes on Windows.
+`CommitMono/src/` holds old sources for the separate plot fallback. The new
+Commit Mono Web sources and reproducible build are in the sibling
+`Style/Fonts/Commit_Mono` package. The committed web cuts preserve hint tables
+(`gasp`, `fpgm`, `prep`, `cvt `). A normal ncx build uses those committed files
+and needs no font-generation tools.
 
 ## Building without a licence
 
@@ -68,40 +69,63 @@ Keep both sources and generated subsets out of Git and release attachments.
 viewer and hub modes and stops if a required font is missing. Subsetting alone
 does not change the original licence terms.
 
-## Regenerating the subset
+## Gorton and National Park subsets
 
-Needs `pip install fonttools brotli`. `build.rs` runs this for you; call it
-directly only to inspect the output.
+The existing subsetter needs `fonttools` and `brotli`. `build.rs` calls it
+when the licensed Gorton source is present:
 
 ```bash
 python3 web/scripts/subset-fonts.py
 ```
 
-It cuts five files to one declared character set:
+It produces Gorton 400/600 and National Park. Missing sources leave existing
+outputs intact. It does not regenerate either Commit Mono family. Gorton keeps
+`kern,tnum,zero,ss02,ss04,ss06,ss12`; National Park keeps `kern`.
 
+## Commit Mono Web
+
+This family is for web UI only. The old `Commit Mono` family and its 400/700
+assets remain the browser plot fallback. Non-web scientific plotting styles
+do not change.
+
+The customized fonts use upstream Commit Mono 1.143, pinned to revision
+`d407cd2bf8e01ca1db70544052fbbb9606406c3b`. They retain all 1,175 supported
+code points. Weight 450 is normal on light surfaces, 600 is emphasis, and 400
+is for the dark status strip. Round dots and the default slashed zero replace
+the old square-dot UI treatment.
+
+The font files retain `ss03`, `ss04`, and `ss05`, but not `calt`, character
+alternates, operator ligatures, or arrow substitutions. The UI profile uses
+`ss05`; Literal disables all three; Read enables all three. `style.css` owns
+the application role mapping. `commit-mono.css` declares the family and tokens.
+CM Math remains first. Its symbols have proportional metrics, so mixed math
+values need layout-based alignment.
+
+From the sibling Style directory, use an isolated build environment:
+
+```bash
+python3 -m venv /tmp/commit-mono-build
+/tmp/commit-mono-build/bin/python -m pip install -r Fonts/Commit_Mono/requirements.txt
+/tmp/commit-mono-build/bin/python Fonts/Commit_Mono/build.py --ncx ../ncx
+/tmp/commit-mono-build/bin/python Fonts/Commit_Mono/build.py --check --ncx ../ncx
 ```
-GortonPerfected-Regular.otf     42.5 kB -> gorton-400.woff2    18.1 kB
-GortonPerfected-Semibold.otf    42.9 kB -> gorton-600.woff2    18.3 kB
-CommitMono-400-Regular.ttf     369.1 kB -> commit-400.woff2    24.1 kB
-CommitMono-700-Regular.ttf     375.8 kB -> commit-700.woff2    23.9 kB
-NationalPark-Regular.ttf        74.6 kB -> NationalPark.woff2  14.8 kB
-```
 
-A missing source is skipped rather than fatal, and the existing output stands.
-That is what lets a clone without a Gorton licence still re-cut Commit Mono, and
-a licensed clone re-cut Gorton without carrying Commit Mono's TTFs.
+The build instances the pinned TrueType variable source at 400/450/600 and
+hints it with the author's strong-stem modes and 400 reference. It checks
+weight metadata, character coverage, features, hints, ASCII widths, line
+metrics, hashes, and synchronized copies. The source package contains the
+complete input, TTF/WOFF2 outputs, manifest, and instructions.
 
-All three families get the same set, because any can be handed the same
-`long_name`, and a units string that drops out of Commit Mono mid-word loses the
-column alignment it is carried for. The set is declared rather than scraped: the chrome
-is fixed and could be scanned, but variable names, units and `long_name`
-attributes come out of whatever file the reader opens and could hold anything.
-So it covers Latin, Latin-1, Latin Extended-A, Greek, super/subscripts, arrows
-and the scientific punctuation CF metadata reaches for. Anything outside falls
-through the stack.
+The ncx runtime needs only the committed WOFF2 files. Rust serves them in both
+viewer and hub modes. Export embeds the family for comparison-pane headers;
+its plot axis, title, and legend families stay unchanged. If font bytes change,
+revise their CSS and export URLs to avoid stale immutable cache entries.
 
-Gorton keeps `kern,tnum,zero,ss02,ss04,ss06,ss12`; Commit Mono keeps
-`cv03,ss05`; National Park keeps `kern`. Commit Mono's smart kerning moves
-glyphs within fixed advances, so columns remain monospaced. Its `calt` and
-ligatures are dropped deliberately: `->` inside a `long_name` is two
-characters, not an arrow.
+After a font/CSS update, run frontend tests and build, then rebuild Rust before
+browser checks. `tests/ui-smoke.mjs` checks actual font loading and role
+settings. `tests/release-smoke.py` checks font responses in viewer and hub modes.
+Native Windows/macOS rasterization remains a manual check; hint tables alone
+do not prove the visual result on those systems.
+
+Keep `CommitMonoWeb-OFL.txt` with the customized family. The older fallback
+keeps `CommitMono-LICENSE.txt`. Both are OFL; neither contains Gorton data.

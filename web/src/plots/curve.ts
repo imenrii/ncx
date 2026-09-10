@@ -44,7 +44,8 @@ export function curveGeometry(
     log = false,
     xRange,
     yRange,
-  }: { log?: boolean; xRange?: CurveRange; yRange?: { minimum: number; maximum: number } } = {},
+    step = false,
+  }: { log?: boolean; xRange?: CurveRange; yRange?: { minimum: number; maximum: number }; step?: boolean } = {},
 ) {
   if (!values?.length) return undefined;
   const xValues = coordinate?.length === values.length
@@ -113,7 +114,9 @@ export function curveGeometry(
       drawing = false;
       continue;
     }
-    path += `${drawing ? "L" : "M"}${xFor(index).toFixed(2)} ${yFor(value).toFixed(2)}`;
+    path += drawing && step
+      ? `H${xFor(index).toFixed(2)}V${yFor(value).toFixed(2)}`
+      : `${drawing ? "L" : "M"}${xFor(index).toFixed(2)} ${yFor(value).toFixed(2)}`;
     drawing = true;
   }
   return {

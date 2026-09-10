@@ -156,7 +156,7 @@ export function SaveDialog({
         {field("yTitle", "Y axis")}
         {preview("yTitle")}
 
-        <p className="hint syntax">{"Accepts LaTeX: ^{ } _{ } \\alpha \\times \\degree"}</p>
+        <p className="hint syntax">{"Use $...$ for LaTeX in all four fields: $x^{2}$, $\\alpha$, $m s^{-1}$."}</p>
 
         {error && <p className="export-error" role="alert">{error}</p>}
 

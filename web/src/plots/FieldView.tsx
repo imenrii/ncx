@@ -25,7 +25,8 @@ import { useElementSize } from "./useElementSize";
 import { fieldMargin, plotType } from "./plotgeom";
 import { PERFORMANCE_MEASURE, measurePerformance } from "../data/performance";
 import { buildRectilinearAxis, type RectilinearAxis } from "./rectilinear";
-import { MapOverlay } from "./MapOverlay";
+import { CoastlineOverlay } from "./CoastlineOverlay";
+import { WindFieldOverlay } from "./WindFieldOverlay";
 import { Colorbar, PlotAxes, FieldMarks, ViewControls } from "./plot";
 import {
   fitPlotToBounds,
@@ -128,10 +129,11 @@ export function FieldView(props: FieldViewProps) {
       reject: (nextError) => {
         setLoading(false);
         setError(nextError.message);
+        props.onFrameError?.();
         props.onStatus(nextError.message);
       },
     });
-  }, [request.dataset, request.path, request.selection, request.stride, props.onFrameLoaded, props.onStatus]);
+  }, [request.dataset, request.path, request.selection, request.stride, props.onFrameLoaded, props.onFrameError, props.onStatus]);
 
   useEffect(() => {
     let active = true;
@@ -386,6 +388,16 @@ export function FieldView(props: FieldViewProps) {
             aria-label={`${props.variable.name} field`}
           />
           <svg className="plot-svg" width={frameSize.width} height={frameSize.height} aria-hidden="true">
+            {props.mapSource === "coastline" && layout && (
+              <CoastlineOverlay
+                bounds={{ minimumX: xDomain[0], maximumX: xDomain[1], minimumY: yDomain[0], maximumY: yDomain[1] }}
+                plot={plot}
+                onStatus={props.onStatus}
+              />
+            )}
+            {props.wind && layout && <WindFieldOverlay metadata={props.metadata} variable={props.variable}
+              indices={props.indices} bounds={{ minimumX: xDomain[0], maximumX: xDomain[1], minimumY: yDomain[0], maximumY: yDomain[1] }}
+              plot={plot} onStatus={props.onStatus} />}
             <PlotAxes
               type={type}
               plot={plot}
@@ -408,15 +420,6 @@ export function FieldView(props: FieldViewProps) {
               y: plot.top + probePosition.y * plot.height,
             }} />
           </svg>
-          {props.mapSource === "osm" && layout && (
-            <div className="map-position" style={{ left: plot.left, top: plot.top, width: plot.width, height: plot.height }}>
-              <MapOverlay
-                bounds={{ minimumX: xDomain[0], maximumX: xDomain[1], minimumY: yDomain[0], maximumY: yDomain[1] }}
-                width={plot.width}
-                height={plot.height}
-              />
-            </div>
-          )}
           <ViewControls
             onZoomIn={() => changeView(zoomBounds(view, FULL_FIELD, 0.75))}
             onZoomOut={() => changeView(zoomBounds(view, FULL_FIELD, 4 / 3))}

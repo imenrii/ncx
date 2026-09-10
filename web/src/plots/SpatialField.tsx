@@ -1,7 +1,7 @@
 import { FieldView } from "./FieldView";
 import { MeshFieldView } from "./MeshFieldView";
 import type { ColormapChoice, ColorRange } from "./color";
-import type { ColorScale, Metadata, Probe, Variable } from "../data/model";
+import { hasGeographicCoordinates, type ColorScale, type Metadata, type Probe, type Variable } from "../data/model";
 import type { DisplayDimensions } from "../data/selection";
 import type { ViewBounds } from "./view";
 
@@ -16,13 +16,15 @@ export interface FieldProps {
   range: ColorRange;
   rangeLocked: boolean;
   sharedRange?: boolean;
-  mapSource: "none" | "osm";
+  mapSource: "none" | "coastline";
+  wind?: boolean;
   probe: Probe | undefined;
   initialView?: ViewBounds;
   onViewChange: (view: ViewBounds) => void;
   onProbe: (probe: Probe) => void;
   onRange: (range: ColorRange) => void;
   onFrameLoaded: () => void;
+  onFrameError?: () => void;
   onStatus: (status: string) => void;
 }
 
@@ -34,12 +36,15 @@ export function SpatialField({
   synchronizedView?: ViewBounds;
   onSynchronizedViewChange?: (view: ViewBounds) => void;
 }) {
+  const mapSource = hasGeographicCoordinates(props.metadata, props.variable) ? props.mapSource : "none";
   return mesh
     ? <MeshFieldView {...props}
+        mapSource={mapSource}
         controlledView={synchronizedView}
         onViewChange={onSynchronizedViewChange ?? props.onViewChange}
       />
     : <FieldView {...props}
+        mapSource={mapSource}
         controlledWorldView={synchronizedView}
         onWorldViewChange={onSynchronizedViewChange}
       />;

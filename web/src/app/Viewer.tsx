@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type SetStateAction } from "react";
 import { initialVariableState, updateVariableState } from "./viewerState";
+import { PlotBoundary } from "./PlotBoundary";
 
 import { fetchCoordinate } from "../data/api";
+import { convert, unitChoice } from "../data/units";
+import { derivedWindVariable, windPair, fieldWindReason } from "../data/wind";
 import { CollectionBrowser, DatasetBrowser } from "./DatasetBrowser";
-import { comparisonAvailable } from "../data/comparison";
-import { ComparisonCurveView } from "../plots/ComparisonCurveView";
+import type { CurvePresentation } from "../plots/curveSeries";
+import { primaryFirst } from "../data/comparison";
 import { ComparisonFieldView } from "../plots/ComparisonFieldView";
 import { CurveView } from "../plots/CurveView";
 import { SaveDialog } from "./SaveDialog";
@@ -28,6 +31,7 @@ import {
   derivedValueLabel,
   displayUnit,
   isNumeric,
+  hasGeographicCoordinates,
   isTimeCoordinate,
   variableLabel,
 } from "../data/model";
@@ -85,8 +89,20 @@ export function Viewer({
   const [search, setSearch] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [timelineValues, setTimelineValues] = useState<Float64Array>();
-  const [mapSource, setMapSource] = useState<"none" | "osm">("none");
+  const [mapSource, setMapSource] = useState<"none" | "coastline">("none");
   const [saving, setSaving] = useState(false);
+  const [wind, setWind] = useState(false);
+  const [derivedWind, setDerivedWind] = useState(false);
+  const [unitId, setUnitId] = useState("");
+  const [curveRange, setCurveRange] = useState<ColorRange>({ minimum: 0, maximum: 1 });
+  const [beaufortRange, setBeaufortRange] = useState<ColorRange>({ minimum: 0, maximum: 12 });
+  const [curveLocked, setCurveLocked] = useState(false);
+  const [curveControls, setCurveControls] = useState<HTMLDivElement | null>(null);
+  const [sourceIds, setSourceIds] = useState<string[]>();
+  const [curvePresentation, setCurvePresentation] = useState<CurvePresentation>({ offsets: {}, referenceHidden: false });
+  const sourceKey = datasets.map(item => item.id).join("|");
+  const participatingDatasets = useMemo(() => datasets.filter(item => sourceIds ? sourceIds.includes(item.id)
+    : !collection || item.id === selectedDataset), [datasets, sourceIds, collection, selectedDataset]);
   const [displayTimeZone, setDisplayTimeZone] = useState<DisplayTimeZone>(
     displayTimeZones[0],
   );
@@ -104,8 +120,30 @@ export function Viewer({
   }, []);
 
   const variable = metadata?.variables.find((candidate) => candidate.path === selectedPath);
-  const view = !allowComparison && requestedView === "compare"
-    ? initialVariableState(metadata, variable).view : requestedView;
+  const view = requestedView;
+  const units = useMemo(() => variable ? unitChoice(derivedWind ? derivedWindVariable(variable) : variable) : undefined, [variable, derivedWind]);
+  const sourceUnit = units?.source;
+  const targetUnit = units?.choices.find(item => item.id === unitId) ?? sourceUnit;
+  const useBeaufort = Boolean(units?.beaufort && unitId === "Bft");
+  const windUnit = useBeaufort ? "Bft" : targetUnit?.id;
+  const windMatch = useMemo(() => metadata && variable
+    ? windPair(metadata, variable, view === "curve" ? windUnit : undefined) : {},
+  [metadata, variable, view, windUnit]);
+  const shownRange = view !== "curve" ? colorRange : useBeaufort ? beaufortRange : sourceUnit && targetUnit
+    ? { minimum: convert(curveRange.minimum, sourceUnit, targetUnit), maximum: convert(curveRange.maximum, sourceUnit, targetUnit) } : curveRange;
+  const shownLocked = view === "curve" ? curveLocked : rangeLocked;
+  const changeCurveRange = useCallback((range: ColorRange) => {
+    if (useBeaufort) setBeaufortRange(range);
+    else setCurveRange(sourceUnit && targetUnit ? {
+      minimum: convert(range.minimum, targetUnit, sourceUnit), maximum: convert(range.maximum, targetUnit, sourceUnit),
+    } : range);
+  }, [sourceUnit, targetUnit, useBeaufort]);
+  useEffect(() => {
+    setUnitId(""); setDerivedWind(false); setCurveLocked(false);
+    setCurveRange({ minimum: 0, maximum: 1 });
+  }, [metadata?.dataset_id, variable?.path]);
+  const plotDatasets = useMemo(() => allowComparison ? primaryFirst(participatingDatasets, selectedDataset).slice(0, 6)
+    : datasets.filter(item => item.id === selectedDataset), [allowComparison, participatingDatasets, datasets, selectedDataset]);
 
   useEffect(() => {
     if (!metadata || !variable) return;
@@ -118,20 +156,12 @@ export function Viewer({
     return () => window.clearTimeout(timer);
   }, [selectedPath, display, indices]);
 
-  const selectorDimensions = useMemo(() => {
+  const fieldSelectors = useMemo(() => {
     if (!variable) return [];
     return variable.dimensions
       .map((dimension, index) => ({ dimension, index }))
       .filter(({ index }) => index !== display.x && index !== display.y);
   }, [variable, display]);
-  const timeline = selectorDimensions[0];
-  const timelineVariable = metadata?.variables.find(
-    (candidate) =>
-      candidate.path === timeline?.dimension.path &&
-      candidate.dimensions.length === 1 &&
-      candidate.dimensions[0].path === timeline.dimension.path,
-  );
-  const timelineTime = timeInZone(describeTime(timelineVariable), displayTimeZone);
   const isTimeDimension = useCallback(
     (path: string) =>
       metadata?.variables.some(
@@ -142,18 +172,37 @@ export function Viewer({
     [metadata],
   );
   const curveDimension = variable
-    ? curveAlong ?? defaultCurveDimension(variable, timeline?.index, isTimeDimension)
+    ? curveAlong ?? defaultCurveDimension(variable, fieldSelectors[0]?.index, isTimeDimension)
     : 0;
-  const curveIndices = probe?.indices ?? indices;
+  const selectorDimensions = useMemo(() => {
+    if (view === "metadata" || view === "curve" && probe) return [];
+    return view === "curve" ? (variable?.dimensions ?? [])
+      .map((dimension, index) => ({ dimension, index }))
+      .filter(({ index }) => index !== curveDimension) : fieldSelectors;
+  }, [view, probe, variable, curveDimension, fieldSelectors]);
+  const timeline = selectorDimensions[0];
+  const timelineVariable = metadata?.variables.find(candidate =>
+    candidate.path === timeline?.dimension.path && candidate.dimensions.length === 1 &&
+    candidate.dimensions[0].path === timeline.dimension.path,
+  );
+  const timelineTime = timeInZone(describeTime(timelineVariable), displayTimeZone);
+  const curveIndices = useMemo(() => Object.fromEntries(Object.entries(probe?.indices ?? indices)
+    .filter(([path]) => path !== variable?.dimensions[curveDimension]?.path)),
+  [probe, indices, variable, curveDimension]);
   const hasTimeAxis = metadata?.variables.some(
     (candidate) =>
       describeTime(candidate) !== undefined &&
       isTimeCoordinate(candidate),
   );
-  const canCompare = allowComparison && comparisonAvailable(
-    variable?.dimensions.length ?? 0,
-    datasets.length,
-  );
+  useEffect(() => {
+    setCurvePresentation({ offsets: {}, referenceHidden: false });
+  }, [metadata?.dataset_id, variable?.path, curveDimension, JSON.stringify(curveIndices), JSON.stringify(probe?.average)]);
+  useEffect(() => {
+    const active = plotDatasets.map(item => `model:${item.id}:`);
+    setCurvePresentation(current => ({ ...current,
+      offsets: Object.fromEntries(Object.entries(current.offsets).filter(([id]) => active.some(prefix => id.startsWith(prefix)))),
+    }));
+  }, [sourceKey, sourceIds, variable?.path]);
 
   useEffect(() => {
     let active = true;
@@ -189,6 +238,7 @@ export function Viewer({
     frameReady: false, indices: { ...current.indices, [path]: value },
   }));
   const markFrameLoaded = useCallback(() => updateSelection({ frameReady: true }), []);
+  const stopPlayback = useCallback(() => updateSelection({ playDirection: 0, frameReady: true }), []);
   const setProbe = useCallback((probe: Probe) => updateSelection({ probe }), []);
   const setRangeLocked = (rangeLocked: boolean) => updateSelection({ rangeLocked });
   const setColorRange = useCallback((range: SetStateAction<ColorRange>) => updateSelection((current) => ({
@@ -220,10 +270,16 @@ export function Viewer({
     return (
       <main className="startup">
         <strong className="brand">ncx</strong>
-        <p>{startupError ?? "Opening NetCDF metadata…"}</p>
+        <p role="status">{startupError ?? "Opening NetCDF metadata…"}</p>
+        {startupError && <nav aria-label="Available datasets">{datasets.map(dataset => <button key={dataset.id}
+          disabled={dataset.id === selectedDataset} onClick={() => onSelectDataset(dataset.id)}>{dataset.label}</button>)}</nav>}
       </main>
     );
   }
+
+  const windUnavailable = view === "field" ? fieldWindReason(metadata, fieldVariable)
+    : !windMatch.pair ? windMatch.reason
+      : !isTimeDimension(variable.dimensions[curveDimension]?.path ?? "") ? "Wind barbs require a time axis" : undefined;
 
   // The timeline drives the first selector dimension with a slider, so showing
   // a number input for it as well would be two controls for one value.
@@ -264,10 +320,10 @@ export function Viewer({
   const sidebarToggle = (
     <button
       className="sidebar-toggle"
-      aria-label="Toggle dataset browser"
+      aria-label="Variables"
       aria-expanded={sidebarOpen}
       onClick={() => setSidebarOpen((open) => !open)}
-    />
+    >Variables</button>
   );
   const datasetSwitcher = datasets.length > 1 && !collection && (
     <label className="dataset-switcher">
@@ -290,10 +346,10 @@ export function Viewer({
     >
       {!chromeHidden && (
         <header className="topbar">
-          {sidebarToggle}
-          <strong className="brand">ncx</strong>
-          {datasetSwitcher}
-          <span className="path"><b>{metadata.dataset.name}</b><i>/</i>{variable.path.slice(1)}</span>
+          <div className="topbar-identity">
+            <strong className="brand">ncx</strong>
+            <span className="path"><b>{metadata.dataset.name}</b><i>/</i>{variable.path.slice(1)}</span>
+          </div>
         </header>
       )}
 
@@ -315,6 +371,7 @@ export function Viewer({
       ) : (
         <DatasetBrowser
           metadata={metadata}
+          navigation={datasetSwitcher}
           selectedPath={selectedPath}
           search={search}
           onSearch={setSearch}
@@ -327,26 +384,22 @@ export function Viewer({
 
       <main className="main" data-timeline={timeline ? "shown" : "hidden"}>
         <div className="toolbar">
-          {chromeHidden && <div className="embedded-navigation">{sidebarToggle}{datasetSwitcher}</div>}
+          <div className="embedded-navigation">{sidebarToggle}</div>
           <nav className="view-tabs" aria-label="Variable views">
-            {(["field", "curve", "compare", "metadata"] as const)
-              .filter((name) => name !== "compare" || canCompare)
-              .map((name) => (
+            {(["field", "curve", "metadata"] as const).map((name) => (
               <button
                 key={name}
                 className={view === name ? "active" : ""}
                 disabled={
                   (name === "field" && variable.dimensions.length === 1 && variable.view_hint.kind !== "ugrid2d") ||
-                  (name === "curve" && variable.dimensions.length === 0) ||
-                  (name === "compare" && !canCompare)
+                  (name === "curve" && variable.dimensions.length === 0)
                 }
                 onClick={() => {
-                  updateSelection({ frameReady: false, view: name });
+                  updateSelection({ frameReady: false, playDirection: 0, view: name });
                 }}
               >
                 {name === "field" && variable.dimensions.length === 0
                   ? "Value"
-                  : name === "compare" ? "Compare"
                   : name[0].toUpperCase() + name.slice(1)}
               </button>
             ))}
@@ -355,6 +408,19 @@ export function Viewer({
               only in the views it changes: a colourmap select beside a line
               plot is a control that lies about what it does. */}
           <div className="display-controls">
+            {allowComparison && datasets.length > 1 && view !== "metadata" && <details className="source-participation">
+              <summary>Sources ({plotDatasets.length})</summary>
+              <label>Primary dataset <select value={selectedDataset} onChange={event => onSelectDataset(event.currentTarget.value)}>
+                {datasets.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
+              </select></label>
+              {datasets.map(item => <label key={item.id}><input type="checkbox"
+                checked={plotDatasets.some(source => source.id === item.id)}
+                disabled={plotDatasets.length >= 6 && !plotDatasets.some(source => source.id === item.id)}
+                onChange={event => {
+                  const ids = plotDatasets.map(source => source.id);
+                  setSourceIds(event.currentTarget.checked ? [...ids, item.id] : ids.filter(id => id !== item.id));
+                }} />{item.label}</label>)}
+            </details>}
             {view === "field" && variable.view_hint.kind === "ugrid2d" && (
               <div className="control-group">
                 <label className="dimension-readout">
@@ -461,8 +527,36 @@ export function Viewer({
                 </label>
               </div>
             )}
-            {/* Field colourbars and curve y axes use the same range controls. */}
-            {(view === "curve" || view === "field" || (view === "compare" && variable.dimensions.length >= 2)) && variable.dimensions.length >= 1 && (
+            {view === "curve" && <div className="control-group" role="group" aria-label="Curve units">
+              <label>Units<select value={useBeaufort ? "Bft" : targetUnit?.id ?? "native"}
+                disabled={!sourceUnit} title={units?.reason}
+                onChange={event => {
+                  setUnitId(event.target.value);
+                  if (event.target.value === "Bft" || useBeaufort) { setCurveLocked(false); setScale("linear"); }
+                  if (event.target.value === "Bft") setCurvePresentation(current => ({ ...current,
+                    offsets: Object.fromEntries(Object.entries(current.offsets).map(([id, offset]) => [id, { ...offset, y: 0 }])),
+                  }));
+                }}>
+                {!sourceUnit && <option value="native">{attributeText(variable, "units") ?? "native"}</option>}
+                {units?.choices.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
+                {units?.beaufort && <option value="Bft">Bft</option>}
+              </select></label>
+              {windMatch.pair && <label>Quantity<select value={derivedWind ? "wind-speed" : "selected"}
+                onChange={event => { setDerivedWind(event.target.value === "wind-speed"); setUnitId(""); setCurveLocked(false); setCurvePresentation({ offsets: {}, referenceHidden: false }); }}>
+                <option value="selected">Selected variable</option>
+                <option value="wind-speed">10 m wind speed — derived</option>
+              </select></label>}
+            </div>}
+            {view !== "metadata" && <div className="control-group" role="group" aria-label="Wind overlay">
+              <label title={windUnavailable}>Wind<select value={wind && !windUnavailable ? "on" : "off"}
+                title={windUnavailable}
+                disabled={Boolean(windUnavailable)}
+                onChange={event => setWind(event.target.value === "on")}>
+                <option value="off">Off</option><option value="on">On</option>
+              </select></label>
+            </div>}
+            {/* Field ranges stay native; curve controls show the selected unit. */}
+            {(view === "curve" || view === "field") && variable.dimensions.length >= 1 && (
               <div className="control-group" role="group" aria-label={view === "curve" ? "Value axis" : "Colour"}>
                 {view !== "curve" && <label>
                   Colour
@@ -493,17 +587,17 @@ export function Viewer({
                 </label>}
                 <label>
                   Scale
-                  <select value={scale} onChange={(event) => setScale(event.target.value as ColorScale)}>
+                  <select value={view === "curve" && (useBeaufort || shownRange.minimum <= 0) ? "linear" : scale} onChange={(event) => setScale(event.target.value as ColorScale)}>
                     <option value="linear">linear</option>
-                    <option value="log">log</option>
+                    <option value="log" disabled={view === "curve" && (useBeaufort || shownRange.minimum <= 0)}>log</option>
                     {view !== "curve" && <option value="symlog">symlog</option>}
                   </select>
                 </label>
                 <label>
                   Range
                   <select
-                    value={rangeLocked ? "locked" : "auto"}
-                    onChange={(event) => setRangeLocked(event.target.value === "locked")}
+                    value={shownLocked ? "locked" : "auto"}
+                    onChange={(event) => view === "curve" ? setCurveLocked(event.target.value === "locked") : setRangeLocked(event.target.value === "locked")}
                   >
                     <option value="auto">auto</option>
                     <option value="locked">locked</option>
@@ -515,42 +609,42 @@ export function Viewer({
                     aria-label={view === "curve" ? "Value axis minimum" : "Colour range minimum"}
                     type="number"
                     step="any"
-                    readOnly={!rangeLocked}
-                    value={colorRange.minimum}
-                    onChange={(event) => setColorRange((current) => ({
-                      ...current,
-                      minimum: Math.min(Number(event.target.value), current.maximum - Number.EPSILON),
-                    }))}
+                    readOnly={!shownLocked}
+                    value={shownRange.minimum}
+                    onChange={(event) => {
+                      const value = Number(event.target.value);
+                      if (Number.isFinite(value) && value < shownRange.maximum) (view === "curve" ? changeCurveRange : setColorRange)({ ...shownRange, minimum: value });
+                    }}
                   />
                   Max
                   <input
                     aria-label={view === "curve" ? "Value axis maximum" : "Colour range maximum"}
                     type="number"
                     step="any"
-                    readOnly={!rangeLocked}
-                    value={colorRange.maximum}
-                    onChange={(event) => setColorRange((current) => ({
-                      ...current,
-                      maximum: Math.max(Number(event.target.value), current.minimum + Number.EPSILON),
-                    }))}
+                    readOnly={!shownLocked}
+                    value={shownRange.maximum}
+                    onChange={(event) => {
+                      const value = Number(event.target.value);
+                      if (Number.isFinite(value) && value > shownRange.minimum) (view === "curve" ? changeCurveRange : setColorRange)({ ...shownRange, maximum: value });
+                    }}
                   />
                 </label>
               </div>
             )}
-            {(view === "field" || (view === "compare" && variable.dimensions.length >= 2)) && geographicField && (
+            {view === "field" && geographicField && (
               <div className="control-group" role="group" aria-label="Reference layer">
                 <label>
                   Map
-                  <select value={mapSource} onChange={(event) => setMapSource(event.target.value as "none" | "osm")}>
+                  <select value={mapSource} onChange={(event) => setMapSource(event.target.value as "none" | "coastline")}>
                     <option value="none">none</option>
-                    <option value="osm">OSM reference</option>
+                    <option value="coastline">Coastline</option>
                   </select>
                 </label>
               </div>
             )}
+            {view === "curve" && <div className="curve-toolbar-slot" ref={setCurveControls} />}
           </div>
-          {/* Outside the scrolling controls, so a crowded toolbar can never
-              push the export action off the end of the bar. */}
+          {/* Keep export with navigation, separate from wrapping controls. */}
           <div className="toolbar-actions">
             <button
               className="screenshot-button"
@@ -571,11 +665,14 @@ export function Viewer({
         </div>
 
         <section className="stage">
+          <PlotBoundary key={`${metadata.dataset_id}:${variable.path}:${view}`}>
           {view === "metadata" ? (
             <MetadataPanel metadata={metadata} variable={variable} />
-          ) : view === "compare" && variable.dimensions.length >= 2 ? (
+          ) : plotDatasets.length === 0 ? (
+            <div className="comparison-unavailable">Select a source to visualize.</div>
+          ) : view === "field" && allowComparison && datasets.length > 1 ? (
             <ComparisonFieldView
-              datasets={datasets}
+              datasets={plotDatasets}
               primaryMetadata={metadata}
               variable={fieldVariable}
               display={display}
@@ -586,20 +683,13 @@ export function Viewer({
               range={colorRange}
               rangeLocked={rangeLocked}
               mapSource={mapSource}
+                  wind={wind && !windUnavailable}
               probe={probe}
               timeZone={displayTimeZone}
               onProbe={setProbe}
               onRange={setColorRange}
               onFrameLoaded={markFrameLoaded}
-              onStatus={updateStatus}
-            />
-          ) : view === "compare" ? (
-            <ComparisonCurveView
-              datasets={datasets}
-              primaryMetadata={metadata}
-              variable={variable}
-              indices={curveIndices}
-              timeZone={displayTimeZone}
+              onAllUnavailable={stopPlayback}
               onStatus={updateStatus}
             />
           ) : (
@@ -624,6 +714,7 @@ export function Viewer({
                   range={colorRange}
                   rangeLocked={rangeLocked}
                   mapSource={mapSource}
+                  wind={wind && !windUnavailable}
                   probe={probe}
                   initialView={fieldViews.current.get(fieldViewKey)}
                   onViewChange={rememberFieldView}
@@ -634,24 +725,33 @@ export function Viewer({
                 />
               ) : (
                 <CurveView
-                  key={variable.path}
+                  key={`${metadata.dataset_id}:${variable.path}`}
+                  datasets={plotDatasets}
+                  presentation={curvePresentation}
+                  onPresentation={setCurvePresentation}
+                  onRange={changeCurveRange}
+                  wind={wind && !windUnavailable}
+                  derivedWind={derivedWind && Boolean(windMatch.pair)}
+                  targetUnit={useBeaufort ? "Bft" : targetUnit}
                   metadata={metadata}
                   variable={variable}
                   curveDimension={curveDimension}
                   indices={curveIndices}
                   average={probe?.average}
-                  scale={scale}
-                  range={colorRange}
-                  rangeLocked={rangeLocked}
+                  scale={useBeaufort || shownRange.minimum <= 0 ? "linear" : scale}
+                  range={shownRange}
+                  rangeLocked={curveLocked}
                   subtitle={curveSubtitle}
                   timeZone={displayTimeZone}
                   comparisonGeneration={comparisonGeneration}
+                  controlsTarget={curveControls}
                   onFrameLoaded={markFrameLoaded}
                   onStatus={updateStatus}
                 />
               )}
             </section>
           )}
+          </PlotBoundary>
         </section>
 
         <Timeline
@@ -895,23 +995,5 @@ function variableWithCoordinates(
     return { ...variable, view_hint: { kind: "curvilinear", x: x.path, y: y.path } };
   }
   return { ...variable, view_hint: { kind: "plain" } };
-}
-
-function hasGeographicCoordinates(metadata: Metadata, variable: Variable): boolean {
-  const hint = variable.view_hint;
-  if (hint.kind !== "rectilinear" && hint.kind !== "curvilinear" && hint.kind !== "ugrid2d") {
-    return false;
-  }
-  const x = metadata.variables.find((candidate) => candidate.path === hint.x);
-  const y = metadata.variables.find((candidate) => candidate.path === hint.y);
-  if (!x || !y) return false;
-  const xName = attributeText(x, "standard_name");
-  const yName = attributeText(y, "standard_name");
-  const xUnits = attributeText(x, "units") ?? "";
-  const yUnits = attributeText(y, "units") ?? "";
-  return (
-    (xName === "longitude" || xUnits.startsWith("degrees_east")) &&
-    (yName === "latitude" || yUnits.startsWith("degrees_north"))
-  );
 }
 

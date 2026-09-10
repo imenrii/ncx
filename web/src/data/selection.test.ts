@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { Variable } from "./model.ts";
-import { curveRequest, defaultCurveDimension,
+import { comparisonFieldSelection, curveRequest, defaultCurveDimension,
   defaultDisplayDimensions, fieldRequest, ugridFieldRequest } from "./selection.ts";
 
 const variable: Variable = {
@@ -19,6 +19,21 @@ const variable: Variable = {
   attributes: [],
   view_hint: { kind: "plain" },
 };
+
+test("comparison never substitutes fixed depths or missing display axes", () => {
+  const display = { x: 3, y: 2 };
+  const secondary = { ...variable, dataset_id: "case-b", dimensions: variable.dimensions.map(
+    dimension => dimension.name === "level" ? { ...dimension, length: 2 } : dimension,
+  ) };
+  assert.throws(() => comparisonFieldSelection(variable, display, { "/level": 5 }, secondary, "/time"), /outside level/);
+  assert.throws(() => comparisonFieldSelection(variable, display, { "/level": 1 }, secondary, "/time"), /mapping for level/);
+  assert.throws(() => comparisonFieldSelection(variable, display, {}, {
+    ...secondary, dimensions: secondary.dimensions.filter(dimension => dimension.name !== "y"),
+  }, "/time"), /displayed dimension y/);
+  assert.deepEqual(comparisonFieldSelection(variable, display, { "/level": 5 }, variable, "/time"), {
+    display, indices: { "/level": 5 },
+  });
+});
 
 test("maps display dimensions and indices to the thin data API", () => {
   const display = defaultDisplayDimensions(variable);

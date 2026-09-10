@@ -81,6 +81,12 @@ export function isRemoteAddress(address: string): boolean {
   );
 }
 
+export function splitHubAddress(address: string): { credential: string; path: string } {
+  if (!isRemoteAddress(address)) return { credential: "", path: address };
+  const separator = address.lastIndexOf(":/");
+  return { credential: address.slice(0, separator), path: address.slice(separator + 1) };
+}
+
 export function sessionDestination(address: string): string {
   if (isRemoteAddress(address)) {
     return address.slice(0, address.lastIndexOf(":/"));

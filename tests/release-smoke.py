@@ -10,6 +10,7 @@ root = pathlib.Path(__file__).resolve().parent.parent
 binary = pathlib.Path(sys.argv[1]).resolve()
 fonts = (
     "gorton-400", "gorton-600", "commit-400", "commit-700", "cmmath",
+    "commit-web-400", "commit-web-450", "commit-web-600",
     "hershey-light", "hershey-medium", "hershey-heavy", "nationalpark",
 )
 opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -30,6 +31,8 @@ for mode, arguments in (
         base = "http://" + line.removeprefix("NCX_READY=").rstrip("/")
         for face in fonts:
             with opener.open(f"{base}/fonts/{face}.woff2", timeout=5) as response:
+                if response.headers.get_content_type() != "font/woff2":
+                    raise RuntimeError(f"Wrong font Content-Type in {mode}: {face}")
                 data = response.read()
             if not data.startswith(b"wOF2") or len(data) < 48:
                 raise RuntimeError(f"{mode} release font is missing or invalid: {face}")

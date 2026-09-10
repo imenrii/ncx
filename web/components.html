@@ -10,11 +10,11 @@
 <head>
 <meta charset="utf-8">
 <title>ncx component approaches</title>
+<link rel="stylesheet" href="src/commit-mono.css">
 <style>
 @font-face { font-family: "Gorton Perfected"; src: url("/fonts/gorton-400.woff2") format("woff2"); font-weight: 400 }
 @font-face { font-family: "Gorton Perfected"; src: url("/fonts/gorton-600.woff2") format("woff2"); font-weight: 600 }
-@font-face { font-family: "Commit Mono"; src: url("/fonts/commit-400.woff2") format("woff2"); font-weight: 400 }
-@font-face { font-family: "Commit Mono"; src: url("/fonts/commit-700.woff2") format("woff2"); font-weight: 700 }
+@font-face { font-family: "CM Math"; src: url("/fonts/cmmath.woff2") format("woff2"); font-weight: 400; unicode-range: U+00B1,U+00D7,U+00F7,U+0370-03FF,U+2190-21FF,U+2200-22FF; }
 
 :root {
   color-scheme: light;
@@ -30,7 +30,6 @@
   --amber-pale: #fdf0d0;
   --accent: #114160;
   --ui: "Gorton Perfected", ui-sans-serif, system-ui, sans-serif;
-  --mono: "Commit Mono", ui-monospace, monospace;
   --size-micro: 0.75rem;
   --size-tick: 0.8125rem;
   --size-body: 0.875rem;
@@ -80,7 +79,7 @@ p.note { max-width: 68ch; margin: 4px 0 0; color: var(--ink-medium); font-size: 
 /* ---------------------------------------------------------------- buttons */
 
 /* A. Plain gridbox: one hairline box, square corners, no fill until touched. */
-.box-a { display: inline-flex; min-width: 28px; min-height: 28px; align-items: center; justify-content: center; padding: 0 10px; border: 1px solid var(--ink); background: var(--paper); color: var(--ink); font-family: var(--mono); font-size: var(--size-micro); font-weight: 400; letter-spacing: 0.04em }
+.box-a { display: inline-flex; min-width: 28px; min-height: 28px; align-items: center; justify-content: center; padding: 0 10px; border: 1px solid var(--ink); background: var(--paper); color: var(--ink); font-family: var(--mono); font-size: var(--size-micro); font-weight: var(--mono-weight); letter-spacing: normal }
 .box-a:hover { background: var(--dither), var(--paper) }
 .box-a:active, .box-a[aria-pressed="true"] { background: var(--dither-strong), var(--paper) }
 .box-a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px }
@@ -131,7 +130,7 @@ p.note { max-width: 68ch; margin: 4px 0 0; color: var(--ink-medium); font-size: 
 /* --------------------------------------------------------------- toggles */
 
 .switch-a { display: inline-flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: var(--size-micro) }
-.switch-a > i { display: grid; width: 16px; height: 16px; place-items: center; border: 1px solid var(--ink); font-style: normal; font-size: 11px; line-height: 1 }
+.switch-a > i { display: grid; width: 16px; height: 16px; place-items: center; border: 1px solid var(--ink); font-style: normal; font-size: var(--size-micro); line-height: 1 }
 .switch-a[data-on="true"] > i { background: var(--dither-strong) }
 .switch-a[data-on="false"] > i::before { content: "" }
 .switch-a[data-on="true"] > i::before { content: "\00d7" }
@@ -158,6 +157,18 @@ p.note { max-width: 68ch; margin: 4px 0 0; color: var(--ink-medium); font-size: 
    a fill, so the dither stays free to mean "under the pointer" only. */
 .list.marker > .row { border-left: 3px solid transparent }
 .list.marker > .row[aria-current="true"] { border-left-color: var(--ink); background: transparent }
+button, .approach > h3, .approach > .spec, .switch-a, .switch-b,
+.list > .row > .name, .list > .row > .shape, .list > .row > .meta, .track-a > .head::after {
+  font-weight: var(--mono-weight);
+  font-kerning: none;
+  font-variant-ligatures: none;
+  font-variant-numeric: normal;
+  font-synthesis: none;
+  font-feature-settings: var(--mono-features);
+  letter-spacing: normal;
+  word-spacing: normal;
+}
+.list > .row > .shape, .track-a > .head::after { font-feature-settings: var(--mono-literal-features); }
 </style>
 </head>
 <body>
@@ -181,7 +192,7 @@ p.note { max-width: 68ch; margin: 4px 0 0; color: var(--ink-medium); font-size: 
       <button class="box-a">−</button>
       <button class="box-a">Reset</button>
     </div>
-    <p class="spec">Commit Mono 12px / +0.04em · box 28px, pad 0 10px, gap 8px<br>hover dither 7% · active dither 14% · focus 2px accent</p>
+    <p class="spec">Commit Mono Web 450 / 0.75rem / no tracking · box 28px, pad 0 10px, gap 8px<br>hover dither 7% · active dither 14% · focus 2px accent</p>
   </div>
   <div class="approach">
     <h3>B — shared spine (recommended)</h3>

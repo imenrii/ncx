@@ -15,12 +15,14 @@ export function CurveAxes({
   time,
   valueLabel,
   timeNote,
+  integer = false,
 }: {
   geometry: CurveGeometry;
   dimension: string;
   time: TimeDescription | undefined;
   valueLabel: string;
   timeNote?: string;
+  integer?: boolean;
 }) {
   const { plot } = geometry;
   const bottom = plot.top + plot.height;
@@ -43,7 +45,10 @@ export function CurveAxes({
     : [];
   const xAt = (value: number) =>
     plot.left + (xSpan === 0 ? 0.5 : (value - geometry.xMinimum) / xSpan) * plot.width;
-  const y = geometry.log
+  const y = integer ? {
+    major: Array.from({ length: 13 }, (_, index) => index).filter(value => value >= geometry.yMinimum && value <= geometry.yMaximum),
+    minor: [], format: (value: number) => String(value),
+  } : geometry.log
     ? logLadder(geometry.yMinimum, geometry.yMaximum)
     : tickLadder(geometry.yMinimum, geometry.yMaximum, plot.height, type.tick, { across: true });
   const tick = tickLength(type);

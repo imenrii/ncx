@@ -43,17 +43,10 @@ const APP_CSS: &[u8] = include_bytes!("../web/dist/assets/app.css");
 // 307 glyphs and 17 kB against the original's full outline set. The full font
 // never enters the binary and is never served.
 //
-// Commit Mono sets every value, and New Computer Modern Math sets every
-// mathematical symbol in any face. Both are SIL OFL 1.1, so both could ship
-// whole; Commit Mono is cut to the same character set as Gorton anyway. Its
-// upstream `ttfautohint` TrueType source is used instead of the CFF OTF so the
-// WOFF2 keeps its small-size grid-fitting tables. NewCM is already cut to a
-// math-only unicode-range upstream.
-//
-// Commit Mono was served from jsDelivr until now, which put the one face whose
-// whole job is column alignment behind the one dependency this binary cannot
-// satisfy: the viewer's usual home is an SSH tunnel to a cluster with no route
-// out. It was therefore missing precisely where it was needed.
+// Commit Mono Web uses pinned, hinted 400/450/600 cuts for web data roles.
+// Legacy Commit Mono remains a separate plot fallback. CM Math stays first
+// for Greek and operators, so mixed math text is not strictly monospaced.
+// These OFL assets are committed; ordinary builds do not regenerate them.
 //
 // AVHershey draws plots; National Park backs it per glyph and sets chrome
 // labels. Both are freely redistributable. Only Gorton's build source and
@@ -63,6 +56,9 @@ const FONT_UI_REGULAR: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/gorton-
 const FONT_UI_SEMIBOLD: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/gorton-600.woff2"));
 const FONT_MONO_REGULAR: &[u8] = include_bytes!("../res/CommitMono/commit-400.woff2");
 const FONT_MONO_BOLD: &[u8] = include_bytes!("../res/CommitMono/commit-700.woff2");
+const FONT_WEB_REGULAR: &[u8] = include_bytes!("../res/CommitMono/commit-web-400.woff2");
+const FONT_WEB_TEXT: &[u8] = include_bytes!("../res/CommitMono/commit-web-450.woff2");
+const FONT_WEB_SEMIBOLD: &[u8] = include_bytes!("../res/CommitMono/commit-web-600.woff2");
 const FONT_MATH: &[u8] = include_bytes!("../res/NewCM/NewCMMath-Regular.woff2");
 const FONT_PLOT_LIGHT: &[u8] = include_bytes!("../res/AVHershey/AVHersheySimplexLight.woff2");
 const FONT_PLOT_MEDIUM: &[u8] = include_bytes!("../res/AVHershey/AVHersheySimplexMedium.woff2");
@@ -408,6 +404,9 @@ where
         .route("/fonts/gorton-600.woff2", get(font_ui_semibold))
         .route("/fonts/commit-400.woff2", get(font_mono_regular))
         .route("/fonts/commit-700.woff2", get(font_mono_bold))
+        .route("/fonts/commit-web-400.woff2", get(font_web_regular))
+        .route("/fonts/commit-web-450.woff2", get(font_web_text))
+        .route("/fonts/commit-web-600.woff2", get(font_web_semibold))
         .route("/fonts/cmmath.woff2", get(font_math))
         .route("/fonts/hershey-light.woff2", get(font_plot_light))
         .route("/fonts/hershey-medium.woff2", get(font_plot_medium))
@@ -731,6 +730,18 @@ async fn font_mono_regular() -> Response {
 
 async fn font_mono_bold() -> Response {
     font(FONT_MONO_BOLD)
+}
+
+async fn font_web_regular() -> Response {
+    font(FONT_WEB_REGULAR)
+}
+
+async fn font_web_text() -> Response {
+    font(FONT_WEB_TEXT)
+}
+
+async fn font_web_semibold() -> Response {
+    font(FONT_WEB_SEMIBOLD)
 }
 
 async fn font_math() -> Response {

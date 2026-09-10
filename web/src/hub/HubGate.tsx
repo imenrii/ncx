@@ -15,6 +15,7 @@ import {
   retargetHubSession,
   savedAddresses,
   sessionTransition,
+  splitHubAddress,
 } from "./hub.ts";
 
 type GateState = "checking" | "viewer" | "open" | "prompt" | "retargeting" | "closing" | "active";
@@ -35,13 +36,19 @@ export function HubGate() {
   });
   const hub = hubBasePath() !== undefined;
   const [state, setState] = useState<GateState>("checking");
-  const [address, setAddress] = useState(deepLink.address ?? "");
+  const [target, setTarget] = useState(() => splitHubAddress(deepLink.address ?? ""));
+  const address = target.credential.trim()
+    ? `${target.credential.trim()}:${target.path.trim()}`
+    : target.path.trim();
+  const setAddress = (value: string) => setTarget(splitHubAddress(value));
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | undefined>(deepLink.error);
   const [activeError, setActiveError] = useState<string>();
   const [opening, setOpening] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
-  const addresses = savedAddresses();
+  const addresses = savedAddresses().map(splitHubAddress);
+  const credentials = [...new Set(addresses.map((item) => item.credential).filter(Boolean))];
+  const paths = addresses.filter((item) => item.credential === target.credential.trim()).map((item) => item.path);
 
   useEffect(() => {
     let live = true;
@@ -135,7 +142,15 @@ export function HubGate() {
   const submitAddress = (event: FormEvent) => {
     event.preventDefault();
     const candidate = address.trim();
-    if (!candidate || opening) return;
+    if (!target.path.trim() || opening) return;
+    if (isRemoteAddress(target.path.trim())) {
+      setError("Enter the SSH identity in Credential and the file path in Dataset address.");
+      return;
+    }
+    if (target.credential.trim() && !isRemoteAddress(candidate)) {
+      setError("Enter a valid SSH identity and an absolute dataset path.");
+      return;
+    }
     setError(undefined);
     setActiveError(undefined);
     const current = currentHubSessionRecord();
@@ -260,13 +275,28 @@ export function HubGate() {
           </header>
           <div className="hub-grid">
             <form className="hub-open-panel" onSubmit={submitAddress}>
+              <label className="hub-label" htmlFor="Credential">Credential</label>
+              <input
+                id="Credential"
+                list="hub-saved-credentials"
+                value={target.credential}
+                onChange={(event) => setTarget({ ...target, credential: event.currentTarget.value })}
+                placeholder="username@hostname"
+                aria-label="Credential (leave blank for local files)"
+                autoCapitalize="none"
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <datalist id="hub-saved-credentials">
+                {credentials.map((item) => <option value={item} key={item} />)}
+              </datalist>
               <label className="hub-label" htmlFor="hub-address">Dataset address</label>
               <input
                 id="hub-address"
                 list="hub-saved-addresses"
-                value={address}
-                onChange={(event) => setAddress(event.currentTarget.value)}
-                placeholder="/data/run.nc or user@host:/path/run.nc"
+                value={target.path}
+                onChange={(event) => setTarget({ ...target, path: event.currentTarget.value })}
+                placeholder="/path/run.nc"
                 autoCapitalize="none"
                 autoComplete="off"
                 spellCheck={false}
@@ -274,14 +304,14 @@ export function HubGate() {
                 required
               />
               <datalist id="hub-saved-addresses">
-                {addresses.map((item) => <option value={item} key={item} />)}
+                {paths.map((item) => <option value={item} key={item} />)}
               </datalist>
               {error && <p className="hub-error" role="alert">{error}</p>}
               <div className="dialog-actions">
                 {currentHubSessionRecord() && (
                   <button type="button" onClick={cancelToActive}>Cancel</button>
                 )}
-                <button type="submit" disabled={opening || state === "prompt" || !address.trim()}>
+                <button type="submit" disabled={opening || state === "prompt" || !target.path.trim()}>
                   {state === "prompt" ? "Connect…" : opening ? "Opening…" : "Open dataset"}
                 </button>
               </div>

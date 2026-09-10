@@ -1,0 +1,62 @@
+/* Commit Mono Web: web UI only. Generated cuts retain ss03/04/05, not calt.
+   Source, licence, build recipe: Fonts/Commit_Mono/README.md. */
+@font-face {
+  font-family: "Commit Mono Web";
+  src: url("../fonts/commit-web-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Commit Mono Web";
+  src: url("../fonts/commit-web-450.woff2") format("woff2");
+  font-weight: 450;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Commit Mono Web";
+  src: url("../fonts/commit-web-600.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+:root {
+  --mono: "CM Math", "Commit Mono Web", ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, monospace;
+  --mono-weight: 450;
+  --mono-strong: 600;
+  --mono-inverse-weight: 400;
+  --mono-features: "calt" 0, "ss01" 0, "ss02" 0, "ss03" 0, "ss04" 0, "ss05" 1;
+  --mono-literal-features: "calt" 0, "ss01" 0, "ss02" 0, "ss03" 0, "ss04" 0, "ss05" 0;
+  --mono-read-features: "calt" 0, "ss01" 0, "ss02" 0, "ss03" 1, "ss04" 1, "ss05" 1;
+  --mono-ui-leading: 1.45;
+  --mono-literal-leading: 1.5;
+  --mono-read-leading: 1.6;
+}
+.mono {
+  font-family: var(--mono);
+  font-size: var(--size-tick, 0.8125rem);
+  font-weight: var(--mono-weight);
+  font-style: normal;
+  line-height: var(--mono-ui-leading);
+  letter-spacing: normal;
+  word-spacing: normal;
+  font-kerning: none;
+  font-variant-numeric: normal;
+  font-variant-ligatures: none;
+  font-feature-settings: var(--mono-features);
+  /* Scoped to data roles: do not synthesize a bold or italic math glyph. */
+  font-synthesis: none;
+}
+.mono--literal {
+  font-feature-settings: var(--mono-literal-features);
+  line-height: var(--mono-literal-leading);
+}
+.mono--read {
+  font-feature-settings: var(--mono-read-features);
+  font-size: var(--size-body, 0.875rem);
+  line-height: var(--mono-read-leading);
+}
+.mono--inverse { font-weight: var(--mono-inverse-weight); }
+.mono strong, .mono b { font-weight: var(--mono-strong); }
+.mono em, .mono i { font-style: normal; letter-spacing: normal; }

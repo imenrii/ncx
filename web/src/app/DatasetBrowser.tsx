@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { fetchMetadata } from "../data/api";
 import type { DatasetSummary, Metadata } from "../data/model";
 import { supportingVariablePaths, variableLabel } from "../data/model";
 
 export function DatasetBrowser({
+  navigation,
   metadata,
   selectedPath,
   search,
@@ -16,6 +17,7 @@ export function DatasetBrowser({
   search: string;
   onSearch: (value: string) => void;
   onSelect: (path: string) => void;
+  navigation?: ReactNode;
 }) {
   const [showSupporting, setShowSupporting] = useState(false);
   const query = search.trim().toLowerCase();
@@ -23,6 +25,7 @@ export function DatasetBrowser({
   const visibleCount = countVisible(metadata, supportingPaths, showSupporting);
   return (
     <aside className="sidebar">
+      {navigation && <div className="dataset-head">{navigation}</div>}
       <div className="variable-filter">
         <input
           className="variable-search"

@@ -36,6 +36,7 @@ export function App({ allowComparison = true }: { allowComparison?: boolean }) {
   useEffect(() => {
     if (!selectedDataset) return;
     let active = true;
+    setMetadata(undefined);
     setStartupError(undefined);
     setStatus(`opening ${selectedDataset}…`);
     fetchMetadata(selectedDataset)

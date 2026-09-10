@@ -59,6 +59,11 @@ export function axisOffsets(type: PlotType, yLabelChars = 0, xRows = 1) {
   };
 }
 
+/** Always reserve the annotation strip, including plots with no wind data. */
+export function annotationStrip(type: PlotType): number {
+  return Math.round(type.axis * 3);
+}
+
 /** Reserve five y-label characters until the caller knows the longest label. */
 export function plotMargin(
   type: PlotType,
@@ -66,7 +71,7 @@ export function plotMargin(
 ) {
   const offsets = axisOffsets(type, options.yLabelChars ?? 5, options.xRows ?? 1);
   return {
-    top: options.top ?? Math.round(type.axis * 1.6),
+    top: annotationStrip(type) + (options.top ?? Math.round(type.axis * 1.6)),
     right: options.colorbar ?? 14,
     bottom: Math.round(offsets.xTitle + type.axis * 0.7),
     left: Math.round(offsets.yTitle + type.axis * 0.7),

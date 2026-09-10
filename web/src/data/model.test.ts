@@ -7,6 +7,7 @@ import {
   defaultVariable,
   derivedValueLabel,
   formatUnit,
+  hasGeographicCoordinates,
   isTimeCoordinate,
   meshGeometryPaths,
   quantityLabel,
@@ -37,6 +38,18 @@ test("labels only the face mean derived from edge-located UGRID values", () => {
   assert.equal(derivedValueLabel(edge), "incident-edge mean");
   assert.equal(derivedValueLabel(face), undefined);
   assert.equal(derivedValueLabel(variable("raw_edge_metadata")), undefined);
+});
+
+test("coastlines require geographic display axes, not merely auxiliary longitude and latitude", () => {
+  const lon = variable("lon", [{ name: "standard_name", dtype: "string", value: "longitude" }]);
+  const lat = variable("lat", [{ name: "units", dtype: "string", value: "degrees_north" }]);
+  const field = { ...variable("temperature"), view_hint: { kind: "rectilinear", x: "/lon", y: "/lat" } } as Variable;
+  const metadata = { variables: [lon, lat, variable("x"), variable("y"), field] } as Metadata;
+  assert.equal(hasGeographicCoordinates(metadata, field), true);
+  field.view_hint = { kind: "curvilinear", x: "/x", y: "/y" };
+  assert.equal(hasGeographicCoordinates(metadata, field), false);
+  field.view_hint = { kind: "rectilinear", x: "/lat", y: "/lon" };
+  assert.equal(hasGeographicCoordinates(metadata, field), false);
 });
 
 test("identifies UGRID geometry without hiding mesh data fields", () => {

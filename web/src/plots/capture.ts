@@ -23,6 +23,18 @@ export interface CaptureLayout {
 
 export type PlotCapture = (width: number, height: number) => Promise<Blob>;
 
+export interface CurveLegendEntry { description: string; color: string; dash: string }
+const curveLegends = new WeakMap<HTMLElement, readonly CurveLegendEntry[]>();
+
+export function registerCurveLegend(frame: HTMLElement, entries: readonly CurveLegendEntry[]): () => void {
+  curveLegends.set(frame, entries);
+  return () => { if (curveLegends.get(frame) === entries) curveLegends.delete(frame); };
+}
+
+export function curveLegendFor(frame: HTMLElement): readonly CurveLegendEntry[] {
+  return curveLegends.get(frame) ?? [];
+}
+
 const captures = new WeakMap<HTMLElement, PlotCapture>();
 
 export function registerPlotCapture(frame: HTMLElement, capture: PlotCapture): () => void {
