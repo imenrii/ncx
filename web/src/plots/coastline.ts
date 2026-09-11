@@ -142,7 +142,7 @@ export function coastlinePath(coastline: Coastline, bounds: Bounds, width: numbe
 }
 
 /** Liang–Barsky clipping retains crossings even when both endpoints are outside. */
-function clipSegment(x: number, y: number, endX: number, endY: number, width: number, height: number): number[] | undefined {
+export function clipSegment(x: number, y: number, endX: number, endY: number, width: number, height: number): number[] | undefined {
   const dx = endX - x;
   const dy = endY - y;
   let enter = 0;

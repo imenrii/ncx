@@ -58,16 +58,21 @@ export interface UnitChoice {
   beaufort: boolean;
   reason?: string;
 }
-export function unitChoice(variable: Variable): UnitChoice {
+export function unitRule(variable: Variable): { rule?: QuantityRule; reason?: string } {
   const standard = attributeText(variable, "standard_name")?.trim();
   const byName = QUANTITY_RULES.find(rule => rule.names.includes(variable.name));
   const byStandard = QUANTITY_RULES.find(rule => standard && rule.standardNames.includes(standard));
   // A conflicting CF quantity must not be overridden by a familiar short name.
   if (standard && byName && (!byStandard || byStandard.family !== byName.family ||
     byName.beaufort !== byStandard.beaufort && byStandard.family === "velocity")) {
-    return { choices: [], beaufort: false, reason: "Variable name and standard name disagree" };
+    return { reason: "Variable name and standard name disagree" };
   }
-  const rule = byStandard ?? byName;
+  return { rule: byStandard ?? byName };
+}
+
+export function unitChoice(variable: Variable): UnitChoice {
+  const { rule, reason } = unitRule(variable);
+  if (reason) return { choices: [], beaufort: false, reason };
   const units = attributeText(variable, "units") ?? "";
   const source = rule && findUnit(rule.family, units);
   if (!rule || !source) return { choices: [], beaufort: false, reason: "No conversion rule for this quantity and unit" };

@@ -1,11 +1,15 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useSyncExternalStore } from "react";
+import { unitAssignments } from "../data/unitAssignments";
 import { fetchDatasets, fetchMetadata } from "../data/api";
 import { defaultVariable, type DatasetSummary, type Metadata } from "../data/model";
+import { savedSelection } from "./viewerState";
+import { sourceFeed } from "../data/sourceFeed";
 import { Viewer } from "./Viewer";
 
 /** Dataset selection stays mounted while the viewer changes variables and plots. */
 export function App({ allowComparison = true }: { allowComparison?: boolean }) {
   const [metadata, setMetadata] = useState<Metadata>();
+  useSyncExternalStore(unitAssignments.subscribe, unitAssignments.getSnapshot);
   const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
   const [collection, setCollection] = useState(false);
   const [selectedDataset, setSelectedDataset] = useState("");
@@ -22,6 +26,7 @@ export function App({ allowComparison = true }: { allowComparison?: boolean }) {
   useEffect(() => {
     fetchDatasets()
       .then(({ datasets: nextDatasets, collection: nextCollection }) => {
+        sourceFeed.configure(nextDatasets);
         setDatasets(nextDatasets);
         setCollection(nextCollection);
         setSelectedDataset(nextDatasets[0].id);
@@ -46,7 +51,7 @@ export function App({ allowComparison = true }: { allowComparison?: boolean }) {
         setMetadata(nextMetadata);
         const requested = requestedVariable.current?.dataset === selectedDataset
           ? requestedVariable.current.path
-          : undefined;
+          : savedSelection(selectedDataset)?.path;
         requestedVariable.current = undefined;
         const initial = requested && nextMetadata.variables.some((candidate) => candidate.path === requested)
           ? requested
@@ -58,7 +63,7 @@ export function App({ allowComparison = true }: { allowComparison?: boolean }) {
         if (!active) return;
         const message = error instanceof Error ? error.message : String(error);
         unavailable(selectedDataset, message);
-        const next = collection
+        const next = collection && !sourceFeed.explicit && new URLSearchParams(window.location.search).get("chrome") !== "none"
           ? datasets.find((dataset) => dataset.id !== selectedDataset && dataset.state !== "unavailable")
           : undefined;
         if (next) {
@@ -71,9 +76,11 @@ export function App({ allowComparison = true }: { allowComparison?: boolean }) {
     return () => { active = false; };
   }, [selectedDataset]);
 
+  sourceFeed.configure(datasets);
+
   return <Viewer
     allowComparison={allowComparison}
-    metadata={metadata} datasets={datasets} collection={collection}
+    metadata={metadata && unitAssignments.apply(metadata)} datasets={datasets} collection={collection}
     selectedDataset={selectedDataset} selectedPath={selectedPath}
     startupError={startupError} status={status} onStatus={setStatus}
     onSelectDataset={setSelectedDataset}

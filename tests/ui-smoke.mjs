@@ -10,6 +10,8 @@ const binary = process.env.NCX_BINARY ?? join(ncx, "target/debug/ncx");
 const chromium = process.env.NCX_CHROMIUM;
 const browserMode = process.argv[2] ?? "rectilinear";
 const benchmark = process.env.NCX_BENCHMARK === "1";
+const assignUnits = process.env.NCX_ASSIGN_UNITS === "1";
+const pressureMode = process.env.NCX_PRESSURE === "1";
 const chrome = process.env.NCX_CHROME ?? "";
 const chromeQuery = chrome ? `&chrome=${encodeURIComponent(chrome)}` : "";
 if (!["rectilinear", "curvilinear", "ugrid", "ugrid_projected", "ugrid_helpers", "comparison", "collection", "station", "hub", "wind"].includes(browserMode)) {
@@ -54,6 +56,9 @@ window.fetch = async (...arguments) => {
       ],
     } }] });
   }
+  if (window.__ncxFailPressure && target.includes('/api/data?') && decodeURIComponent(target).includes('path=/msl')) {
+    return new Response('pressure unavailable', { status: 503 });
+  }
   const scalar = target.includes("/api/data?") && decodeURIComponent(target).includes("path=/temperature");
   if (scalar) {
     window.__ncxScalarReads += 1;
@@ -63,7 +68,21 @@ window.fetch = async (...arguments) => {
     if (scalar && target.includes("dataset=case-c")) {
       await new Promise((resolve) => setTimeout(resolve, 350));
     }
-    return await originalFetch(...arguments);
+    const response = await originalFetch(...arguments);
+    if (${JSON.stringify(assignUnits || browserMode === "wind")} && new URL(target, location.href).pathname.endsWith('/api/meta')) {
+      const metadata = await response.json();
+      for (const variable of metadata.variables) {
+        if (${JSON.stringify(assignUnits)} && ['msl', 'u10', 'v10'].includes(variable.name)) {
+          variable.attributes = variable.attributes.filter(attribute => attribute.name !== 'units');
+        }
+        if (variable.name === 'msl') {
+          variable.attributes = variable.attributes.filter(attribute => attribute.name !== 'coordinates');
+          variable.attributes.push({ name: 'coordinates', dtype: 'char', value: 'height lat lon' });
+        }
+      }
+      return Response.json(metadata);
+    }
+    return response;
   } finally {
     if (scalar) window.__ncxScalarReads -= 1;
   }
@@ -103,8 +122,14 @@ URL.createObjectURL = function(blob) {
         }
         window.__ncxExpectedMathLabels = undefined;
       }
+      if (window.__ncxExpectedPressure) {
+        const exported = [...svg.querySelectorAll('.pressure-contour')];
+        if (!exported.length || svg.querySelector('.pressure-arrows') ||
+            !svg.querySelector('.pressure-contour-label')) throw new Error('PNG omitted pressure contours or their labels');
+        window.__ncxExpectedPressure = false;
+      }
       if (window.__ncxExpectedWind) {
-        if (!svg.querySelector(window.__ncxExpectedWind) || !svg.querySelector('.wind-key')) throw new Error("PNG omitted wind marks or their key");
+        if (!svg.querySelector(window.__ncxExpectedWind)) throw new Error("PNG omitted wind marks");
         window.__ncxExpectedWind = undefined;
       }
       const title = svg.querySelector(":scope > text");
@@ -339,7 +364,8 @@ try {
   const toolbarBounds = toolbar.getBoundingClientRect();
   for (const control of toolbar.querySelectorAll("select, input, .screenshot-button")) {
     const bounds = control.getBoundingClientRect();
-    if (bounds.width && (bounds.left < toolbarBounds.left - 1 || bounds.right > toolbarBounds.right + 1)) {
+    if (bounds.width && toolbar.scrollWidth <= toolbar.clientWidth && !control.closest(".source-panel") &&
+        (bounds.left < toolbarBounds.left - 1 || bounds.right > toolbarBounds.right + 1)) {
       failures.push("toolbar control extends outside the work area: " + (control.getAttribute("aria-label") || control.closest("label")?.textContent));
     }
   }
@@ -360,7 +386,7 @@ try {
     if (Math.abs(main.top - bounds.top) > 1 || Math.abs(main.bottom - bounds.bottom) > 1) {
       failures.push("hidden chrome reserves vertical space");
     }
-    const toggle = shell.querySelector(".embedded-navigation .sidebar-toggle");
+    const toggle = shell.querySelector(".embedded-navigation .menu-button");
     if (!toggle) throw new Error("embedded browser toggle missing");
     toggle.focus();
     if (document.activeElement !== toggle) failures.push("embedded toggle cannot take keyboard focus");
@@ -381,7 +407,19 @@ try {
       failures.push("topbar is not full-width by 32 px");
     }
     if (!shell.querySelector(".statusbar")) failures.push("standalone statusbar missing");
-    const baselines = [".brand", ".path", ".path b", ".path i"].map(selector => {
+    const brand = topbar.querySelector(".brand");
+    const path = topbar.querySelector(".path");
+    const brandBounds = brand.getBoundingClientRect();
+    const pathBounds = path.getBoundingClientRect();
+    const centerOffset = (brandBounds.top + brandBounds.bottom - pathBounds.top - pathBounds.bottom) / 2;
+    if (Math.abs(centerOffset + 3) > 0.5 || getComputedStyle(brand).fontSize !== "18px" ||
+        getComputedStyle(brand).fontWeight !== "600") {
+      failures.push("topbar wordmark lost its independent optical alignment or original size/weight");
+    }
+    if (getComputedStyle(path).fontSize !== "14px" || getComputedStyle(path).fontWeight !== "450") {
+      failures.push("topbar path lost its original 14px/450 setting");
+    }
+    const baselines = [".path b", ".path i", ".path-variable"].map(selector => {
       const marker = document.createElement("span");
       marker.style.cssText = "display:inline-block;width:0;height:0;padding:0;margin:0";
       topbar.querySelector(selector).append(marker);
@@ -389,17 +427,43 @@ try {
       marker.remove();
       return baseline;
     });
-    if (Math.max(...baselines) - Math.min(...baselines) > 0.5) failures.push("topbar text baselines differ: " + baselines);
+    if (Math.max(...baselines) - Math.min(...baselines) > 0.5) failures.push("path text baselines differ: " + baselines);
   }
-  const variableToggle = shell.querySelector(".toolbar .sidebar-toggle");
-  if (variableToggle?.textContent !== "Variables" || variableToggle.getAttribute("aria-label") !== "Variables") {
-    failures.push("Variables toggle is not labelled and stable in the view toolbar");
+  const browserMenu = shell.querySelector(chromeHidden ? ".toolbar .menu-button" : ".topbar .menu-button");
+  if (!browserMenu || browserMenu.textContent.trim() ||
+      browserMenu.getAttribute("aria-label") !== "Toggle dataset browser" ||
+      shell.querySelectorAll(".menu-button").length !== 1) {
+    failures.push("legacy icon-only browser menu is missing or duplicated");
   }
-  if (variableToggle) {
-    const bounds = variableToggle.getBoundingClientRect();
-    if (!variableToggle.contains(document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2))) {
-      failures.push("variable browser covers its toolbar toggle");
+  if (browserMenu) {
+    const icon = getComputedStyle(browserMenu, "::before");
+    if (icon.width !== "14px" || icon.boxShadow === "none") failures.push("hamburger geometry is missing");
+    const bounds = browserMenu.getBoundingClientRect();
+    if (!browserMenu.contains(document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2))) {
+      failures.push("variable browser covers its hamburger");
     }
+    const before = shell.dataset.sidebar;
+    browserMenu.click();
+    await waitFor(() => shell.dataset.sidebar !== before, "hamburger did not toggle the sidebar");
+    browserMenu.click();
+    await waitFor(() => shell.dataset.sidebar === before, "hamburger did not restore the sidebar");
+  }
+  if (shell.querySelector('.sidebar-toggle,.plot-settings,[aria-label="Displayed time zone"]')) {
+    failures.push("removed Variables, Display, or Time controls remain");
+  }
+  for (const label of ["Wind overlay", "Colour", "Value axis", "Reference layer"]) {
+    const group = toolbar.querySelector('[aria-label="' + label + '"]');
+    if (group && (group.parentElement !== toolbar.querySelector('.display-controls') ||
+        !group.getBoundingClientRect().height || group.closest('details'))) {
+      failures.push("plot setting is not directly visible in the toolbar: " + label);
+    }
+  }
+  if (browserMode === "comparison") {
+    await waitFor(() => !document.querySelector('.plot-loading') && window.__ncxScalarReads === 0,
+      "comparison did not settle after toolbar navigation");
+    const reads = window.__ncxFetches.length;
+    await new Promise(resolve => setTimeout(resolve, 250));
+    if (window.__ncxFetches.length !== reads) failures.push("fixed display zone caused idle comparison refetches");
   }
   if (browserMode !== "station") {
     const legacy = await waitFor(
@@ -448,14 +512,164 @@ try {
       .find(label => label.firstChild?.textContent?.trim() === name)?.querySelector('select');
     const change = (name, value) => { const select = control(name); if (!select) throw new Error(name + ' control missing'); select.value = value; select.dispatchEvent(new Event('change', { bubbles: true })); };
     const tab = (name) => [...document.querySelectorAll('.view-tabs button')].find(button => button.textContent === name).click();
+    const overlay = (name) => [...document.querySelectorAll('.overlay-toggle')].find(button => button.querySelector('span')?.textContent.trim() === name);
+    const layer = async (name, on) => {
+      const button = overlay(name);
+      if (!button) throw new Error(name + ' overlay toggle missing');
+      if ((button.getAttribute('aria-pressed') === 'true') === on) return;
+      button.click();
+      // aria-pressed follows a React render, so a second toggle must wait for it.
+      await waitFor(() => overlay(name)?.getAttribute('aria-pressed') === String(on), name + ' toggle did not take');
+    };
     const windReads = () => window.__ncxFetches.filter(url => ['path=/u10', 'path=/v10'].some(path => decodeURIComponent(url).includes(path))).length;
     const fieldCanvas = () => document.querySelector('.field-canvas, .mesh-canvas');
+    if (${JSON.stringify(assignUnits)}) {
+      window.__ncxStep = 'session unit assignments';
+      if (!overlay('Wind vector')?.disabled) failures.push('Wind accepted missing units before assignment');
+      const selectVariable = async (name) => {
+        [...document.querySelectorAll('.variable-row')].find(row => row.querySelector('span')?.textContent === name).click();
+        await waitFor(() => window.ncx.getState().selection?.path === '/' + name, 'variable did not change');
+        tab('Metadata');
+        await waitFor(() => document.querySelector('#metadata-unit'), 'metadata unit select missing');
+      };
+      const assign = async (unit) => {
+        const select = await waitFor(() => document.querySelector('#metadata-unit'), 'Metadata unit control did not mount');
+        select.value = unit;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        await waitFor(() => document.querySelector('#metadata-unit')?.value === unit &&
+          (window.ncx.getState().selection?.units || '') === unit, 'unit assignment did not reach detection');
+        if (document.querySelector('.metadata-panel tbody th')?.textContent === 'units' ||
+            [...document.querySelectorAll('.metadata-panel tbody th')].some(cell => cell.textContent === 'units')) {
+          failures.push('unit assignment changed raw attributes');
+        }
+      };
+      await selectVariable('msl');
+      if (document.querySelector('#metadata-unit').value !== '') failures.push('session unit survived reload');
+      await assign('Pa');
+      tab('Curve');
+      const assignedAxis = () => document.querySelector('.curve-axis')?.dataset.yDomain;
+      await waitFor(() => control('Units')?.value === 'Pa' && assignedAxis(), 'Curve did not initially use the assigned Pa unit');
+      const rawMinimum = Number(assignedAxis().split(',')[0]);
+      change('Units', 'kPa');
+      await waitFor(() => Math.abs(Number(assignedAxis()?.split(',')[0]) - rawMinimum / 1000) < 0.001, 'Pa to kPa conversion failed');
+      tab('Metadata');
+      await assign('hPa');
+      tab('Curve');
+      await waitFor(() => control('Units')?.value === 'hPa' &&
+        Math.abs(Number(assignedAxis()?.split(',')[0]) - rawMinimum) < 0.001,
+        'Metadata assignment did not replace the previous Curve unit without rescaling source numbers');
+      tab('Metadata');
+      await assign('Pa');
+      tab('Curve');
+      await waitFor(() => control('Units')?.value === 'Pa' && assignedAxis(), 'Curve did not reset to the new Pa assignment');
+      change('Units', 'hPa');
+      await waitFor(() => Math.abs(Number(assignedAxis()?.split(',')[0]) - rawMinimum / 100) < 0.001, 'assigned Pa to displayed hPa conversion failed');
+      await selectVariable('u10');
+      await assign('kt');
+      await selectVariable('v10');
+      if (document.querySelector('#metadata-unit').value !== 'kt') failures.push('u10 assignment did not reach v10');
+      await assign('');
+      await selectVariable('u10');
+      if (document.querySelector('#metadata-unit').value !== '') failures.push('clearing v10 did not clear u10');
+      await assign('m/s');
+      await selectVariable('msl');
+      if (document.querySelector('#metadata-unit').value !== 'Pa') failures.push('variable switch lost pressure units');
+      tab('Field');
+      await waitFor(() => overlay('Wind vector') && !overlay('Wind vector').disabled, 'assigned twins did not enable Wind');
+      if (!sessionStorage.getItem('__ncx_assignment_reloaded')) {
+        sessionStorage.setItem('__ncx_assignment_reloaded', 'true');
+        location.reload();
+        await new Promise(() => {});
+      }
+    }
     await waitFor(() => fieldCanvas()?.dataset.rendered === 'true', 'wind fixture did not render');
     const fieldTop = fieldCanvas().style.top;
-    if (windReads() !== 0) failures.push('Wind Off read component data');
-    change('Wind', 'on');
+    if (${JSON.stringify(pressureMode)}) {
+      window.__ncxStep = 'pressure contours';
+      const pressureReads = () => window.__ncxFetches.filter(url => url.includes('/api/data?') && decodeURIComponent(url).includes('path=/msl')).length;
+      const startReads = pressureReads();
+      await new Promise(resolve => setTimeout(resolve, 100));
+      if (document.querySelector('[data-pressure]') || pressureReads() !== startReads) failures.push('Pressure Off made extra reads');
+      await layer('Pressure', true);
+      await waitFor(() => document.querySelector('[data-pressure="ready"] .pressure-contour')?.getAttribute('d'), 'pressure contours did not render');
+      const addedReads = pressureReads() - startReads;
+      if (addedReads !== 1) failures.push('pressure contours did not use one bounded grid read');
+      const pressureBeforeWind = pressureReads();
+      await layer('Wind vector', true);
+      await waitFor(() => document.querySelector('[data-wind="ready"] .wind-arrows')?.getAttribute('d'), 'wind did not render with contours');
+      if (pressureReads() !== pressureBeforeWind) failures.push('Wind toggle refetched pressure');
+      const contours = [...document.querySelectorAll('.pressure-contour')];
+      if (document.querySelector('.pressure-arrows') || !contours.length || contours.some(path => Number(path.dataset.level) % 4 !== 0)) failures.push('pressure is not drawn as 4 hPa contours');
+      if (contours.some(path => Number(path.getAttribute('stroke-width')) !== 1.15)) failures.push('pressure contours do not use one uniform weight');
+      if (document.querySelector('.pressure-key')) failures.push('the contour interval key belongs in Metadata, not on the plot');
+      const labels = [...document.querySelectorAll('.pressure-contour-label')];
+      const drawn = new Set(contours.map(path => Number(path.dataset.level)));
+      if (!labels.length || labels.some(label => !drawn.has(Number(label.textContent)))) failures.push('contour labels do not name drawn levels');
+      if (labels.some(label => label.getAttribute('stroke'))) failures.push('contour labels use a halo instead of a break in the line');
+      // Arrows yield their slot to a label, so only the untouched ones must match.
+      const windSamples = document.querySelector('.wind-arrows').getAttribute('d').split('M').filter(Boolean);
+      const canvas = fieldCanvas(), bounds = canvas.getBoundingClientRect();
+      canvas.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: bounds.left + bounds.width / 2, clientY: bounds.top + bounds.height / 2 }));
+      await waitFor(() => document.querySelector('.plot-tooltip'), 'Field tooltip missing');
+      const tooltip = document.querySelector('.plot-tooltip');
+      if (tooltip.children.length !== 2 || tooltip.children[0].tagName !== 'STRONG' ||
+          !tooltip.children[0].textContent.includes('Pa') || !tooltip.children[1].textContent.includes('°') ||
+          /wind|gradient|∇p/.test(tooltip.textContent)) failures.push('Field tooltip is not value/unit followed by coordinates');
+      window.__ncxExpectedPressure = true;
+      document.querySelector('.screenshot-button').click();
+      await saveOpenDialog(await waitFor(() => document.querySelector('.save-dialog[open]'), 'contour export missing'));
+      const windBeforeOff = windReads();
+      await layer('Pressure', false);
+      await waitFor(() => !document.querySelector('[data-pressure]'), 'contours did not turn off');
+      if (windReads() !== windBeforeOff) failures.push('contour toggle refetched wind');
+      const windWithoutContours = new Set(document.querySelector('.wind-arrows').getAttribute('d').split('M').filter(Boolean));
+      if (!windSamples.length || windSamples.some(path => !windWithoutContours.has(path))) failures.push('contours moved the arrows that did not meet a label');
+      window.__ncxFailPressure = true;
+      await layer('Pressure', true);
+      await waitFor(() => document.querySelector('[data-pressure="error"]'), 'pressure read error was not reported');
+      document.querySelector('.screenshot-button').click();
+      const dialog = await waitFor(() => document.querySelector('.save-dialog[open]'), 'failed contour export dialog missing');
+      dialog.querySelector('button.primary').click();
+      await waitFor(() => dialog.querySelector('.export-error'), 'export silently omitted failed pressure');
+      dialog.close();
+      await layer('Pressure', false);
+      window.__ncxFailPressure = false;
+      await layer('Pressure', true);
+      await waitFor(() => document.querySelector('[data-pressure="ready"]'), 'pressure retry failed');
+      await layer('Pressure', false);
+      await layer('Wind vector', false);
+      await waitFor(() => !document.querySelector('[data-wind], [data-pressure]'), 'vector layers did not close');
+    }
+    if (!${JSON.stringify(assignUnits || pressureMode)} && windReads() !== 0) failures.push('Wind Off read component data');
+    await layer('Wind vector', true);
     await waitFor(() => document.querySelector('.wind-field[data-wind="ready"] .wind-arrows')?.getAttribute('d'), 'wind arrows did not load');
     if (fieldCanvas().style.top !== fieldTop) failures.push('Wind changed the reserved field strip');
+    if (document.querySelector('.wind-field .wind-key')) failures.push('a ready wind layer still prints a key on the plot');
+    const arrows = document.querySelector('.wind-arrows');
+    if (!arrows.getAttribute('d').includes('Z') || Number(arrows.getAttribute('stroke-width')) !== 1.3) failures.push('Field arrows lost their filled heads or their weight');
+    const legend = document.querySelector('.overlay-legend');
+    const stack = legend.closest('.corner-stack');
+    if (!stack || stack.firstElementChild.className !== 'view-controls' ||
+        stack.lastElementChild !== legend) failures.push('the overlay legend does not sit under the view controls');
+    const marks = [...legend.querySelectorAll('.overlay-toggle svg')].map(svg => svg.getBoundingClientRect());
+    if (marks.length !== 2 || marks.some(box => Math.abs(box.height - 14) > 0.5 || box.width / box.height > 4 ||
+        Math.abs(box.width - marks[0].width) > 0.5)) failures.push('overlay marks are not one equal, bounded column');
+    const words = [...legend.querySelectorAll('.overlay-toggle span')].map(span => span.getBoundingClientRect());
+    if (Math.abs(words[0].left - words[1].left) > 0.5) failures.push('overlay labels do not align');
+    if (getComputedStyle(legend.querySelector('.overlay-toggle')).borderStyle !== 'none') failures.push('the overlay legend draws a boundary');
+    const hitHeight = matchMedia('(pointer: coarse)').matches ? 44 : 24;
+    if ([...legend.querySelectorAll('button')].some(button => button.getBoundingClientRect().height < hitHeight)) {
+      failures.push('overlay toggles are smaller than the pointer target minimum');
+    }
+    for (const button of legend.querySelectorAll('button')) button.style.fontSize = '1.625rem';
+    await waitFor(() => fieldCanvas().getBoundingClientRect().top > stack.getBoundingClientRect().bottom,
+      'larger legend text overlaps the field axes');
+    for (const button of legend.querySelectorAll('button')) button.style.fontSize = '';
+    await waitFor(() => fieldCanvas().style.top === fieldTop, 'legend resize did not restore the field margin');
+    const off = overlay('Pressure');
+    if (off.getAttribute('aria-pressed') !== 'false' || !getComputedStyle(off).textDecorationLine.includes('line-through')) {
+      failures.push('an off overlay is not shown with a deleted line');
+    }
     window.__ncxExpectedWind = '.wind-arrows';
     document.querySelector('.screenshot-button').click();
     await saveOpenDialog(await waitFor(() => document.querySelector('.save-dialog[open]'), 'wind save dialog missing'));
@@ -472,64 +686,112 @@ try {
     change('Units', 'Pa');
     await waitFor(() => axis()?.split(',').every((value, index) => Math.abs(Number(value) - nativeRange[index]) < 0.1), 'locked pressure range did not retain physical limits');
     change('Units', 'hPa'); change('Range', 'auto');
-    const offset = document.querySelector('.series-control label.y-offset-label input') ?? [...document.querySelectorAll('.series-control label')].find(label => label.textContent.startsWith('Y offset'))?.querySelector('input');
+    const offset = document.querySelector('.curve-offset-controls input');
     if (!offset) throw new Error('converted Y offset control missing');
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(offset, '1');
     offset.dispatchEvent(new Event('input', { bubbles: true }));
     await waitFor(() => Math.abs(Number(axis()?.split(',')[0]) - nativeRange[0] / 100 - 1) < 0.001, 'hPa offset used native Pa instead of displayed hPa');
-    [...document.querySelectorAll('button')].find(button => button.textContent === 'Reset offsets').click();
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(offset, '0');
+    offset.dispatchEvent(new Event('input', { bubbles: true }));
     await waitFor(() => Math.abs(Number(axis()?.split(',')[0]) - nativeRange[0] / 100) < 0.001, 'offset reset changed native pressure');
     const barb = document.querySelector('.wind-barb'); barb.focus();
-    await waitFor(() => document.querySelector('.wind-readout')?.textContent.includes('from'), 'barb focus tooltip missing');
-    if (!barb.getAttribute('aria-label')?.includes('2.5 / 5 / 25')) failures.push('barb tooltip omitted the m/s convention');
+    await waitFor(() => document.querySelector('.curve-tooltip')?.textContent.includes('from'), 'barb focus did not use the shared tooltip');
+    if (document.querySelectorAll('.plot-tooltip').length !== 1 || document.querySelector('.wind-barb title, .wind-readout') ||
+        document.querySelector('.curve-tooltip').textContent.includes('Barbs:')) failures.push('wind has duplicate or excessive tooltip text');
+    if (!barb.getAttribute('aria-label')?.includes('from')) failures.push('barb lost its accessible direction');
+    const tooltip = document.querySelector('.curve-tooltip');
+    if (!/^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2} /.test(tooltip.querySelector('.curve-tooltip-time')?.textContent.trim())) failures.push('tooltip timestamp is not its first row');
+    const rows = [...tooltip.querySelectorAll('.curve-tooltip-row')];
+    if (rows[0]?.querySelector('.curve-tooltip-label')?.textContent.trim() !== 'msl:' ||
+        rows[1]?.querySelector('.curve-tooltip-label')?.textContent.trim() !== '10m wind:') failures.push('tooltip row names do not match the requested format');
+    const values = rows.map(row => row.querySelector('.curve-tooltip-value'));
+    if (values.some(value => !/^-?\\d+\\.\\d{3}$/.test(value.textContent.trim())) ||
+        Math.abs(values[0].getBoundingClientRect().right - values[1].getBoundingClientRect().right) > 1) failures.push('tooltip values do not have aligned three-decimal precision');
+    const key = document.querySelector('.curve-head .wind-key');
+    if (!key || document.querySelector('.wind-barbs .wind-key') || getComputedStyle(key).color !== getComputedStyle(barb.querySelector('path')).stroke) failures.push('wind key is not in the header with the barb colour');
+    const curveSvg = document.querySelector('.curve-svg');
+    const moveTrack = async (fraction) => {
+      const bounds = curveSvg.getBoundingClientRect();
+      const plot = document.querySelector('.curve-axis > rect');
+      curveSvg.dispatchEvent(new PointerEvent('pointermove', { bubbles: true,
+        clientX: bounds.left + Number(plot.getAttribute('x')) + Number(plot.getAttribute('width')) * fraction,
+        clientY: bounds.top + Number(plot.getAttribute('y')) + Number(plot.getAttribute('height')) / 2,
+      }));
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const tooltip = document.querySelector('.curve-tooltip');
+      const marker = document.querySelector('.hover-dot');
+      if (!tooltip?.querySelector('[data-wind-time]') || document.querySelectorAll('.plot-tooltip').length !== 1) throw new Error('track tooltip omitted wind or duplicated the readout');
+      if (Number.parseFloat(getComputedStyle(tooltip.querySelector('span')).fontSize) < 12) failures.push('curve tooltip text is below the Style minimum');
+      const top = Number.parseFloat(tooltip.style.top);
+      const expected = Math.max(8, Math.min(bounds.height - tooltip.offsetHeight - 8, Number(marker.getAttribute('cy')) - 48));
+      if (Math.abs(top - expected) > 1) failures.push('curve tooltip does not follow the data track');
+      return top;
+    };
+    const firstTop = await moveTrack(0.3), lastTop = await moveTrack(0.7);
+    if (Math.abs(firstTop - lastTop) < 10) failures.push('curve tooltip is pinned instead of following the track');
+    curveSvg.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }));
+    await waitFor(() => !document.querySelector('.curve-tooltip'), 'Escape did not dismiss the shared tooltip');
+    barb.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch' }));
+    await waitFor(() => document.querySelector('.curve-tooltip')?.textContent.includes('from'), 'touch did not open the shared wind tooltip');
+    curveSvg.dispatchEvent(new PointerEvent('pointerleave', { pointerType: 'touch' }));
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    if (!document.querySelector('.curve-tooltip')) failures.push('touch release dismissed the wind readout');
     window.__ncxExpectedWind = '.wind-barbs .wind-barb';
     document.querySelector('.screenshot-button').click();
     await saveOpenDialog(await waitFor(() => document.querySelector('.save-dialog[open]'), 'barb save dialog missing'));
     change('Wind', 'off');
     await waitFor(() => !document.querySelector('.wind-barbs'), 'barbs did not turn off');
+    if (!document.querySelector('.curve-head > span')?.textContent.includes('hPa')) failures.push('curve header kept the source unit after conversion');
     if (document.querySelector('.curve-axis > rect').getAttribute('y') !== curveTop) failures.push('Wind changed the reserved curve strip');
-    change('Quantity', 'wind-speed');
-    await waitFor(() => document.querySelector('.figure-head h1')?.textContent.includes('derived') && axis()?.split(',').map(Number).every(Number.isFinite), 'derived wind speed did not load');
-    change('Units', 'Bft');
-    await waitFor(() => document.querySelector('.axis-label')?.parentElement?.textContent.includes('Bft') || [...document.querySelectorAll('.axis-label')].some(label => label.textContent.includes('Bft')), 'Beaufort label missing');
-    if (![...document.querySelectorAll('.curve-line')].some(path => /H.*V/.test(path.getAttribute('d')))) failures.push('Beaufort curve is not stepped');
+    if (control('Quantity') || [...document.querySelectorAll('.toolbar button')].some(button => /(?:Reset|Remove) offsets/.test(button.textContent))) failures.push('removed curve controls remain');
+    [...document.querySelectorAll('.variable-row')].find(row => row.querySelector('span')?.textContent === 'u10').click();
+    await waitFor(() => window.ncx.getState().selection?.path === '/u10', 'wind component did not open');
+    tab('Curve');
+    await waitFor(() => axis()?.split(',').map(Number).every(Number.isFinite), 'wind component curve did not load');
+    const nativeWindMinimum = Number(axis()?.split(',')[0]);
+    const sharedOffset = document.querySelector('#curve-y-offset');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(sharedOffset, '3');
+    sharedOffset.dispatchEvent(new Event('input', { bubbles: true }));
+    await waitFor(() => Math.abs(Number(axis()?.split(',')[0]) - nativeWindMinimum - 3) < 0.001, 'wind component offset did not apply');
+    const windState = window.ncx.getState();
+    window.ncx.setSources({ revision: windState.revision, sources: [
+      { id: windState.sources[0].id, dataset: windState.selection.dataset, attributes: { locked: true } },
+    ] });
+    if ([...control('Units').options].some(option => option.value === 'Bft')) failures.push('signed component offered Beaufort');
     change('Units', 'kt'); change('Wind', 'on');
-    await waitFor(() => document.querySelector('.wind-barb')?.getAttribute('aria-label')?.includes('5 / 10 / 50 kt'), 'knot barb convention did not update');
+    await waitFor(() => Math.abs(Number(axis()?.split(',')[0]) - (nativeWindMinimum + 3) * 3600 / 1852) < 0.001,
+      'display-unit conversion corrupted the locked physical offset');
+    if (window.ncx.getState().selection.units !== windState.selection.units) failures.push('display units changed source metadata');
+    await waitFor(() => document.querySelector('.curve-head .wind-key')?.textContent.includes('5 / 10 / 50 kt'), 'knot barb convention did not update');
+    (await waitFor(() => document.querySelector('.wind-barb'), 'knot wind barbs did not load')).focus();
+    await waitFor(() => document.querySelector('.curve-tooltip [data-wind-time]')?.textContent.includes('kt'), 'shared wind tooltip did not use knots');
     tab('Field');
     await waitFor(() => fieldCanvas()?.dataset.rendered === 'true', 'field did not resume');
     if (control('Units')) failures.push('curve units leaked into field');
   } else if (browserMode === "station") {
-    const controls = await waitFor(() => {
-      const items = [...document.querySelectorAll(".toolbar .curve-offset-controls .series-control")];
-      return items.length === 2 ? items : null;
-    }, "hosted station did not receive its comparison series");
-    const active = document.querySelector(".view-tabs button.active")?.textContent;
-    if (active !== "Curve") failures.push("hosted station did not stay in Curve");
-    if ([...document.querySelectorAll(".view-tabs button")]
-      .some((button) => button.textContent === "Compare")) {
-      failures.push("single-station viewer still exposed Compare");
+    await waitFor(() => document.querySelectorAll(".curve-line").length === 2,
+      "hosted station did not receive its supplied series");
+    const state = window.ncx.getState();
+    const revision = state.revision;
+    const rawExtent = [state.selection.start_ms, state.selection.end_ms];
+    if (state.sources[1]?.id !== "tide" || !state.sources[1].locked) failures.push("supplied source attributes missing");
+    if (document.querySelector(".curve-series-controls, .curve-toolbar-slot")) failures.push("obsolete series controls remain");
+    if (chromeHidden && document.querySelector(".dataset-switcher, .source-participation")) failures.push("hosted sources have two owners");
+    const legend = document.querySelector(".curve-legend");
+    if (legend?.textContent.includes("MSL") || legend?.textContent.includes("CD") || legend?.querySelector("input")) {
+      failures.push("legend contains controls or datum metadata");
     }
-    if (!controls[1].textContent.includes("TPK astronomical reference")) {
-      failures.push("hosted station received the wrong comparison series");
+    for (const source of state.sources) {
+      const line = [...document.querySelectorAll(".curve-line")].find(line => line.dataset.series === source.id);
+      if (!line || line.style.strokeDasharray.replaceAll("px", "").replace(/[, ]+/g, " ") !== source.dash) failures.push("getter and plotted palette differ: " + line?.style.strokeDasharray + " / " + source.dash);
     }
-    if (!controls[0].textContent.includes("MSL") || !controls[1].textContent.includes("CD")) {
-      failures.push("station curve hid the series datums");
-    }
-    if (document.querySelector(".datum-warning")) failures.push("station curve exposed a datum gate");
-    if (controls[1].querySelector('input[type="number"]')) {
-      failures.push("CD reference exposed duplicate offsets");
-    }
-    const cd = controls[0].querySelector('input[type="checkbox"]');
-    if (!cd || !cd.parentElement.textContent.includes("CD")) {
-      failures.push("CD offset preset is missing");
-    }
-    const modelY = controls[0].querySelectorAll('input[type="number"]')[1];
-    cd?.click();
-    await waitFor(() => modelY?.value === "1.45", "CD preset did not set the primary Y offset");
-    await waitFor(
-      () => document.querySelector(".comparison-line")?.getAttribute("d"),
-      "station comparison disappeared after a Y offset",
-    );
+    const modelY = document.querySelector('.curve-offset-controls input');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(modelY, "1.45");
+    modelY.dispatchEvent(new Event("input", { bubbles: true }));
+    await waitFor(() => [...document.querySelectorAll(".axis-label")].some(label => label.textContent.includes("display offsets")), "shared offset not applied");
+    if (window.ncx.getState().revision !== revision || JSON.stringify(rawExtent) !== JSON.stringify([
+      window.ncx.getState().selection.start_ms, window.ncx.getState().selection.end_ms,
+    ])) failures.push("offset changed the scientific revision or raw extent");
     const curve = document.querySelector(".curve-svg");
     const bounds = curve.getBoundingClientRect();
     curve.dispatchEvent(new PointerEvent("pointermove", {
@@ -542,12 +804,74 @@ try {
       failures.push("station crosshair did not mark both series");
     }
     const tooltip = document.querySelector(".curve-tooltip")?.textContent ?? "";
-    if (!tooltip.includes("TPK astronomical reference")) {
+    if (!tooltip.includes("Supplied station series")) {
       failures.push("station crosshair did not report the reference value");
     }
-    if ((tooltip.match(/HKT/g) ?? []).length !== 2) {
-      failures.push("station crosshair did not label both sample times");
+    if ((tooltip.match(/HKT/g) ?? []).length !== 1) {
+      failures.push("station tooltip must have one timestamp header");
     }
+    const suppliedReadout = document.querySelector('.curve-tooltip [data-series="tide"]');
+    const suppliedTime = Number(suppliedReadout?.dataset.time);
+    const expectedSupplied = Math.sin((suppliedTime - Date.parse("2025-09-20T09:00:00Z")) / 60_000 / 1440);
+    if (Math.abs(Number(suppliedReadout?.dataset.value) - expectedSupplied) > 0.00001) {
+      failures.push("locked supplied samples received the toolbar offset");
+    }
+    const datumReadout = document.querySelector('.curve-tooltip [data-series="station"]');
+    if (!datumReadout?.textContent.includes("MSL") || !suppliedReadout?.textContent.includes("CD")) {
+      failures.push("names-only legend removed scientific crosshair metadata");
+    }
+    const feed = (label, value, locked) => window.ncx.setSources({ revision, sources: [
+      { id: "station", dataset: "station", attributes: { locked: true } },
+      { id: "tide", attributes: { locked }, series: {
+        label, quantity: state.selection.quantity, location_id: state.selection.location_id,
+        x_units: "milliseconds since 1970-01-01T00:00:00Z",
+        x: [rawExtent[0], rawExtent[1]], y_units: state.selection.units, y: [value, null],
+      } },
+    ] });
+    feed("Updated supplied", 5, false);
+    await waitFor(() => document.querySelector('.curve-legend')?.textContent.includes("Updated supplied"), "same-ID source update did not render");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(modelY, "2");
+    modelY.dispatchEvent(new Event("input", { bubbles: true }));
+    const readValues = async () => {
+      await new Promise(resolve => setTimeout(resolve, 80));
+      const node = document.querySelector('.curve-svg');
+      const bounds = node.getBoundingClientRect();
+      node.dispatchEvent(new PointerEvent("pointermove", { bubbles: true,
+        clientX: bounds.left + bounds.width * 0.25, clientY: bounds.top + bounds.height * 0.5,
+      }));
+      await waitFor(() => document.querySelectorAll('.curve-tooltip [data-series]').length === 2, "updated source crosshair missing");
+      return Object.fromEntries([...document.querySelectorAll('.curve-tooltip [data-series]')]
+        .map(item => [item.dataset.series, Number(item.dataset.value)]));
+    };
+    let values = await readValues();
+    if (Math.abs(values.station - 1.65) > 0.11 || values.tide !== 7) failures.push("locking did not retain the model offset or unlocking did not adopt the toolbar");
+    feed("Updated supplied", 6, false);
+    values = await readValues();
+    if (values.tide !== 8) failures.push("same-ID data update accumulated an offset");
+    feed("Updated supplied", 6, true);
+    await new Promise(resolve => setTimeout(resolve, 80));
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(modelY, '0');
+    modelY.dispatchEvent(new Event('input', { bubbles: true }));
+    values = await readValues();
+    if (values.tide !== 8 || Math.abs(values.station - 1.65) > 0.11) failures.push("reset changed a locked physical offset");
+    if (window.ncx.getState().revision !== revision) failures.push("style, supplied data or offsets changed the revision");
+    feed("Large supplied", 3e38, false);
+    await waitFor(() => document.querySelector('.curve-legend')?.textContent.includes('Large supplied'), "large source did not render");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(modelY, "1");
+    modelY.dispatchEvent(new Event("input", { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 80));
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(modelY, "3e38");
+    modelY.dispatchEvent(new Event("input", { bubbles: true }));
+    await waitFor(() => modelY.getAttribute('aria-invalid') === 'true', "overflowing shared offset was accepted");
+    if (document.querySelectorAll('.curve-line').length !== 2) failures.push("invalid offset removed a healthy curve");
+    modelY.focus(); modelY.blur();
+    await waitFor(() => modelY.value === '1', "invalid edit did not restore the last valid offset");
+    feed("Updated supplied", 6, true);
+    [...document.querySelectorAll('.view-tabs button')].find(button => button.textContent === 'Metadata').click();
+    await waitFor(() => window.ncx.getState().revision !== revision, "view selection did not change revision");
+    let staleRejected = false;
+    try { window.ncx.setSources({ revision, sources: [] }); } catch { staleRejected = true; }
+    if (!staleRejected || document.querySelector('.curve-line')) failures.push("stale inline data survived a scientific selection");
   } else if (browserMode === "collection") {
     const summaries = await waitFor(() => {
       const items = [...document.querySelectorAll(".collection-file > summary")];
@@ -619,9 +943,9 @@ try {
       () => document.querySelector(".mesh-canvas[data-rendered='true']"),
       "collection UGRID variable did not render",
     );
-    await checkSupportingToggle(ugrid, 'mesh', 'node_temperature');
-    const projected = updatedSummaries[7].parentElement;
-    updatedSummaries[7].click();
+    await checkSupportingToggle(document.querySelectorAll('.collection-file')[6], 'mesh', 'node_temperature');
+    const projected = document.querySelectorAll('.collection-file')[7];
+    projected.querySelector('summary').click();
     await waitFor(() => [...projected.querySelectorAll('.variable-row span')]
       .some(node => node.textContent === 'water_level'), 'projected collection metadata did not load');
     const projectedNames = [...projected.querySelectorAll('.variable-row span')].map(node => node.textContent);
@@ -647,18 +971,23 @@ try {
     }
     window.__ncxVisibleVariables = names();
   } else if (browserMode === "comparison") {
-    const dataset = await waitFor(
-      () => document.querySelector(".dataset-switcher select"),
-      "dataset selector did not appear",
-    );
-    dataset.value = "case-f";
-    dataset.dispatchEvent(new Event("change", { bubbles: true }));
+    if (chromeHidden) {
+      if (document.querySelector('.dataset-switcher, .source-participation')) failures.push('hosted dataset controls remain');
+      const state = window.ncx.getState();
+      window.ncx.setSources({ revision: state.revision, sources:
+        ['f', 'a', 'b', 'c', 'd', 'e'].map(id => ({ id: 'source:' + id, dataset: 'case-' + id })),
+      });
+    } else {
+      const dataset = await waitFor(() => document.querySelector(".dataset-switcher select"), "dataset selector did not appear");
+      dataset.value = "case-f";
+      dataset.dispatchEvent(new Event("change", { bubbles: true }));
+    }
     await waitFor(
       () => document.querySelector(".shell")?.dataset.dataset === "case-f",
       "sixth dataset did not become primary",
     );
     if (document.querySelector('.view-tabs')?.textContent.includes('Compare')) failures.push('comparison must not replace the representation');
-    if (!document.querySelector('.source-participation')) failures.push('source participation is missing');
+    if (!chromeHidden && !document.querySelector('.source-participation')) failures.push('source participation is missing');
     const panes = await waitFor(
       () => {
         const items = [...document.querySelectorAll(".field-comparison-pane")];
@@ -731,6 +1060,12 @@ try {
       const visible = [...document.querySelectorAll('.field-comparison-pane')];
       return visible.length === 3 && visible.every(pane => pane.querySelector('.field-canvas[data-rendered="true"]') && pane.getBoundingClientRect().height > 40);
     }, 'three selected field panes did not render');
+    const primaryPaneToggle = [...document.querySelectorAll('.field-pane-selection label')]
+      .find(label => label.textContent.includes('case-f')).querySelector('input');
+    primaryPaneToggle.click();
+    await waitFor(() => document.querySelectorAll('.field-comparison-pane').length === 2 &&
+      document.querySelectorAll('.field-comparison .overlay-legend:not([aria-hidden="true"])').length === 1,
+      'hiding the primary pane removed the shared overlay controls');
     const supporting = [...document.querySelectorAll(".variable-filter label")]
       .find((label) => label.textContent.includes("Show coordinates"))?.querySelector("input");
     supporting.click();
@@ -745,12 +1080,12 @@ try {
     await waitFor(() => document.querySelector(".curve-line")?.getAttribute("d"),
       "numeric coordinate curve did not render");
     const numericComparison = await waitFor(
-      () => document.querySelectorAll('.curve-line[data-kind="model"]').length === 6
+      () => document.querySelectorAll('.curve-line').length === 6
         ? document.querySelector(".main")
         : null,
       "numeric curve comparison did not render",
     );
-    const numericLabels = [...numericComparison.querySelectorAll(".series-control label")]
+    const numericLabels = [...numericComparison.querySelectorAll(".curve-offset-controls label")]
       .map((label) => label.textContent.trim());
     const linePatterns = await waitFor(() => {
       const lines = [...numericComparison.querySelectorAll(".comparison-line")];
@@ -863,7 +1198,7 @@ try {
       failures.push("curve offsets are not in the toolbar");
     }
     const offsetInputs = [...(offsetControls?.querySelectorAll('input[type="number"]') ?? [])].reverse();
-    if (offsetInputs.length !== 2) failures.push("single-case time curve X/Y offsets are missing");
+    if (offsetInputs.length !== 1) failures.push("shared Y offset is missing or duplicated");
     if (offsetInputs[0]) {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")
         .set.call(offsetInputs[0], "15");
@@ -871,10 +1206,12 @@ try {
       await waitFor(
         () => [...document.querySelectorAll(".axis-label")]
           .some((label) => label.textContent.includes("display offsets")) &&
-          offsetInputs[0].value === "15" &&
-          !document.querySelector(".curve-offset-controls button")?.disabled,
+          offsetInputs[0].value === "15",
         "single-case Y offset was not applied",
       );
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(offsetInputs[0], '0');
+      offsetInputs[0].dispatchEvent(new Event('input', { bubbles: true }));
+      await waitFor(() => offsetInputs[0].value === "0", "shared offset reset did not apply");
     }
     [...document.querySelectorAll(".view-tabs button")].find((button) => button.textContent === "Field").click();
     await waitFor(() => document.querySelector(".mesh-canvas[data-rendered='true']") && !document.querySelector(".plot-loading"), "mesh Field view did not return");
@@ -1167,10 +1504,10 @@ try {
   if (!document.querySelector(".axis-label")?.textContent.includes("Time (HKT)")) failures.push("valid CF time did not produce an HKT axis");
   const offsetControls = document.querySelector(".curve-offset-controls");
   if (!offsetControls?.closest(".toolbar .display-controls")) failures.push("curve offsets are not in the toolbar");
-  if (!offsetControls?.querySelector(".series-key") || offsetControls?.textContent.includes("datum unspecified")) {
+  if (!document.querySelector(".curve-legend .series-key") || offsetControls?.textContent.includes("datum unspecified")) {
     failures.push("curve controls do not identify their series correctly");
   }
-  const offsetInput = offsetControls?.querySelectorAll('input[type="number"]')[1];
+  const offsetInput = offsetControls?.querySelector('input[type="number"]');
   const rangeInput = document.querySelector('.range-values input');
   if (offsetInput && rangeInput) {
     const offsetType = getComputedStyle(offsetInput);
@@ -1352,7 +1689,9 @@ const childArguments = browserMode === "hub"
     ]
   : browserMode === "collection"
     ? ["serve", "--port", "0", collectionDirectory]
-  : ["serve", "--port", "0", fixture];
+  : browserMode === "station"
+    ? ["serve", "--port", "0", "--dataset", `station=${fixture}`]
+    : ["serve", "--port", "0", fixture];
 const child = spawn(binary, childArguments, {
   cwd: ncx,
   stdio: ["ignore", "pipe", "pipe"],
@@ -1379,21 +1718,31 @@ let proxyHits = 0;
 const stationOrigin = Date.parse("2025-09-20T09:00:00Z");
 const stationSamples = 23_039;
 const stationSeries = [{
-  id: "reference:TPK",
-  label: "TPK astronomical reference",
+  label: "Supplied station series",
   quantity: "sea_surface_height_above_mean_sea_level",
   location_id: "TPK",
   x_units: "milliseconds since 1970-01-01T00:00:00Z",
   x: Array.from({ length: stationSamples }, (_, index) => stationOrigin + index * 60_000),
   y_units: "m",
   vertical_datum: "CD",
-  primary_y_offset: 1.45,
   y: Array.from({ length: stationSamples }, (_, index) => Math.sin(index / 1440)),
 }];
 const stationHost = `<!doctype html><style>html,body,iframe{width:100%;height:100%;margin:0;border:0}</style>
-<iframe src="/ncx/?display_zone=HKT%2C480&comparison_host=1&generation=1${chromeQuery}"></iframe>
-<script>addEventListener("message",(event)=>{const request=event.data;if(request?.type!=="ncx:comparison-request"||request.quantity!=="sea_surface_height_above_mean_sea_level"||request.units!=="m")return;
-event.source.postMessage({type:"ncx:comparison-ready",request_id:request.request_id,generation:request.generation,series:${JSON.stringify(stationSeries)}},location.origin)});</script>`;
+<iframe src="/ncx/?display_zone=HKT%2C480${chromeQuery}"></iframe>
+<script>
+let revision;
+setInterval(() => {
+  const api = document.querySelector("iframe").contentWindow.ncx;
+  if (!api) return;
+  const state = api.getState();
+  if (!state.selection?.start_ms || state.revision === revision) return;
+  revision = state.revision;
+  api.setSources({revision, sources: [
+    {id: "station", dataset: "station"},
+    {id: "tide", series: ${JSON.stringify(stationSeries[0])}, attributes: {locked: true}},
+  ]});
+}, 250);
+</script>`;
 const proxy = createServer(async (request, response) => {
   proxyHits += 1;
   const url = new URL(request.url, "http://127.0.0.1");
@@ -1467,8 +1816,8 @@ const browser = spawn(
     browserMode === "station"
       ? `http://127.0.0.1:${proxyPort}/host`
       : browserMode === "hub"
-        ? `http://127.0.0.1:${proxyPort}/ncx/?display_zone=HKT%2C480&comparison_host=1&generation=1${chromeQuery}`
-        : `http://127.0.0.1:${proxyPort}/?display_zone=HKT%2C480&comparison_host=1&generation=1${chromeQuery}`,
+        ? `http://127.0.0.1:${proxyPort}/ncx/?display_zone=HKT%2C480${chromeQuery}`
+        : `http://127.0.0.1:${proxyPort}/?display_zone=HKT%2C480${chromeQuery}`,
   ],
   { stdio: ["ignore", "ignore", "pipe"] },
 );

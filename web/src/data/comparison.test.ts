@@ -3,13 +3,12 @@ import test from "node:test";
 
 import {
   fieldComparisonDatasets,
-  findComparisonSeries,
+  matchesSeries,
   findCompatibleVariable,
   nearestFrame,
   locationIdentity,
-  requestHostComparison,
 } from "./comparison.ts";
-import type { ComparisonSeries, DatasetSummary, Metadata, Variable } from "./model.ts";
+import type { SuppliedSeries, DatasetSummary, Metadata, Variable } from "./model.ts";
 
 function variable(name: string, standardName?: string): Variable {
   return {
@@ -102,109 +101,9 @@ test("field composition naturally reduces to one or no source", () => {
   assert.deepEqual(fieldComparisonDatasets([dataset], "a"), [dataset]);
 });
 
-test("hosted comparisons match exact location, CF quantity, and units", () => {
-  const series = [{
-    id: "reference:station-01",
-    label: "Station 01 reference",
-    quantity: "sea_surface_height_above_mean_sea_level",
-    location_id: "station-01",
-    x_units: "milliseconds since 1970-01-01T00:00:00Z",
-    x: [1, 2],
-    y_units: "m",
-    vertical_datum: "CD",
-    y: [0.1, 0.2],
-  }] as ComparisonSeries[];
-  assert.equal(findComparisonSeries(
-    series,
-    "station-01",
-    "sea_surface_height_above_mean_sea_level",
-    "m",
-  )?.id, "reference:station-01");
-  assert.equal(findComparisonSeries(series, "station-02", "air_pressure", "Pa"), undefined);
-});
-
-test("a hosted request accepts only its parent's matching reply", async () => {
-  const host = globalThis as typeof globalThis & { window?: Window & typeof globalThis };
-  const previous = host.window;
-  const origin = "https://viewer.example";
-  let receive: ((event: MessageEvent) => void) | undefined;
-  let posted: Record<string, unknown> | undefined;
-  let responseSeries = [{
-    id: "reference:station-01",
-    label: "Station 01 reference",
-    quantity: "air_pressure",
-    location_id: "station-01",
-    x_units: "milliseconds since 1970-01-01T00:00:00Z",
-    x: [1, 2],
-    y_units: "Pa",
-    vertical_datum: "CD",
-    primary_y_offset: 1.45,
-    y: [1000, 1001],
-  }];
-  const parent = {
-    postMessage(message: Record<string, unknown>) {
-      posted = message;
-      queueMicrotask(() => receive?.({
-        origin,
-        source: parent,
-        data: {
-          type: "ncx:comparison-ready",
-          request_id: message.request_id,
-          generation: message.generation,
-          series: responseSeries,
-        },
-      } as unknown as MessageEvent));
-    },
-  };
-  host.window = {
-    parent,
-    location: { origin },
-    setTimeout,
-    clearTimeout,
-    addEventListener(_type: string, listener: EventListener) {
-      receive = listener as (event: MessageEvent) => void;
-    },
-    removeEventListener() { receive = undefined; },
-  } as unknown as Window & typeof globalThis;
-  try {
-    const result = await requestHostComparison({
-      generation: 3,
-      location_id: "station-01",
-      quantity: "air_pressure",
-      units: "Pa",
-      start_ms: 1,
-      end_ms: 2,
-    });
-    assert.equal(posted?.type, "ncx:comparison-request");
-    assert.equal(posted?.location_id, "station-01");
-    assert.equal(result[0].id, "reference:station-01");
-    assert.equal(result[0].primary_y_offset, 1.45);
-    responseSeries = [{ ...responseSeries[0], y: Array(2) }];
-    await assert.rejects(requestHostComparison({
-      generation: 3,
-      location_id: "station-01",
-      quantity: "air_pressure",
-      units: "Pa",
-      start_ms: 1,
-      end_ms: 2,
-    }), /values/);
-    responseSeries = [{ ...responseSeries[0], y: [1000, 1001], primary_y_offset: Infinity }];
-    await assert.rejects(requestHostComparison({
-      generation: 3,
-      location_id: "station-01",
-      quantity: "air_pressure",
-      units: "Pa",
-      start_ms: 1,
-      end_ms: 2,
-    }), /primary_y_offset/);
-    const controller = new AbortController();
-    const cancelled = requestHostComparison({ generation: 3, location_id: "station-01",
-      quantity: "air_pressure", units: "Pa", start_ms: 1, end_ms: 2 }, controller.signal);
-    controller.abort();
-    await assert.rejects(cancelled, /cancelled/);
-    assert.equal(receive, undefined, "cancelled selections remove the reply listener");
-  } finally {
-    if (previous) host.window = previous;
-    else delete host.window;
-  }
+test("supplied series match exact location, quantity, and original units", () => {
+  const series = { location_id: "station-01", quantity: "air_pressure", y_units: "Pa" } as SuppliedSeries;
+  assert.equal(matchesSeries(series, "station-01", "air_pressure", "Pa"), true);
+  assert.equal(matchesSeries(series, "station-02", "air_pressure", "Pa"), false);
+  assert.equal(matchesSeries(series, "station-01", "air_pressure", "hPa"), false);
 });

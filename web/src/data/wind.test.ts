@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Metadata, Variable } from "./model.ts";
-import { derivedWindVariable, windFrom, windPair, windSpeed, windValues, windSampleRequest } from "./wind.ts";
+import { windFrom, windPair, windValues, windSampleRequest, windDescription } from "./wind.ts";
 import { arrowVector, barbGeometry, meshWindAnchors } from "../plots/windGeometry.ts";
 import { buildUgridGeometry } from "../plots/mesh.ts";
 
@@ -38,6 +38,16 @@ test("wind pairs require aligned native locations, units and basis", () => {
   assert.ok(!windPair(metadata([u, v, v]), field).pair);
 });
 
+test("scalar coordinate metadata does not restrict wind to particular quantities", () => {
+  const scalar = { ...field, view_hint: { kind: "plain" as const }, attributes: [
+    { name: "coordinates", dtype: "char", value: "height lat lon" },
+    { name: "units", dtype: "char", value: "Pa" },
+  ] };
+  assert.ok(windPair(metadata([u, v, scalar]), scalar).pair);
+  const unrelated = { ...scalar, dimensions: [{ path: "/other", name: "other", length: 2 }] };
+  assert.ok(windPair(metadata([u, v, unrelated]), unrelated).pair);
+});
+
 test("missing wind units use the selected velocity unit without overriding metadata", () => {
   const missing = { ...u, attributes: u.attributes.filter(item => item.name !== "units") };
   const data = metadata([missing, v]);
@@ -53,8 +63,7 @@ test("missing wind units use the selected velocity unit without overriding metad
   assert.equal(windPair(metadata([u, v]), field, "kt").pair?.uUnit.id, "m/s");
 });
 
-test("derived speed and meteorological directions use physical components", () => {
-  assert.deepEqual([...windSpeed([3, 0, NaN], [4, 0, 1])], [5, 0, NaN]);
+test("meteorological directions use physical components", () => {
   assert.equal(windFrom(0, -10), 0);
   assert.equal(windFrom(-10, 0), 90);
   assert.equal(windFrom(0, 10), 180);
@@ -62,16 +71,19 @@ test("derived speed and meteorological directions use physical components", () =
   assert.ok(Number.isNaN(windFrom(0, 0)));
   const pair = windPair(metadata([u, v]), field).pair!;
   assert.deepEqual([...windValues([1, NaN], [2, 3], pair).u], [1, NaN]);
-  assert.throws(() => windSpeed([1], []));
-  const derived = derivedWindVariable(field);
-  assert.equal(derived.name, "si10");
-  assert.equal(field.name, "msl");
+});
+
+test("wind readouts share concise speed and direction text, without a false missing or calm direction", () => {
+  assert.equal(windDescription(-10, 0, false), "10m wind: 10.000 m s⁻¹ from 90°");
+  assert.equal(windDescription(0, -1852 / 3600, true), "10m wind: 1.000 kt from 0°");
+  assert.equal(windDescription(0, 0, false), "10m wind: 0.000 m s⁻¹ calm");
+  assert.equal(windDescription(NaN, 1, false), undefined);
 });
 
 test("arrows normalize after geographic transformation and skip calm/poles", () => {
   const equator = arrowVector(1, 1, 0, 1, 1)!;
   const north = arrowVector(1, 1, 60, 1, 1)!;
-  assert.ok(Math.abs(Math.hypot(north.x, north.y) - 20) < 1e-10);
+  assert.ok(Math.abs(Math.hypot(north.x, north.y) - 28) < 1e-10);
   assert.ok(north.x > equator.x && Math.abs(north.y) < Math.abs(equator.y));
   assert.equal(arrowVector(0, 0, 0, 1, 1), undefined);
   assert.equal(arrowVector(1, 1, 90, 1, 1), undefined);

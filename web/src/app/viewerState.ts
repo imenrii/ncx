@@ -56,3 +56,17 @@ export function updateVariableState(
 ): VariableState {
   return { ...state, ...(typeof change === "function" ? change(state) : change) };
 }
+
+export function savedSelection(dataset: string): { dataset: string; path: string; view: ViewName } | undefined {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(`ncx:selection:${dataset}`) ?? "null");
+    if (value?.dataset === dataset && typeof value.path === "string" &&
+        ["field", "curve", "metadata"].includes(value.view)) return value;
+  } catch { /* Storage can be blocked by browser policy. */ }
+  return undefined;
+}
+
+export function saveSelection(dataset: string, path: string, view: ViewName) {
+  try { sessionStorage.setItem(`ncx:selection:${dataset}`, JSON.stringify({ dataset, path, view })); }
+  catch { /* Navigation must also work without storage. */ }
+}

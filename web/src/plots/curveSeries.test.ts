@@ -1,32 +1,23 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { curveSelection, curveSelectionRange, displaySeries, nearestCurveSample, seriesDescription, type CurveSeries } from "./curveSeries.ts";
+import { curveSelection, curveSelectionRange, displaySeries, nearestCurveSample, type CurveSeries } from "./curveSeries.ts";
 import type { Variable } from "../data/model.ts";
 
 const model: CurveSeries = {
-  id: "model:a", label: "A", kind: "model", x: new Float64Array([1000, 2000]),
+  id: "model:a", label: "A", x: new Float64Array([1000, 2000]),
   y: new Float32Array([1, NaN]), absoluteTime: true, xUnit: "time", units: "m",
   quantity: "sea_surface_height_above_mean_sea_level", datum: "MSL", color: "black", dash: "none",
 };
 
-test("offsets transform only models; reference samples and export descriptions stay unshifted", () => {
-  const reference: CurveSeries = { ...model, id: "reference:TPK", kind: "reference", datum: "CD" };
-  for (const offset of [{ x: 3, y: 8 }, { x: 0, y: 1.45 }, { x: 0, y: 0 }]) {
-    const result = displaySeries(reference, offset);
-    assert.equal(result, reference);
-    assert.deepEqual([...result.x], [1000, 2000]);
-    assert.equal(result.y[0], 1);
-    assert.ok(Number.isNaN(result.y[1]));
-    assert.doesNotMatch(seriesDescription(reference, offset), /offset/);
-  }
-  const shifted = displaySeries(model, { x: 3, y: 8 });
-  assert.deepEqual([...shifted.x], [181000, 182000]);
+test("Y offsets are generic, absolute, finite, and do not mutate samples or times", () => {
+  const shifted = displaySeries(model, 8);
+  assert.equal(shifted.x, model.x);
   assert.equal(shifted.y[0], 9);
+  assert.ok(Number.isNaN(shifted.y[1]));
   assert.equal(model.y[0], 1);
-  assert.equal(model.x[0], 1000);
-  assert.match(seriesDescription(model, { x: 3, y: 8 }), /Y offset 8 m/);
-  assert.equal(displaySeries({ ...model, absoluteTime: false }, { x: 3, y: 8 }).x, model.x);
-  assert.throws(() => displaySeries(model, { x: 0, y: Infinity }), /finite/);
+  assert.equal(displaySeries(model, 3).y[0], 4);
+  assert.throws(() => displaySeries(model, Infinity), /offset/);
+  assert.throws(() => displaySeries({ ...model, y: new Float32Array([3e38]) }, 3e38), /offset/);
 });
 
 test("curve selections retain Along and reject unproved cross-mesh index mappings", () => {

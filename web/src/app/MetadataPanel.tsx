@@ -1,6 +1,19 @@
-import type { Attribute, Metadata, Variable } from "../data/model";
+import { attributeText, type Attribute, type Metadata, type Variable } from "../data/model";
+import { PRESSURE_INTERVAL } from "../data/pressure";
+import { UNIT_FAMILIES, unitRule } from "../data/units";
+import { unitAssignments } from "../data/unitAssignments";
+
+const familyLabels: Record<keyof typeof UNIT_FAMILIES, string> = {
+  pressure: "Pressure", velocity: "Velocity", temperature: "Temperature",
+  length: "Length", water: "Water-equivalent depth", fraction: "Fraction",
+  period: "Period", angle: "Angle", energy: "Energy per area",
+  flux: "Flux", specificEnergy: "Specific energy",
+};
 
 export function MetadataPanel({ metadata, variable }: { metadata: Metadata; variable: Variable }) {
+  const raw = unitAssignments.original(metadata).variables.find(item => item.path === variable.path)!;
+  const fileUnit = attributeText(raw, "units");
+  const family = unitRule(raw).rule?.family;
   return (
     <div className="metadata-panel">
       <section>
@@ -12,6 +25,26 @@ export function MetadataPanel({ metadata, variable }: { metadata: Metadata; vari
             <dd>{variable.dimensions.map((dimension) => `${dimension.name}=${dimension.length}`).join(" × ") || "scalar"}</dd>
           </div>
           <div><dt>view hint</dt><dd>{variable.view_hint.kind}</dd></div>
+          {/* The plot no longer carries the interval, so the number lives here. */}
+          {family === "pressure" && <div>
+            <dt>contour interval</dt>
+            <dd>{PRESSURE_INTERVAL} hPa, doubled while isobars crowd the pane</dd>
+          </div>}
+          <div className="metadata-unit">
+            <dt>{fileUnit?.trim() ? "Units" : <label htmlFor="metadata-unit">Units</label>}</dt>
+            <dd>{fileUnit?.trim() ? fileUnit : <select
+              id="metadata-unit"
+              value={attributeText(variable, "units")?.trim() ?? ""}
+              onChange={event => unitAssignments.assign(metadata, variable.path, event.currentTarget.value)}
+            >
+              <option value="">Not specified</option>
+              {Object.entries(UNIT_FAMILIES).filter(([name]) => !family || name === family).map(([name, units]) => (
+                <optgroup key={name} label={familyLabels[name as keyof typeof UNIT_FAMILIES]}>
+                  {units.map(unit => <option key={unit.id} value={unit.id}>{unit.label}</option>)}
+                </optgroup>
+              ))}
+            </select>}</dd>
+          </div>
         </dl>
       </section>
       <section>
@@ -34,10 +67,10 @@ export function MetadataPanel({ metadata, variable }: { metadata: Metadata; vari
       </section>
       <section>
         <h3>Attributes</h3>
-        {variable.attributes.length ? (
+        {raw.attributes.length ? (
           <table>
             <thead><tr><th>Name</th><th>Type</th><th>Value</th></tr></thead>
-            <tbody>{variable.attributes.map((attribute) => <AttributeRow key={attribute.name} attribute={attribute} />)}</tbody>
+            <tbody>{raw.attributes.map((attribute) => <AttributeRow key={attribute.name} attribute={attribute} />)}</tbody>
           </table>
         ) : <p className="empty-note">No variable attributes.</p>}
       </section>

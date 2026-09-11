@@ -120,6 +120,8 @@ test("the annotation strip is reserved globally, including explicit curve top pa
     assert.equal(plotMargin(type, { top: 0 }).top, annotationStrip(type));
     assert.equal(plotMargin(type, { top: 20 }).top, annotationStrip(type) + 20);
     assert.ok(fieldMargin(type).top > annotationStrip(type));
+    assert.ok(fieldMargin(type, 144).top >= 144 + type.tick);
+    assert.equal(fieldMargin(type, 144).left, fieldMargin(type).left);
   }
 });
 

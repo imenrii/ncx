@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Variable } from "./model.ts";
-import { BEAUFORT_LIMITS, beaufort, convert, convertValues, findUnit, unitChoice } from "./units.ts";
+import { BEAUFORT_LIMITS, UNIT_FAMILIES, beaufort, convert, convertValues, findUnit, unitChoice } from "./units.ts";
 
 const variable = (name: string, units: string, standard?: string): Variable => ({
   name, path: `/${name}`, dtype: "float", dimensions: [], view_hint: { kind: "plain" },
@@ -18,6 +18,33 @@ test("pressure and speed conversions retain signs and round-trip", () => {
   close(convert(-10, ms, findUnit("velocity", "km/h")!), -36);
   for (const target of unitChoice(variable("u10", "m/s")).choices) {
     close(convert(convert(12.34, ms, target), target, ms), 12.34);
+  }
+});
+
+test("every unit family matches a physical reference and round-trips values and offsets", () => {
+  const examples = [
+    ["pressure", "Pa", "hPa", 101325, 1013.25],
+    ["velocity", "m/s", "km/h", 10, 36],
+    ["temperature", "K", "°C", 273.15, 0],
+    ["length", "m", "ft", 1, 3.280839895],
+    ["water", "m", "mm", 0.001, 1],
+    ["fraction", "1", "%", 0.5, 50],
+    ["period", "s", "min", 120, 2],
+    ["angle", "degrees", "rad", 180, Math.PI],
+    ["energy", "J/m2", "MJ/m2", 1e6, 1],
+    ["flux", "W/m2", "kW/m2", 1000, 1],
+    ["specificEnergy", "J/kg", "kJ/kg", 1000, 1],
+  ] as const;
+  for (const [family, from, to, value, expected] of examples) {
+    close(convert(value, findUnit(family, from)!, findUnit(family, to)!), expected);
+  }
+  for (const choices of Object.values(UNIT_FAMILIES)) {
+    for (const from of choices) for (const to of choices) {
+      for (const value of [-12.34, 0, 273.15]) {
+        close(convert(convert(value, from, to), to, from), value);
+        close(convert(convert(value, from, to, true), to, from, true), value);
+      }
+    }
   }
 });
 

@@ -46,8 +46,10 @@ export function barbGeometry(u: number, v: number, knots: boolean) {
   return { angle: windFrom(u, v), path, calm: false };
 }
 
+export interface FieldVector { longitude: number; latitude: number; u: number; v: number }
+
 /** Geographic east/north to plot direction, then fixed screen length. */
-export function arrowVector(u: number, v: number, latitude: number, xScale: number, yScale: number, length = 20) {
+export function arrowVector(u: number, v: number, latitude: number, xScale: number, yScale: number, length = 28) {
   if (![u, v, latitude, xScale, yScale].every(Number.isFinite) || Math.abs(latitude) >= 89.9) return undefined;
   const x = u / Math.cos(latitude * Math.PI / 180) * xScale;
   const y = -v * yScale;

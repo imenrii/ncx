@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Metadata, Variable } from "../data/model.ts";
-import { initialVariableState, updateVariableState } from "./viewerState.ts";
+import { initialVariableState, updateVariableState, savedSelection, saveSelection } from "./viewerState.ts";
 
 const field: Variable = {
   dataset_id: "a", path: "/temperature", name: "temperature", dtype: "f32",
@@ -71,4 +71,30 @@ test("UGRID edge display follows explicit or connectivity-derived edge dimension
   assert.deepEqual(initialVariableState(source, edge).display, { x: 0, y: undefined });
   assert.equal(initialVariableState(source, { ...edge, dimensions: [edge.dimensions[0]] }).view, "field");
   assert.deepEqual(initialVariableState(metadata, edge).display, { x: 1, y: undefined });
+});
+
+test("selection storage is dataset-keyed and blocked or corrupt storage uses defaults", () => {
+  const host = globalThis as typeof globalThis & { sessionStorage?: Storage };
+  const previous = Object.getOwnPropertyDescriptor(host, "sessionStorage");
+  const values = new Map<string, string>();
+  Object.defineProperty(host, "sessionStorage", { configurable: true, value: {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+  } });
+  try {
+    saveSelection("a", "/temperature", "curve");
+    saveSelection("b", "/pressure", "metadata");
+    assert.deepEqual(savedSelection("a"), { dataset: "a", path: "/temperature", view: "curve" });
+    assert.deepEqual(savedSelection("b"), { dataset: "b", path: "/pressure", view: "metadata" });
+    values.set("ncx:selection:a", "bad json");
+    assert.equal(savedSelection("a"), undefined);
+    values.set("ncx:selection:a", JSON.stringify({ dataset: "b", path: "/p", view: "field" }));
+    assert.equal(savedSelection("a"), undefined);
+    Object.defineProperty(host, "sessionStorage", { configurable: true, get() { throw new Error("blocked"); } });
+    assert.doesNotThrow(() => saveSelection("a", "/temperature", "curve"));
+    assert.equal(savedSelection("a"), undefined);
+  } finally {
+    if (previous) Object.defineProperty(host, "sessionStorage", previous);
+    else delete host.sessionStorage;
+  }
 });

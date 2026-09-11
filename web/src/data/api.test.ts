@@ -6,7 +6,8 @@ Object.defineProperty(globalThis, "document", {
   value: { baseURI: "http://127.0.0.1:8765/" },
 });
 
-const { fetchCoordinate, fetchSlice, fetchStaticSlice } = await import("./api.ts");
+const { fetchCoordinate, fetchMetadata, fetchSlice, fetchStaticSlice } = await import("./api.ts");
+const { unitAssignments } = await import("./unitAssignments.ts");
 
 function variable(path: string) {
   return {
@@ -54,6 +55,28 @@ test("fetchCoordinate requests and decodes little-endian f64 without sharing the
     assert.equal(urls.length, 2);
     assert.match(urls[0], /wire=f64/);
     assert.doesNotMatch(urls[1], /wire=/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("cached metadata uses current unit assignments without another request", async () => {
+  const originalFetch = globalThis.fetch;
+  let reads = 0;
+  globalThis.fetch = async () => {
+    reads += 1;
+    return Response.json({ dataset: { name: "wind" }, variables: [variable("/u10"), variable("/v10")] });
+  };
+  try {
+    const initial = await fetchMetadata("assignment-case");
+    unitAssignments.assign(initial, "/u10", "kt");
+    const updated = await fetchMetadata("assignment-case");
+    assert.equal(updated.variables[0].attributes.at(-1)?.value, "kt");
+    assert.equal(updated.variables[1].attributes.at(-1)?.value, "kt");
+    assert.deepEqual(unitAssignments.original(updated).variables[0].attributes, []);
+    unitAssignments.assign(updated, "/v10", "");
+    assert.deepEqual((await fetchMetadata("assignment-case")).variables[0].attributes, []);
+    assert.equal(reads, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }

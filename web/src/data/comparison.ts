@@ -1,4 +1,4 @@
-import type { ComparisonSeries, DatasetSummary, Metadata, Variable } from "./model.ts";
+import type { SuppliedSeries, DatasetSummary, Metadata, Variable } from "./model.ts";
 import { attributeText } from "./model.ts";
 
 export interface VariableMatch {
@@ -64,116 +64,11 @@ export function verticalDatum(variable: Variable): string | undefined {
   return undefined;
 }
 
-export function findComparisonSeries(
-  series: readonly ComparisonSeries[],
-  locationId: string,
-  quantity: string,
-  units: string,
-): ComparisonSeries | undefined {
-  return series.find((item) =>
-    item.location_id === locationId && item.quantity === quantity && item.y_units === units
-  );
-}
-
-export async function requestHostComparison(request: {
-  generation: number;
-  location_id: string;
-  quantity: string;
-  units: string;
-  start_ms: number;
-  end_ms: number;
-}, signal?: AbortSignal): Promise<ComparisonSeries[]> {
-  if (window.parent === window) throw new Error("Comparison host is unavailable");
-  const requestId = crypto.randomUUID();
-  const origin = window.location.origin;
-  return new Promise<ComparisonSeries[]>((resolve, reject) => {
-    const timeout = window.setTimeout(() => finish("Comparison host timed out"), 60_000);
-    const receive = (event: MessageEvent) => {
-      const reply = event.data as Record<string, unknown> | null;
-      if (
-        event.origin !== origin
-        || event.source !== window.parent
-        || reply?.type !== "ncx:comparison-ready"
-        || reply.request_id !== requestId
-        || reply.generation !== request.generation
-      ) return;
-      finish(typeof reply.error === "string" ? reply.error : undefined, reply.series);
-    };
-    const finish = (error?: string, series?: unknown) => {
-      window.clearTimeout(timeout);
-      window.removeEventListener("message", receive);
-      signal?.removeEventListener("abort", abort);
-      if (error) reject(new Error(error));
-      else {
-        try { resolve(validateComparisonSeries(series)); }
-        catch (cause) { reject(cause); }
-      }
-    };
-    const abort = () => finish("Reference request cancelled");
-    window.addEventListener("message", receive);
-    signal?.addEventListener("abort", abort, { once: true });
-    if (signal?.aborted) { abort(); return; }
-    window.parent.postMessage({
-      type: "ncx:comparison-request",
-      request_id: requestId,
-      ...request,
-    }, origin);
-  });
-}
-
-function validateComparisonSeries(value: unknown): ComparisonSeries[] {
-  if (!Array.isArray(value) || value.length < 1 || value.length > 6) {
-    throw new Error("Comparison input must contain one to six series");
-  }
-  let samples = 0;
-  const result = Array.from(value, (item) => {
-    if (!item || typeof item !== "object" || Array.isArray(item)) {
-      throw new Error("Comparison series must be an object");
-    }
-    const source = item as Record<string, unknown>;
-    const strings = ["id", "label", "quantity", "location_id", "x_units", "y_units"] as const;
-    for (const name of strings) {
-      if (typeof source[name] !== "string" || source[name].length < 1 || source[name].length > 256) {
-        throw new Error(`Comparison ${name} is invalid`);
-      }
-    }
-    if (source.x_units !== "milliseconds since 1970-01-01T00:00:00Z") {
-      throw new Error("Comparison x_units are unsupported");
-    }
-    if (!Array.isArray(source.x) || !Array.isArray(source.y) ||
-        source.x.length === 0 || source.x.length !== source.y.length) {
-      throw new Error("Comparison x and y must have equal non-zero length");
-    }
-    if (source.x.length > 100_000 - samples) {
-      throw new Error("Comparison input has too many samples");
-    }
-    const x = Array.from(source.x);
-    const y = Array.from(source.y);
-    samples += x.length;
-    if (x.some((number, index) =>
-      !Number.isSafeInteger(number) || Math.abs(number) > 8_640_000_000_000_000 ||
-      index > 0 && number <= x[index - 1]) ||
-      y.some((number) => typeof number !== "number" || !Number.isFinite(number) ||
-        Math.abs(number) > 3.4028235e38)) {
-      throw new Error("Comparison values are invalid");
-    }
-    if (source.vertical_datum !== undefined &&
-        (typeof source.vertical_datum !== "string" || source.vertical_datum.length < 1 ||
-          source.vertical_datum.length > 256)) {
-      throw new Error("Comparison vertical_datum is invalid");
-    }
-    if (source.primary_y_offset !== undefined &&
-        (typeof source.primary_y_offset !== "number" ||
-          !Number.isFinite(source.primary_y_offset) || source.primary_y_offset === 0 ||
-          Math.abs(source.primary_y_offset) > 3.4028235e38 || !source.vertical_datum)) {
-      throw new Error("Comparison primary_y_offset is invalid");
-    }
-    return { ...source, x, y } as unknown as ComparisonSeries;
-  });
-  if (new Set(result.map((item) => item.id)).size !== result.length) {
-    throw new Error("Comparison IDs must be unique");
-  }
-  return result;
+export function matchesSeries(
+  series: SuppliedSeries, location: string | undefined,
+  quantity: string | undefined, units: string | undefined,
+): boolean {
+  return series.location_id === location && series.quantity === quantity && series.y_units === units;
 }
 
 export interface FrameMatch {

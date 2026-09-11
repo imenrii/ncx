@@ -45,7 +45,8 @@ export function curveGeometry(
     xRange,
     yRange,
     step = false,
-  }: { log?: boolean; xRange?: CurveRange; yRange?: { minimum: number; maximum: number }; step?: boolean } = {},
+    headroom = 0,
+  }: { log?: boolean; xRange?: CurveRange; yRange?: CurveRange; step?: boolean; headroom?: number } = {},
 ) {
   if (!values?.length) return undefined;
   const xValues = coordinate?.length === values.length
@@ -103,6 +104,18 @@ export function curveGeometry(
     width: Math.max(1, width - margin.left - margin.right),
     height: Math.max(1, height - margin.top - margin.bottom),
   };
+  // Export headroom extends the display scale, not the samples or stored range.
+  // Clip at the original upper bound so off-viewport data cannot enter the legend.
+  if (headroom) {
+    if (!Number.isFinite(headroom) || headroom < 0 || headroom >= plot.height - type.axis) {
+      throw new Error("The plot is too short for its legend");
+    }
+    const low = log ? Math.log10(yMinimum) : yMinimum;
+    const high = log ? Math.log10(yMaximum) : yMaximum;
+    const extended = high + (high - low) * headroom / (plot.height - headroom);
+    yMaximum = log ? 10 ** extended : extended;
+    if (!Number.isFinite(yMaximum)) throw new Error("The legend exceeds the Y display range");
+  }
   const xFor = (index: number) =>
     plot.left + ((xValues[index] - xMinimum) / (xMaximum - xMinimum)) * plot.width;
   const yFor = curveYScale(log, yMinimum, yMaximum, plot.top, plot.height);
@@ -128,6 +141,7 @@ export function curveGeometry(
     yMaximum,
     log,
     plot,
+    headroom,
     type,
     xFor,
     yFor,

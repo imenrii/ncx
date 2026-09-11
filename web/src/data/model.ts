@@ -89,8 +89,7 @@ export interface DataSlice {
   request: SliceRequest;
 }
 
-export interface ComparisonSeries {
-  id: string;
+export interface SuppliedSeries {
   label: string;
   quantity: string;
   location_id: string;
@@ -98,8 +97,22 @@ export interface ComparisonSeries {
   x: number[];
   y_units: string;
   vertical_datum?: string;
-  primary_y_offset?: number;
-  y: number[];
+  y: (number | null)[];
+}
+
+export type Source =
+  | { id: string; dataset: string; label?: string; attributes?: { locked?: boolean } }
+  | { id: string; series: SuppliedSeries; attributes?: { locked?: boolean } };
+
+export interface SourceSelection {
+  dataset: string;
+  path: string;
+  view: string;
+  location_id?: string;
+  quantity?: string;
+  units?: string;
+  start_ms?: number;
+  end_ms?: number;
 }
 
 export interface Probe {

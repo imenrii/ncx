@@ -17,7 +17,7 @@
 import {
   canvasPng,
   captureFor,
-  curveLegendFor,
+  curveCaptureFor,
   exportPixelWidth,
   planCaptureLayout,
   validateCanvasSize,
@@ -27,7 +27,6 @@ import { parseMath } from "./mathtext";
 
 /** Style's print resolution. */
 export const EXPORT_DPI = 400;
-/** The resolution a CSS pixel is defined against. */
 
 /**
  * Presentation properties worth carrying into the isolated SVG document.
@@ -216,12 +215,16 @@ export async function exportPlotPng(name: string, options?: ExportOptions): Prom
     throw new Error("Wind is not ready. Wait for it to load, or set Wind to Off before export.");
   }
 
+  if (frames.some(frame => frame.querySelector('[data-pressure]:not([data-pressure="ready"])'))) {
+    throw new Error("Pressure contours are not ready. Wait for them to load, or turn them off before export.");
+  }
+
   await document.fonts.ready;
   const settings = options ?? defaultExportOptions();
   const content = figure.querySelector<HTMLElement>(".field-comparison");
   // Long rotated axis titles may extend beyond their SVG viewport. Reserve
-  // their full painted bounds before adding the title/legend band; otherwise
-  // a valid curve is saved with its quantity clipped or printed over a legend.
+  // their full painted bounds before adding the title band; otherwise
+  // a valid curve is saved with its quantity clipped or printed over the title.
   const lettering = frames.flatMap(frame => Array.from(frame.querySelectorAll<SVGTextElement>(
     ".plot-axis text, .colorbar-axis text",
   )).map(text => text.getBoundingClientRect())).filter(rect => rect.width > 0 && rect.height > 0);
@@ -235,8 +238,7 @@ export async function exportPlotPng(name: string, options?: ExportOptions): Prom
   const titleHeight = heading.title
     ? Math.round(titleSize * 1.5 + (heading.subtitle ? subtitleSize * 1.5 : 0))
     : 0;
-  const legend = curveLegend(figure, contentRect.width);
-  const bandHeight = titleHeight + legend.height;
+  const bandHeight = titleHeight;
   const layout = planCaptureLayout(
     contentRect,
     frames.map((frame) => frame.getBoundingClientRect()),
@@ -260,7 +262,6 @@ export async function exportPlotPng(name: string, options?: ExportOptions): Prom
   paper.setAttribute("fill", "#ffffff");
   output.append(paper);
   appendHeading(output, frames[0], contentRect.width, titleHeight, titleSize, subtitleSize, heading);
-  appendCurveLegend(output, legend, titleHeight);
 
   const body = svgElement("g");
   body.setAttribute("transform", `translate(0 ${bandHeight})`);
@@ -287,9 +288,15 @@ export async function exportPlotPng(name: string, options?: ExportOptions): Prom
       frame.dataset.exportCaptured = "true";
     }
 
-    const furniture = source.cloneNode(true) as SVGSVGElement;
-    inlineComputedStyle(source, furniture);
-    for (const probe of furniture.querySelectorAll(".probe-mark, .curve-tracker, .curve-zoom-box, .wind-readout")) probe.remove();
+    let furniture!: SVGSVGElement;
+    const clone = (svg: SVGSVGElement) => {
+      furniture = svg.cloneNode(true) as SVGSVGElement;
+      inlineComputedStyle(svg, furniture);
+    };
+    const curveCapture = curveCaptureFor(frame);
+    if (curveCapture) curveCapture(clone);
+    else clone(source);
+    for (const probe of furniture.querySelectorAll(".probe-mark, .curve-tracker, .curve-zoom-box")) probe.remove();
     retitleAxis(furniture, 0, settings.xTitle);
     retitleAxis(furniture, 1, settings.yTitle);
     if (!settings.grid) for (const line of furniture.querySelectorAll(".gridline")) line.remove();
@@ -334,68 +341,6 @@ export async function exportPlotPng(name: string, options?: ExportOptions): Prom
   window.setTimeout(() => URL.revokeObjectURL(download), 0);
 }
 
-interface CurveLegend {
-  height: number;
-  entries: { lines: string[]; style: string; stroke: string; dash: string; weight: string; lineHeight: number }[];
-}
-
-/** Scientific legend data comes from the same series model as the live plot. */
-function curveLegend(figure: HTMLElement, width: number): CurveLegend {
-  const series = Array.from(figure.querySelectorAll<HTMLElement>(".plot-frame")).flatMap(frame => [...curveLegendFor(frame)]);
-  if (!series.length) return { height: 0, entries: [] };
-  const context = document.createElement("canvas").getContext("2d");
-  if (!context) throw new Error("The browser could not measure the series legend");
-  const plotFace = getComputedStyle(figure).getPropertyValue("--plot-face");
-  const axis = figure.querySelector(".axis-label");
-  const computed = getComputedStyle(axis ?? figure);
-  const size = parseFloat(computed.fontSize);
-  const entries = series.map(item => {
-    context.font = `400 ${size}px ${plotFace}`;
-    const text = item.description;
-    const lines: string[] = [];
-    let line = "";
-    // Splitting long identifiers also keeps the legend inside a narrow export.
-    for (const character of text) {
-      while (line && context.measureText(line + character).width > Math.max(1, width - 40)) {
-        const space = line.lastIndexOf(" ");
-        if (space > 0) { lines.push(line.slice(0, space)); line = line.slice(space + 1); }
-        else { lines.push(line); line = ""; }
-      }
-      line += character;
-    }
-    if (line) lines.push(line.trim());
-    return {
-      lines, lineHeight: size * 1.5,
-      style: `font-family:${plotFace};font-size:${size}px;font-weight:400;fill:${computed.color}`,
-      stroke: item.color, dash: item.dash, weight: "1.5",
-    };
-  });
-  return { entries, height: entries.reduce((sum, entry) => sum + entry.lines.length * entry.lineHeight + 4, 8) };
-}
-
-function appendCurveLegend(output: SVGSVGElement, legend: CurveLegend, top: number): void {
-  const group = svgElement("g");
-  group.setAttribute("class", "export-series-legend");
-  let y = top + 4;
-  for (const entry of legend.entries) {
-    const swatch = svgElement("line");
-    swatch.setAttribute("x1", "8"); swatch.setAttribute("x2", "26");
-    swatch.setAttribute("y1", String(y + entry.lineHeight * 0.5));
-    swatch.setAttribute("y2", String(y + entry.lineHeight * 0.5));
-    swatch.setAttribute("stroke", entry.stroke); swatch.setAttribute("stroke-width", entry.weight);
-    swatch.setAttribute("stroke-dasharray", entry.dash);
-    group.append(swatch);
-    for (const line of entry.lines) {
-      const text = svgElement("text");
-      text.setAttribute("x", "32"); text.setAttribute("y", String(y + entry.lineHeight * 0.8));
-      text.setAttribute("style", entry.style); text.textContent = line;
-      group.append(text); y += entry.lineHeight;
-    }
-    y += 4;
-  }
-  output.append(group);
-}
-
 function enclosingRect(rects: DOMRect[]): CaptureRect {
   const left = Math.min(...rects.map((rect) => rect.left));
   const top = Math.min(...rects.map((rect) => rect.top));
@@ -428,7 +373,11 @@ function appendHeading(
     subtitle.setAttribute("x", centre);
     subtitle.setAttribute("y", String(titleSize * 1.05 + subtitleSize * 1.4));
     subtitle.setAttribute("text-anchor", "middle");
-    subtitle.setAttribute("style", `font-family:${face};font-size:${subtitleSize}px;fill:#4a5058`);
+    const windKey = frame.closest(".figure")?.querySelector(".curve-head .wind-key");
+    const isWindKey = windKey?.textContent === heading.subtitle;
+    const colour = isWindKey ? getComputedStyle(windKey!).color : "#4a5058";
+    if (isWindKey) subtitle.setAttribute("class", "wind-key");
+    subtitle.setAttribute("style", `font-family:${face};font-size:${subtitleSize}px;fill:${colour}`);
     appendMath(subtitle, heading.subtitle, subtitleSize);
     output.append(subtitle);
   }

@@ -1,4 +1,4 @@
-import { attributeText, isNumeric, type Metadata, type Variable, type SliceRequest } from "./model.ts";
+import { attributeText, hasGeographicCoordinates, isNumeric, type Metadata, type Variable, type SliceRequest } from "./model.ts";
 import { findUnit, type Unit } from "./units.ts";
 
 export interface WindPair { u: Variable; v: Variable; uUnit: Unit; vUnit: Unit }
@@ -24,17 +24,15 @@ export function windPair(metadata: Metadata, variable: Variable, fallbackUnit = 
     }
   }
   const dimensions = (item: Variable) => item.dimensions.map(dim => `${dim.path}:${dim.length}`).join("|");
-  if (dimensions(u) !== dimensions(v) || u.dimensions.some(dim =>
-    !variable.dimensions.some(other => other.path === dim.path && other.length === dim.length))) {
-    return { reason: "Wind and scalar selections do not share the same dimensions" };
+  if (dimensions(u) !== dimensions(v)) {
+    return { reason: "Wind components must share the same dimensions" };
   }
-  if (JSON.stringify(u.view_hint) !== JSON.stringify(v.view_hint) ||
-      JSON.stringify(u.view_hint) !== JSON.stringify(variable.view_hint)) {
-    return { reason: "Wind and scalar must share coordinates and sample locations" };
+  if (JSON.stringify(u.view_hint) !== JSON.stringify(v.view_hint)) {
+    return { reason: "Wind components must share coordinates and sample locations" };
   }
   for (const key of ["coordinates", "location_id", "station_id", "site_id", "grid_mapping"]) {
-    const values = [u, v, variable].map(item => attributeText(item, key)?.trim() ?? "");
-    if (new Set(values).size > 1) return { reason: `Wind and scalar ${key} metadata differ` };
+    const values = [u, v].map(item => attributeText(item, key)?.trim() ?? "");
+    if (new Set(values).size > 1) return { reason: `Wind component ${key} metadata differ` };
   }
   if ([u, v].some(item => item.dataset_id !== variable.dataset_id)) return { reason: "Wind must come from the same dataset" };
   return { pair: { u, v, uUnit, vUnit } };
@@ -43,13 +41,17 @@ export function windPair(metadata: Metadata, variable: Variable, fallbackUnit = 
 export function fieldWindReason(metadata: Metadata, variable: Variable): string | undefined {
   const match = windPair(metadata, variable);
   if (!match.pair) return match.reason;
-  const hint = variable.view_hint;
+  const hint = match.pair.u.view_hint;
   if (hint.kind === "plain") return "Wind requires geographic field coordinates";
   if (hint.kind === "ugrid2d" && hint.location === "edge") return "Native edge wind locations are not available";
-  const x = metadata.variables.find(item => item.path === hint.x);
-  const y = metadata.variables.find(item => item.path === hint.y);
-  if (!x || !y || !(attributeText(x, "standard_name") === "longitude" || attributeText(x, "units")?.startsWith("degrees_east")) ||
-      !(attributeText(y, "standard_name") === "latitude" || attributeText(y, "units")?.startsWith("degrees_north"))) return "Projected wind rotation is not available";
+  if (!hasGeographicCoordinates(metadata, variable) || !hasGeographicCoordinates(metadata, match.pair.u)) {
+    return "Projected wind rotation is not available";
+  }
+  if (hint.kind === "ugrid2d" && (variable.view_hint.kind !== "ugrid2d" ||
+      hint.mesh !== variable.view_hint.mesh || hint.location !== variable.view_hint.location ||
+      hint.x !== variable.view_hint.x || hint.y !== variable.view_hint.y)) {
+    return "Wind mesh geometry is not available in this field";
+  }
   return undefined;
 }
 
@@ -83,20 +85,23 @@ export function windValues(u: ArrayLike<number>, v: ArrayLike<number>, pair: Win
   const north = Float32Array.from(v, value => Number.isFinite(value) ? value * pair.vUnit.scale : NaN);
   return { u: east, v: north };
 }
-export function windSpeed(u: ArrayLike<number>, v: ArrayLike<number>): Float32Array {
-  if (u.length !== v.length) throw new Error("Wind component lengths differ");
-  return Float32Array.from(u, (value, index) => Number.isFinite(value) && Number.isFinite(v[index]) ? Math.hypot(value, v[index]) : NaN);
-}
 /** Meteorological direction is where the air comes from, clockwise from north. */
 export function windFrom(u: number, v: number): number {
   return Math.hypot(u, v) === 0 ? NaN : (Math.atan2(-u, -v) * 180 / Math.PI + 360) % 360;
 }
-export interface WindSamples { u: Float32Array; v: Float32Array; x: Float64Array }
-export function derivedWindVariable(variable: Variable): Variable {
-  return { ...variable, name: "si10", attributes: [
-    ...variable.attributes.filter(item => !["standard_name", "long_name", "units"].includes(item.name)),
-    { name: "standard_name", dtype: "char", value: "wind_speed" },
-    { name: "long_name", dtype: "char", value: "10 m wind speed — derived from u10, v10" },
-    { name: "units", dtype: "char", value: "m/s" },
-  ] };
+export function windReading(u: number, v: number, knots: boolean) {
+  const speed = Math.hypot(u, v);
+  if (!Number.isFinite(speed)) return undefined;
+  return {
+    value: (knots ? speed * 3600 / 1852 : speed).toFixed(3),
+    unit: knots ? "kt" : "m s⁻¹",
+    direction: speed === 0 ? "calm" : `from ${windFrom(u, v).toFixed(0)}°`,
+  };
 }
+
+export function windDescription(u: number, v: number, knots: boolean): string | undefined {
+  const reading = windReading(u, v, knots);
+  return reading && `10m wind: ${reading.value} ${reading.unit} ${reading.direction}`;
+}
+
+export interface WindSamples { u: Float32Array; v: Float32Array; x: Float64Array }

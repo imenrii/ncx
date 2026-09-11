@@ -51,3 +51,16 @@ test("registers one capture operation per plot frame", () => {
   unregister();
   assert.equal(captureFor(frame), undefined);
 });
+
+test("curve capture replacement cannot be removed by stale cleanup", async () => {
+  const { registerCurveCapture, curveCaptureFor } = await import("./capture.ts");
+  const frame = {} as HTMLElement;
+  const first = () => {};
+  const second = () => {};
+  const cleanup = registerCurveCapture(frame, first);
+  const currentCleanup = registerCurveCapture(frame, second);
+  cleanup();
+  assert.equal(curveCaptureFor(frame), second);
+  currentCleanup();
+  assert.equal(curveCaptureFor(frame), undefined);
+});

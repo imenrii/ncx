@@ -4,6 +4,7 @@ import type { ColormapChoice, ColorRange } from "./color";
 import { hasGeographicCoordinates, type ColorScale, type Metadata, type Probe, type Variable } from "../data/model";
 import type { DisplayDimensions } from "../data/selection";
 import type { ViewBounds } from "./view";
+import type { OverlayToggles } from "./OverlayLegend";
 
 export interface FieldProps {
   metadata: Metadata;
@@ -18,6 +19,8 @@ export interface FieldProps {
   sharedRange?: boolean;
   mapSource: "none" | "coastline";
   wind?: boolean;
+  pressure?: Variable;
+  overlays?: OverlayToggles;
   probe: Probe | undefined;
   initialView?: ViewBounds;
   onViewChange: (view: ViewBounds) => void;

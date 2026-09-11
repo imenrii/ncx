@@ -69,4 +69,5 @@ test("formats geographic fields as latitude then longitude", () => {
     ],
   } satisfies Metadata;
   assert.equal(formatPosition(direct, geographic, 110, 23), "23°N · 110°E");
+  assert.equal(formatPosition(direct, geographic, 114.75, 33), "33°N · 114.75°E");
 });

@@ -6,6 +6,7 @@ import type {
   Variable,
 } from "./model";
 import { currentHubCacheKey, sessionFetch } from "../hub/hub.ts";
+import { unitAssignments } from "./unitAssignments.ts";
 import {
   PERFORMANCE_MEASURE,
   measurePerformance,
@@ -36,15 +37,16 @@ export async function fetchDatasets(): Promise<{ datasets: DatasetSummary[]; col
 }
 
 export async function fetchMetadata(dataset?: string): Promise<Metadata> {
-  const key = `${currentHubCacheKey()}:${dataset ?? ""}`;
+  const scope = currentHubCacheKey();
+  const key = `${scope}:${dataset ?? ""}`;
   const cached = metadataCache.get(key);
-  if (cached) return cached;
+  if (cached) return unitAssignments.apply(await cached, scope);
   const pending = loadMetadata(dataset).catch((error) => {
     metadataCache.delete(key);
     throw error;
   });
   metadataCache.set(key, pending);
-  return pending;
+  return unitAssignments.apply(await pending, scope);
 }
 
 async function loadMetadata(dataset?: string): Promise<Metadata> {

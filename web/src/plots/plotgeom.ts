@@ -82,8 +82,10 @@ export function plotMargin(
 export const COLORBAR_CHARS = 6;
 
 /** Field margins reserve the colourbar column at the live plot type size. */
-export function fieldMargin(type: PlotType) {
-  return plotMargin(type, { colorbar: 14 + colorbarGeometry(type).total });
+export function fieldMargin(type: PlotType, controlsBottom = 0) {
+  const margin = plotMargin(type, { colorbar: 14 + colorbarGeometry(type).total });
+  // Tick labels also need clearance below the legend and enlarged touch targets.
+  return { ...margin, top: Math.max(margin.top, controlsBottom + type.tick) };
 }
 
 /** Offsets from the frame's right edge; the caption must clear the tick-label column. */

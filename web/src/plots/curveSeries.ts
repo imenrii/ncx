@@ -5,7 +5,7 @@ import type { CurveRange } from "./curve.ts";
 export interface CurveSeries {
   id: string;
   label: string;
-  kind: "model" | "reference";
+  primary?: boolean;
   x: Float64Array;
   y: Float32Array;
   absoluteTime: boolean;
@@ -17,35 +17,16 @@ export interface CurveSeries {
   dash: string;
 }
 
-export interface CurveOffset { x: number; y: number }
 export interface CurvePresentation {
-  offsets: Record<string, CurveOffset>;
-  referenceHidden: boolean;
   xRange?: CurveRange;
 }
 
-export const ZERO_OFFSET: CurveOffset = { x: 0, y: 0 };
-export const SERIES_COLORS = ["#011959", "#4D734D", "#114160", "#747E38", "#1E5D62", "#765179"];
-export const SERIES_DASHES = ["none", "7 3", "2 2", "9 3 2 3", "12 3", "2 3 8 3"];
+export const SERIES_COLORS = ["#011959", "#4D734D", "#114160", "#747E38", "#1E5D62", "#765179", "#B58E30"];
+export const SERIES_DASHES = ["none", "7 3", "2 2", "9 3 2 3", "12 3", "2 3 8 3", "4 2", "8 2 2 2 2 2"];
 
-/** References bypass transforms even if a caller supplies an offset for their ID. */
-export function displaySeries(series: CurveSeries, offset = ZERO_OFFSET): CurveSeries {
-  if (series.kind === "reference") return series;
-  const x = series.absoluteTime ? offset.x : 0;
-  if (![x, offset.y].every(Number.isFinite)) throw new Error("Display offsets must be finite");
-  return {
-    ...series,
-    x: x ? Float64Array.from(series.x, value => value + x * 60_000) : series.x,
-    y: offset.y ? Float32Array.from(series.y, value => value + offset.y) : series.y,
-  };
-}
-
-export function seriesDescription(series: CurveSeries, offset = ZERO_OFFSET): string {
-  return [series.label, series.quantity, series.units, series.datum,
-    series.kind === "reference" ? "reference" : undefined,
-    series.kind === "model" && series.absoluteTime && offset.x ? `X offset ${offset.x} min` : undefined,
-    series.kind === "model" && offset.y ? `Y offset ${offset.y} ${series.units}` : undefined,
-  ].filter(Boolean).join(" · ");
+export function displaySeries(series: CurveSeries, offset = 0): CurveSeries {
+  if (!validCurveOffset(series, offset)) throw new Error("Invalid Y display offset");
+  return { ...series, y: offset ? Float32Array.from(series.y, value => value + offset) : series.y };
 }
 
 /** Resolve an index selection only when its coordinate identity is provable. */
@@ -76,12 +57,9 @@ export function seriesQuantity(variable: Variable): { quantity: string; units: s
   return { quantity: attributeText(variable, "standard_name") ?? variable.name, units: displayUnit(variable) };
 }
 
-export function validCurveOffset(series: CurveSeries, axis: "x" | "y", value: number): boolean {
-  if (series.kind !== "model" || !Number.isFinite(value)) return false;
-  const values = axis === "x" ? series.x : series.y;
-  const shift = axis === "x" ? value * 60_000 : value;
-  const limit = axis === "x" ? 8_640_000_000_000_000 : 3.4028234663852886e38;
-  return Number.isFinite(shift) && values.every(sample => !Number.isFinite(sample) || Math.abs(sample + shift) <= limit);
+export function validCurveOffset(series: CurveSeries, value: number): boolean {
+  return Number.isFinite(value) && series.y.every(sample =>
+    !Number.isFinite(sample) || Math.abs(sample + value) <= 3.4028234663852886e38);
 }
 
 export function nearestCurveSample(values: Float64Array, target: number): number {

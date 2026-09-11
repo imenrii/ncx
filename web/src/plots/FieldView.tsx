@@ -26,8 +26,10 @@ import { fieldMargin, plotType } from "./plotgeom";
 import { PERFORMANCE_MEASURE, measurePerformance } from "../data/performance";
 import { buildRectilinearAxis, type RectilinearAxis } from "./rectilinear";
 import { CoastlineOverlay } from "./CoastlineOverlay";
-import { WindFieldOverlay } from "./WindFieldOverlay";
-import { Colorbar, PlotAxes, FieldMarks, ViewControls } from "./plot";
+import { FieldOverlays } from "./FieldOverlays";
+import { FieldControls } from "./OverlayLegend";
+import type { ContourBox } from "./pressureContours";
+import { Colorbar, PlotAxes, FieldMarks } from "./plot";
 import {
   fitPlotToBounds,
   projectRectangle,
@@ -71,7 +73,9 @@ export function FieldView(props: FieldViewProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
   const [hover, setHover] = useState<HoverValue>();
+  const [reserve, setReserve] = useState<ContourBox>();
   const [view, setView] = useState<ViewBounds>(props.initialView ?? FULL_FIELD);
+  useEffect(() => { setHover(undefined); }, [frameSize.width, frameSize.height, view, slice]);
   const changeView = (nextView: ViewBounds) => {
     setView(nextView);
     props.onViewChange(nextView);
@@ -80,7 +84,7 @@ export function FieldView(props: FieldViewProps) {
     }
   };
   const type = plotType(frame.current);
-  const margin = fieldMargin(type);
+  const margin = fieldMargin(type, reserve?.bottom);
   const availablePlot = {
     left: margin.left,
     top: margin.top,
@@ -388,16 +392,15 @@ export function FieldView(props: FieldViewProps) {
             aria-label={`${props.variable.name} field`}
           />
           <svg className="plot-svg" width={frameSize.width} height={frameSize.height} aria-hidden="true">
-            {props.mapSource === "coastline" && layout && (
-              <CoastlineOverlay
-                bounds={{ minimumX: xDomain[0], maximumX: xDomain[1], minimumY: yDomain[0], maximumY: yDomain[1] }}
-                plot={plot}
-                onStatus={props.onStatus}
-              />
-            )}
-            {props.wind && layout && <WindFieldOverlay metadata={props.metadata} variable={props.variable}
+            {(props.wind || props.pressure || props.mapSource === "coastline") && layout && <FieldOverlays
+              metadata={props.metadata} variable={props.variable} wind={props.wind} pressure={props.pressure}
               indices={props.indices} bounds={{ minimumX: xDomain[0], maximumX: xDomain[1], minimumY: yDomain[0], maximumY: yDomain[1] }}
-              plot={plot} onStatus={props.onStatus} />}
+              plot={plot} labelSize={type.tick} reserve={reserve}
+              onStatus={props.onStatus}>
+              {props.mapSource === "coastline" && <CoastlineOverlay
+                bounds={{ minimumX: xDomain[0], maximumX: xDomain[1], minimumY: yDomain[0], maximumY: yDomain[1] }}
+                plot={plot} onStatus={props.onStatus} />}
+            </FieldOverlays>}
             <PlotAxes
               type={type}
               plot={plot}
@@ -420,19 +423,23 @@ export function FieldView(props: FieldViewProps) {
               y: plot.top + probePosition.y * plot.height,
             }} />
           </svg>
-          <ViewControls
-            onZoomIn={() => changeView(zoomBounds(view, FULL_FIELD, 0.75))}
-            onZoomOut={() => changeView(zoomBounds(view, FULL_FIELD, 4 / 3))}
-            onReset={() => changeView(FULL_FIELD)}
+          <FieldControls overlays={props.overlays} onReserve={setReserve}
+              onZoomIn={() => changeView(zoomBounds(view, FULL_FIELD, 0.75))}
+              onZoomOut={() => changeView(zoomBounds(view, FULL_FIELD, 4 / 3))}
+              onReset={() => changeView(FULL_FIELD)}
           />
         </>
       )}
       {hover && (
         <output
           className="plot-tooltip"
-          style={{ left: Math.min(frameSize.width - 210, hover.left + 14), top: hover.top + 12 }}
+          ref={node => {
+            if (!node) return;
+            node.style.left = `${Math.max(0, Math.min(frameSize.width - node.offsetWidth, hover.left + 14))}px`;
+            node.style.top = `${Math.max(0, Math.min(frameSize.height - node.offsetHeight, hover.top + 12))}px`;
+          }}
         >
-          <strong>{formatNumber(hover.value)}</strong> {displayUnit(props.variable)}
+          <strong>{formatNumber(hover.value)} {displayUnit(props.variable)}</strong>
           <span>{formatPosition(props.metadata, props.variable, hover.x, hover.y)}</span>
         </output>
       )}

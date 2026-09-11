@@ -13,6 +13,7 @@ import { derivedValueLabel, variableLabel } from "../data/model";
 import { comparisonFieldSelection, defaultDisplayDimensions, defaultIndices, type DisplayDimensions } from "../data/selection";
 import { describeTime, formatTimestamp, timeInZone, type DisplayTimeZone } from "../data/time";
 import type { ViewBounds } from "./view";
+import type { OverlayToggles } from "./OverlayLegend";
 
 interface Pane {
   id: string;
@@ -41,8 +42,10 @@ export function ComparisonFieldView({
   rangeLocked,
   mapSource,
   wind,
+  overlays,
   probe,
   timeZone,
+  pressure,
   onProbe,
   onRange,
   onFrameLoaded,
@@ -61,8 +64,10 @@ export function ComparisonFieldView({
   rangeLocked: boolean;
   mapSource: "none" | "coastline";
   wind?: boolean;
+  overlays?: OverlayToggles;
   probe: Probe | undefined;
   timeZone: DisplayTimeZone;
+  pressure?: Variable;
   onProbe: (probe: Probe) => void;
   onRange: (range: ColorRange) => void;
   onFrameLoaded: () => void;
@@ -150,6 +155,8 @@ export function ComparisonFieldView({
     }
   }, [paneVersion, panes, onFrameLoaded, onAllUnavailable]);
   const selectedCount = selectedDatasets.length;
+  const legendPane = panes.find(pane => !pane.unavailable && pane.id === primaryMetadata.dataset_id)
+    ?? panes.find(pane => !pane.unavailable);
   const derivation = [variable, ...panes.map((pane) => pane.variable)]
     .map(derivedValueLabel)
     .find(Boolean);
@@ -183,6 +190,8 @@ export function ComparisonFieldView({
             rangeLocked={rangeLocked}
             mapSource={mapSource}
             wind={wind}
+            pressure={pressure}
+            overlays={pane === legendPane ? overlays : undefined}
             probe={pane.id === primaryMetadata.dataset_id ? probe : undefined}
             controlledView={view}
             onViewChange={setView}
@@ -214,8 +223,10 @@ function ComparisonPane({
   rangeLocked,
   mapSource,
   wind,
+  overlays,
   probe,
   controlledView,
+  pressure,
   onViewChange,
   onProbe,
   onRange,
@@ -230,8 +241,10 @@ function ComparisonPane({
   rangeLocked: boolean;
   mapSource: "none" | "coastline";
   wind?: boolean;
+  overlays?: OverlayToggles;
   probe: Probe | undefined;
   controlledView?: ViewBounds;
+  pressure?: Variable;
   onViewChange: (view: ViewBounds) => void;
   onProbe: (probe: Probe) => void;
   onRange: (id: string, range: ColorRange) => void;
@@ -253,7 +266,9 @@ function ComparisonPane({
     rangeLocked,
     sharedRange: true,
     mapSource,
-  wind,
+    wind,
+    overlays,
+    pressure,
     probe,
     onProbe,
     onRange: reportRange,
