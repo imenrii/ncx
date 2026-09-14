@@ -1,4 +1,5 @@
 @import "./commit-mono.css";
+@import "./generated/plot-style.css";
 
 /* ---------------------------------------------------------------------------
    Five families, five roles.
@@ -47,73 +48,8 @@
   font-display: swap;
 }
 
-/* Legacy Commit Mono cuts remain the plot fallback. The web-only family in
-   commit-mono.css does not change plot lettering or its exported fallback. */
-@font-face {
-  font-family: "Commit Mono";
-  src: url("../fonts/commit-400.woff2") format("woff2");
-  font-weight: 400;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Commit Mono";
-  src: url("../fonts/commit-700.woff2") format("woff2");
-  font-weight: 700;
-  font-display: swap;
-}
-
-/* New Computer Modern Math, SIL OFL 1.1 -- LaTeX's face, mounted by
-   unicode-range rather than by markup. Because font matching is per character,
-   naming this first in every stack sets Greek, arrows and operators in it
-   everywhere, including inside SVG plot labels, with no wrapper element.
-
-   Degree and per-mille are deliberately outside the range: they occur inside
-   Commit Mono readouts, where they must keep the monospace advance.
-
-   One consequence, handled at the call site: `text-transform: uppercase` turns
-   the eta of a water level into a capital Eta, which in Computer Modern is drawn as
-   a Roman H -- a different quantity. Any transformed label must therefore wrap
-   its symbol in an element that opts out of the transform. */
-@font-face {
-  font-family: "CM Math";
-  src: url("../fonts/cmmath.woff2") format("woff2");
-  font-weight: 400;
-  font-display: swap;
-  unicode-range: U+00B1, U+00D7, U+00F7, U+0370-03FF, U+2190-21FF, U+2200-22FF;
-}
-
-@font-face {
-  font-family: "AVHershey Simplex";
-  src: url("../fonts/hershey-light.woff2") format("woff2");
-  font-weight: 300;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "AVHershey Simplex";
-  src: url("../fonts/hershey-medium.woff2") format("woff2");
-  font-weight: 400;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "AVHershey Simplex";
-  src: url("../fonts/hershey-heavy.woff2") format("woff2");
-  font-weight: 700;
-  font-display: swap;
-}
-
-/* National Park backs AVHershey per glyph. Hershey has no smart quotes, no
-   dashes, no ellipsis, no superscripts and no accents; National Park has all
-   of them, and lacks only the degree sign -- which Hershey does have, so the
-   pair covers every character in the checklist between them. */
-@font-face {
-  font-family: "National Park";
-  src: url("../fonts/nationalpark.woff2") format("woff2");
-  font-weight: 400;
-  font-display: swap;
-}
+/* Plot faces and tokens are generated from plots/plotStyle.ts.
+   Web font shaping remains owned by commit-mono.css. */
 
 :root {
   /* --------------------------------------------------------------------
@@ -139,10 +75,7 @@
 
   /* Ink, from palette.INK. Six named greys and nothing else: furniture must
      never compete with data, and it cannot if it has no colour to do it with. */
-  --paper: #fff;
   --panel: #fbfaf7;
-  --ink: #101418;
-  --ink-medium: #4a5058;
   --ink-weak: #9aa0a8; /* gridlines and hairlines only -- never text */
   --ink-faint: #e4e7ea;
   /* De-emphasised *text*. The print style sets a datum label in INK.reference
@@ -253,23 +186,7 @@
   --line-height-ui: 1.45;    /* labels, controls, table cells */
   --line-height-tight: 1.25; /* headings and display */
 
-  /* Stroke, from rc.S0 = 0.7 pt. Web floors every furniture weight at the
-     hairline a 1x display can actually draw -- below 1 device pixel the
-     browser antialiases a 0.35 line into a grey smear, which is worse than
-     the heavier line it was avoiding. Data weights keep their ratios. */
-  --stroke-grid: 0.7px;
-  --stroke-spine: 1px;
-  --stroke-reference: 1.25px;
-  --stroke-data-minor: 1.25px;
-  --stroke-data: 1.75px;
-  --stroke-emphasis: 2.25px;
-
-  /* Commit Mono sits at the back as the last shipped face. Hershey is 89
-     glyphs, National Park has no superscripts and CM Math is math-only, so a
-     unit written properly -- `m s⁻¹` -- had no home in this stack and fell to
-     the platform. It is never reached for text; only for what the three
-     faces in front of it cannot draw. */
-  --plot-face: "CM Math", "AVHershey Simplex", "National Park", "Commit Mono", system-ui, sans-serif;
+  /* Plot strokes and the plot fallback stack are generated from plotStyle.ts. */
   /* --mono comes from commit-mono.css. CM Math remains first, so mixed math
      text has proportional symbols; use layout cells, not space padding. */
   /* All-caps labels are set in National Park, not Gorton.
@@ -601,7 +518,6 @@ button:disabled {
      --ink for type and rules (11.4:1), --warn-ink for de-emphasis (6.8:1), and
      --accent for focus (6.6:1). Controls keep their --paper wells. */
   --line: var(--ink);
-  --ink-medium: var(--warn-ink);
   --ink-quiet: var(--warn-ink);
 }
 
@@ -1140,11 +1056,6 @@ button:disabled {
      are set one role higher than the chrome for that reason: a plot is read at
      arm's length as a picture, not scanned like a control strip, and axis type
      that merely matches the toolbar reads as an afterthought inside it. */
-  --plot-title-size: clamp(var(--size-title), min(1.5cqi, 3.7cqb), 1.75rem);
-  --plot-subtitle-size: clamp(var(--size-body), min(1.05cqi, 2.6cqb), 1.25rem);
-  --plot-tick-size: clamp(var(--size-body), min(1.2cqi, 3cqb), 1.375rem);
-  --plot-axis-size: clamp(var(--size-title), min(1.35cqi, 3.4cqb), 1.5rem);
-  --plot-tooltip-size: clamp(var(--size-tick), min(1.1cqi, 2.8cqb), 1.25rem);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   width: 100%;
@@ -1172,7 +1083,7 @@ button:disabled {
   margin: 0;
   overflow: hidden;
   font-size: var(--plot-title-size);
-  font-weight: 700;
+  font-weight: var(--plot-weight-strong);
   line-height: 1.1;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1184,7 +1095,7 @@ button:disabled {
   overflow: hidden;
   color: var(--ink-medium);
   font-size: var(--plot-subtitle-size);
-  font-weight: 400;
+  font-weight: var(--plot-weight-normal);
   line-height: 1.1;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1367,14 +1278,14 @@ input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
 
 .scalar-value strong {
   font-size: clamp(2.375rem, 8cqi, 5.5rem);
-  font-weight: 400;
+  font-weight: var(--plot-weight-normal);
   line-height: 1;
 }
 
 .scalar-value span {
   margin-top: 8px;
   font-size: var(--plot-axis-size);
-  font-weight: 700;
+  font-weight: var(--plot-weight-strong);
 }
 
 .scalar-value small {
@@ -1403,10 +1314,12 @@ input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
   pointer-events: none;
 }
 
+/* A hairline under the isobars. At the same weight the two line families read
+   as one tangle; the coast is the ground, the pressure field is the subject. */
 .coastline-overlay path {
   fill: none;
   stroke: var(--ink);
-  stroke-width: var(--stroke-spine);
+  stroke-width: var(--stroke-grid);
   stroke-linejoin: round;
   opacity: 1;
 }
@@ -1437,12 +1350,17 @@ input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 6px;
+  /* One button width sets both rows: the legend text then starts where the
+     third button does, so the stack has one inner edge instead of two. */
+  --corner-button: 26px;
+  --corner-gap: 2px;
+  --mark-gap: 6px;
+  gap: 9px;
 }
 
 .view-controls {
   display: flex;
-  gap: 2px;
+  gap: var(--corner-gap);
 }
 
 /* A key, not a control panel: a border or a plate here would read as chrome
@@ -1451,16 +1369,16 @@ input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 2px;
+  gap: 4px;
   text-shadow: 0 0 3px var(--paper), 0 0 3px var(--paper), 0 0 2px var(--paper);
 }
 
 .overlay-toggle {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--mark-gap);
   min-height: 24px;
-  padding: 1px 2px;
+  padding: 0;
   border: 0;
   border-radius: 0;
   background: none;
@@ -1472,11 +1390,12 @@ input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
   cursor: pointer;
 }
 
-/* One mark column, so both labels start on the same x. */
+/* One mark column, so both labels start on the same x — and on the same x as
+   the third view-control button. */
 .overlay-toggle svg {
   display: block;
   flex: none;
-  width: 36px;
+  width: calc(var(--corner-button) * 2 + var(--corner-gap) * 2 - var(--mark-gap));
   height: 14px;
 }
 
@@ -1514,10 +1433,10 @@ input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
   color: var(--accent);
 }
 
-.view-controls button {
-  min-width: 24px;
-  min-height: 24px;
-  padding: 0 8px;
+:is(.view-controls, .playback) button {
+  min-width: var(--corner-button, 28px);
+  min-height: var(--corner-button, 28px);
+  padding: 0 7px;
   border-color: var(--ink);
   /* A hairline cast below the box, not a blur: the button has a thickness, and
      pressing it takes the thickness away. */
@@ -1527,11 +1446,12 @@ input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
   font-weight: var(--mono-strong);
 }
 
-.view-controls button:hover {
+:is(.view-controls, .playback) button:hover:not(:disabled) {
   background: var(--dither), var(--paper);
 }
 
-.view-controls button:active {
+:is(.view-controls, .playback) button:active:not(:disabled),
+.playback button[aria-pressed="true"] {
   box-shadow: none;
   transform: translateY(2px);
   background: var(--dither-strong), var(--paper);
@@ -1597,7 +1517,7 @@ input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
 
 .plot-axis .axis-label {
   font-size: var(--plot-axis-size);
-  font-weight: 400;
+  font-weight: var(--plot-weight-normal);
   fill: var(--ink);
 }
 
@@ -1634,25 +1554,24 @@ input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
 
 .colorbar-axis .axis-label {
   font-size: var(--plot-axis-size);
-  font-weight: 400;
+  font-weight: var(--plot-weight-normal);
   fill: var(--ink);
 }
 
+/* Size comes from the element: one number drives the glyphs and the break in
+   the line they sit in. */
 .pressure-contour-label {
   font-family: var(--plot-face);
-  font-size: var(--plot-tick-size);
-  font-weight: 400;
+  font-weight: var(--plot-weight-normal);
 }
 
 .pressure-centre-mark {
   font-family: var(--plot-face);
-  font-size: 1rem;
-  font-weight: 700;
+  font-weight: var(--plot-weight-strong);
 }
 
 .pressure-centre-value {
   font-family: var(--plot-face);
-  font-size: var(--plot-tick-size);
 }
 
 .wind-key {
@@ -1779,7 +1698,7 @@ input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
 
 .time-day {
   font-size: var(--plot-tick-size);
-  font-weight: 700;
+  font-weight: var(--plot-weight-strong);
   fill: var(--ink);
 }
 
@@ -1919,27 +1838,21 @@ input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
 
 .playback {
   display: flex;
-  border: 1px solid var(--ink);
+  gap: 2px;
 }
 
-/* One outer hairline with shared dividers: a transport is a single instrument,
-   and five loose boxes read as five unrelated commands. */
 .playback button {
   width: 29px;
   height: 28px;
   padding: 0;
-  border: 0;
-  border-left: 1px solid var(--ink);
-  background: var(--paper);
-  font-size: var(--size-tick);
 }
 
-.playback button:first-child {
-  border-left: 0;
-}
-
-.playback button:hover {
-  background: var(--dither), var(--paper);
+.playback button:disabled {
+  box-shadow: none;
+  transform: translateY(2px);
+  color: var(--ink-weak);
+  border-color: var(--ink-weak);
+  background: var(--ink-faint);
 }
 
 .playback button:focus-visible {
@@ -1970,10 +1883,6 @@ input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
 
 .playback .to-end::before {
   clip-path: polygon(100% 0, 75% 0, 75% 44%, 0 0, 0 100%, 75% 56%, 75% 100%, 100% 100%);
-}
-
-.playback button[aria-pressed="true"] {
-  background: var(--dither-strong), var(--paper);
 }
 
 .timeline strong {
@@ -2194,8 +2103,11 @@ input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
     min-height: 44px;
   }
 
+  .corner-stack {
+    --corner-button: 44px;
+  }
+
   .menu-button,
-  .view-controls button,
   .playback button {
     min-width: 44px;
     min-height: 44px;

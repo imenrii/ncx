@@ -1,3 +1,4 @@
+import { PLOT_STYLE } from "./plotStyle.ts";
 import type { CurveLegendEntry } from "./capture.ts";
 
 /** Style/plotstyle/rc.py legend spacing, in units of the legend font size. */
@@ -5,11 +6,11 @@ export function curveLegendLayout(
   entries: readonly CurveLegendEntry[], width: number, em: number,
   measure: (text: string) => number,
 ) {
-  const inset = (0.3 + 0.2) * em;
-  const handle = 1.6 * em;
-  const textPad = 0.5 * em;
-  const columnGap = 1.2 * em;
-  const rowGap = 0.35 * em;
+  const inset = (PLOT_STYLE.legend.borderAxesPad + PLOT_STYLE.legend.borderPad) * em;
+  const handle = PLOT_STYLE.legend.handle * em;
+  const textPad = PLOT_STYLE.legend.textPad * em;
+  const columnGap = PLOT_STYLE.legend.columnGap * em;
+  const rowGap = PLOT_STYLE.legend.rowGap * em;
   const available = width - 2 * inset;
   const items: { entry: CurveLegendEntry; lines: string[]; x: number; y: number; width: number; height: number }[] = [];
   if (entries.length < 2) return { items, height: 0, handle, textPad, em };

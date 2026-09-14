@@ -22,8 +22,8 @@ test("assigning either wind twin enables detection without changing raw metadata
   let effective = state.apply(raw, "viewer-1");
   let notifications = 0;
   const unsubscribe = state.subscribe(() => { notifications += 1; });
-  assert.equal(unitChoice(effective.variables[0]).source, undefined);
-  assert.equal(windPair(effective, effective.variables[0]).pair, undefined);
+  assert.equal(unitChoice(effective.variables[0]).source?.id, "m/s");
+  assert.ok(windPair(effective, effective.variables[0]).pair);
   state.assign(effective, "/v10", "kt");
   effective = state.apply(effective);
   assert.equal(unitChoice(effective.variables[0]).source?.id, "kt");
@@ -31,7 +31,7 @@ test("assigning either wind twin enables detection without changing raw metadata
   assert.equal(pair.uUnit.id, "kt");
   assert.equal(pair.vUnit.id, "kt");
   assert.ok(Math.abs(windValues([10], [0], pair).u[0] - 10 * 1852 / 3600) < 1e-6);
-  assert.equal(attributeText(effective.variables[2], "units"), undefined);
+  assert.equal(attributeText(effective.variables[2], "units"), "m/s");
   assert.equal(attributeText(raw.variables[0], "units"), undefined);
   assert.equal(attributeText(raw.variables[1], "units"), " ");
   assert.equal(state.original(effective), raw);
@@ -66,14 +66,29 @@ test("assignments are isolated by viewer and dataset and used in secondary match
   const state = createUnitAssignments();
   const raw = metadata([variable("u10"), variable("v10")]);
   const first = state.apply(raw, "viewer-1");
-  state.assign(first, "/u10", "m/s");
+  state.assign(first, "/u10", "kt");
   const second = state.apply(raw, "viewer-2");
-  assert.equal(attributeText(second.variables[0], "units"), undefined);
-  assert.equal(attributeText(state.apply(first).variables[0], "units"), "m/s");
+  assert.equal(attributeText(second.variables[0], "units"), "m/s");
+  assert.equal(attributeText(state.apply(first).variables[0], "units"), "kt");
   const secondary = state.apply(metadata(raw.variables, "b"), "viewer-1");
   const reference = state.apply(first).variables[0];
   assert.equal(findCompatibleVariable(reference, secondary), undefined);
-  state.assign(secondary, "/u10", "m/s");
+  state.assign(secondary, "/u10", "kt");
   assert.equal(findCompatibleVariable(reference, state.apply(secondary))?.variable.path, "/u10");
-  assert.equal(attributeText(createUnitAssignments().apply(raw).variables[0], "units"), undefined);
+  assert.equal(attributeText(createUnitAssignments().apply(raw).variables[0], "units"), "m/s");
+});
+
+test("ECMWF defaults label missing source units and explicit clearing suppresses them", () => {
+  const state = createUnitAssignments();
+  const conflict = variable("t2m");
+  conflict.attributes.push({ name: "standard_name", dtype: "char", value: "surface_air_pressure" });
+  const raw = metadata([variable("msl"), variable("t2m"), variable("tp"), variable("tcc"),
+    variable("msl", "hPa", "/provided"), variable("unknown"), conflict]);
+  const effective = state.apply(raw);
+  assert.deepEqual(effective.variables.map(item => attributeText(item, "units")),
+    ["Pa", "K", "m", "1", "hPa", undefined, undefined]);
+  assert.equal(attributeText(raw.variables[0], "units"), undefined);
+  state.assign(effective, "/msl", "");
+  assert.equal(attributeText(state.apply(effective).variables[0], "units"), undefined);
+  assert.equal(attributeText(createUnitAssignments().apply(raw).variables[0], "units"), "Pa");
 });

@@ -1,7 +1,6 @@
 import { attributeText, hasGeographicCoordinates, isNumeric, type Metadata, type Variable } from "./model.ts";
 import { unitChoice, unitRule } from "./units.ts";
 
-export const PRESSURE_COLOUR = "#101418";
 export const PRESSURE_INTERVAL = 4;
 export const MAX_PRESSURE_VALUES = 20_000;
 export const MAX_PRESSURE_TRIANGLES = 40_000;

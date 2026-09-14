@@ -1,3 +1,4 @@
+import type { Unit } from "../data/units";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { fetchCoordinate, fetchMetadata } from "../data/api";
@@ -40,6 +41,7 @@ export function ComparisonFieldView({
   scale,
   range,
   rangeLocked,
+  targetUnit,
   mapSource,
   wind,
   overlays,
@@ -62,6 +64,7 @@ export function ComparisonFieldView({
   scale: ColorScale;
   range: ColorRange;
   rangeLocked: boolean;
+  targetUnit?: Unit;
   mapSource: "none" | "coastline";
   wind?: boolean;
   overlays?: OverlayToggles;
@@ -188,6 +191,7 @@ export function ComparisonFieldView({
             scale={scale}
             range={range}
             rangeLocked={rangeLocked}
+            targetUnit={targetUnit}
             mapSource={mapSource}
             wind={wind}
             pressure={pressure}
@@ -221,6 +225,7 @@ function ComparisonPane({
   scale,
   range,
   rangeLocked,
+  targetUnit,
   mapSource,
   wind,
   overlays,
@@ -239,6 +244,7 @@ function ComparisonPane({
   scale: ColorScale;
   range: ColorRange;
   rangeLocked: boolean;
+  targetUnit?: Unit;
   mapSource: "none" | "coastline";
   wind?: boolean;
   overlays?: OverlayToggles;
@@ -264,6 +270,7 @@ function ComparisonPane({
     scale,
     range,
     rangeLocked,
+    targetUnit,
     sharedRange: true,
     mapSource,
     wind,

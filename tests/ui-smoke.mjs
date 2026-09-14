@@ -1,3 +1,4 @@
+import { PLOT_STYLE } from "../web/src/plots/plotStyle.ts";
 import { createServer } from "node:http";
 import { copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
@@ -94,12 +95,16 @@ URL.createObjectURL = function(blob) {
       const svg = new DOMParser().parseFromString(markup, "image/svg+xml").documentElement;
       window.__ncxExportProbeCount = svg.querySelectorAll(".probe-mark").length;
       const faces = svg.querySelector("style")?.textContent ?? "";
+      const fontSheet = new CSSStyleSheet();
+      fontSheet.replaceSync(faces);
+      const fontRules = [...fontSheet.cssRules].filter(rule => rule instanceof CSSFontFaceRule);
+      const hasFont = (family, weight) => fontRules.some(rule =>
+        rule.style.fontFamily.replaceAll('"', '') === family && rule.style.fontWeight === String(weight));
       for (const weight of [400, 450, 600]) {
-        if (!faces.includes('font-family:"Commit Mono Web";font-weight:' + weight + ';')) {
-          throw new Error("Export did not embed Commit Mono Web " + weight);
-        }
+        if (!hasFont("Commit Mono Web", weight)) throw new Error("Export did not embed Commit Mono Web " + weight);
       }
-      if (!faces.includes('font-family:"Commit Mono";font-weight:700;') || !faces.includes("U+0370-03FF")) {
+      if (!hasFont("Commit Mono", 700) || !fontRules.some(rule =>
+          rule.style.fontFamily.replaceAll('"', '') === "CM Math" && /U\\+0?370-0?3FF/i.test(rule.style.unicodeRange))) {
         throw new Error("Export lost the unchanged plot fallback or CM Math range");
       }
       for (const text of svg.querySelectorAll("text")) {
@@ -509,7 +514,7 @@ try {
   }
   if (browserMode === "wind") {
     const control = (name) => [...document.querySelectorAll('.display-controls label')]
-      .find(label => label.firstChild?.textContent?.trim() === name)?.querySelector('select');
+      .find(label => label.firstChild?.textContent?.trim() === name)?.querySelector('select, input');
     const change = (name, value) => { const select = control(name); if (!select) throw new Error(name + ' control missing'); select.value = value; select.dispatchEvent(new Event('change', { bubbles: true })); };
     const tab = (name) => [...document.querySelectorAll('.view-tabs button')].find(button => button.textContent === name).click();
     const overlay = (name) => [...document.querySelectorAll('.overlay-toggle')].find(button => button.querySelector('span')?.textContent.trim() === name);
@@ -525,7 +530,7 @@ try {
     const fieldCanvas = () => document.querySelector('.field-canvas, .mesh-canvas');
     if (${JSON.stringify(assignUnits)}) {
       window.__ncxStep = 'session unit assignments';
-      if (!overlay('Wind vector')?.disabled) failures.push('Wind accepted missing units before assignment');
+      if (overlay('Wind vector')?.disabled) failures.push('ECMWF defaults did not enable Wind');
       const selectVariable = async (name) => {
         [...document.querySelectorAll('.variable-row')].find(row => row.querySelector('span')?.textContent === name).click();
         await waitFor(() => window.ncx.getState().selection?.path === '/' + name, 'variable did not change');
@@ -544,25 +549,26 @@ try {
         }
       };
       await selectVariable('msl');
-      if (document.querySelector('#metadata-unit').value !== '') failures.push('session unit survived reload');
+      if (document.querySelector('#metadata-unit').value !== 'Pa') failures.push('ECMWF pressure default missing on reload');
+      if (document.querySelector('.metadata-summary').textContent.includes('contour interval')) failures.push('contour interval remains in Metadata');
       await assign('Pa');
       tab('Curve');
       const assignedAxis = () => document.querySelector('.curve-axis')?.dataset.yDomain;
-      await waitFor(() => control('Units')?.value === 'Pa' && assignedAxis(), 'Curve did not initially use the assigned Pa unit');
+      await waitFor(() => control('Unit')?.value === 'Pa' && assignedAxis(), 'Curve did not initially use the assigned Pa unit');
       const rawMinimum = Number(assignedAxis().split(',')[0]);
-      change('Units', 'kPa');
+      change('Unit', 'kPa');
       await waitFor(() => Math.abs(Number(assignedAxis()?.split(',')[0]) - rawMinimum / 1000) < 0.001, 'Pa to kPa conversion failed');
       tab('Metadata');
       await assign('hPa');
       tab('Curve');
-      await waitFor(() => control('Units')?.value === 'hPa' &&
+      await waitFor(() => control('Unit')?.value === 'hPa' &&
         Math.abs(Number(assignedAxis()?.split(',')[0]) - rawMinimum) < 0.001,
         'Metadata assignment did not replace the previous Curve unit without rescaling source numbers');
       tab('Metadata');
       await assign('Pa');
       tab('Curve');
-      await waitFor(() => control('Units')?.value === 'Pa' && assignedAxis(), 'Curve did not reset to the new Pa assignment');
-      change('Units', 'hPa');
+      await waitFor(() => control('Unit')?.value === 'Pa' && assignedAxis(), 'Curve did not reset to the new Pa assignment');
+      change('Unit', 'hPa');
       await waitFor(() => Math.abs(Number(assignedAxis()?.split(',')[0]) - rawMinimum / 100) < 0.001, 'assigned Pa to displayed hPa conversion failed');
       await selectVariable('u10');
       await assign('kt');
@@ -584,6 +590,16 @@ try {
     }
     await waitFor(() => fieldCanvas()?.dataset.rendered === 'true', 'wind fixture did not render');
     const fieldTop = fieldCanvas().style.top;
+    const sourceSelection = window.ncx.getState().selection.units;
+    const nativeMin = Number(control('Min').value);
+    const fieldReads = window.__ncxFetches.filter(url => url.includes('/api/data?')).length;
+    change('Unit', 'hPa');
+    await waitFor(() => document.querySelector('.colorbar-axis .axis-label')?.textContent.includes('hPa'), 'Field display unit did not reach colorbar');
+    if (Math.abs(Number(control('Min').value) - nativeMin / 100) > 0.001) failures.push('Field range was not converted');
+    if (window.ncx.getState().selection.units !== sourceSelection) failures.push('display unit changed source assignment');
+    if (window.__ncxFetches.filter(url => url.includes('/api/data?')).length !== fieldReads) failures.push('display unit refetched field samples');
+    change('Unit', 'Pa');
+    await waitFor(() => document.querySelector('.colorbar-axis .axis-label')?.textContent.includes('Pa'), 'Field native unit did not restore');
     if (${JSON.stringify(pressureMode)}) {
       window.__ncxStep = 'pressure contours';
       const pressureReads = () => window.__ncxFetches.filter(url => url.includes('/api/data?') && decodeURIComponent(url).includes('path=/msl')).length;
@@ -600,9 +616,14 @@ try {
       if (pressureReads() !== pressureBeforeWind) failures.push('Wind toggle refetched pressure');
       const contours = [...document.querySelectorAll('.pressure-contour')];
       if (document.querySelector('.pressure-arrows') || !contours.length || contours.some(path => Number(path.dataset.level) % 4 !== 0)) failures.push('pressure is not drawn as 4 hPa contours');
-      if (contours.some(path => Number(path.getAttribute('stroke-width')) !== 1.15)) failures.push('pressure contours do not use one uniform weight');
-      if (document.querySelector('.pressure-key')) failures.push('the contour interval key belongs in Metadata, not on the plot');
+      if (contours.some(path => Number(path.getAttribute('stroke-width')) !== ${JSON.stringify(PLOT_STYLE.pressure.width)})) failures.push('pressure contours do not use one uniform weight');
+      if (document.querySelector('.pressure-key')) failures.push('unexpected contour interval key on the plot');
       const labels = [...document.querySelectorAll('.pressure-contour-label')];
+      for (const value of document.querySelectorAll('.pressure-centre-value')) {
+        if (Math.abs(parseFloat(getComputedStyle(value).fontSize) - parseFloat(getComputedStyle(labels[0]).fontSize)) > 0.01) {
+          failures.push('pressure centre value does not retain contour labelScale');
+        }
+      }
       const drawn = new Set(contours.map(path => Number(path.dataset.level)));
       if (!labels.length || labels.some(label => !drawn.has(Number(label.textContent)))) failures.push('contour labels do not name drawn levels');
       if (labels.some(label => label.getAttribute('stroke'))) failures.push('contour labels use a halo instead of a break in the line');
@@ -646,7 +667,10 @@ try {
     if (fieldCanvas().style.top !== fieldTop) failures.push('Wind changed the reserved field strip');
     if (document.querySelector('.wind-field .wind-key')) failures.push('a ready wind layer still prints a key on the plot');
     const arrows = document.querySelector('.wind-arrows');
-    if (!arrows.getAttribute('d').includes('Z') || Number(arrows.getAttribute('stroke-width')) !== 1.3) failures.push('Field arrows lost their filled heads or their weight');
+    if (!arrows.getAttribute('d').includes('l') || arrows.getAttribute('d').includes('Z') ||
+        arrows.getAttribute('fill') !== 'none' || Number(arrows.getAttribute('stroke-width')) !== ${JSON.stringify(PLOT_STYLE.wind.width)}) {
+      failures.push('Field arrows lost their open heads or configured weight');
+    }
     const legend = document.querySelector('.overlay-legend');
     const stack = legend.closest('.corner-stack');
     if (!stack || stack.firstElementChild.className !== 'view-controls' ||
@@ -679,13 +703,13 @@ try {
     const axis = () => document.querySelector('.curve-axis')?.dataset.yDomain;
     const nativeRange = axis().split(',').map(Number);
     const reads = window.__ncxFetches.length;
-    change('Units', 'hPa');
+    change('Unit', 'hPa');
     await waitFor(() => axis()?.split(',').every((value, index) => Math.abs(Number(value) - nativeRange[index] / 100) < 0.001), 'pressure unit conversion did not change plotted values');
     if (window.__ncxFetches.length !== reads) failures.push('unit conversion fetched another slice');
     change('Range', 'locked');
-    change('Units', 'Pa');
+    change('Unit', 'Pa');
     await waitFor(() => axis()?.split(',').every((value, index) => Math.abs(Number(value) - nativeRange[index]) < 0.1), 'locked pressure range did not retain physical limits');
-    change('Units', 'hPa'); change('Range', 'auto');
+    change('Unit', 'hPa'); change('Range', 'auto');
     const offset = document.querySelector('.curve-offset-controls input');
     if (!offset) throw new Error('converted Y offset control missing');
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(offset, '1');
@@ -757,8 +781,8 @@ try {
     window.ncx.setSources({ revision: windState.revision, sources: [
       { id: windState.sources[0].id, dataset: windState.selection.dataset, attributes: { locked: true } },
     ] });
-    if ([...control('Units').options].some(option => option.value === 'Bft')) failures.push('signed component offered Beaufort');
-    change('Units', 'kt'); change('Wind', 'on');
+    if ([...control('Unit').options].some(option => option.value === 'Bft')) failures.push('signed component offered Beaufort');
+    change('Unit', 'kt'); change('Wind', 'on');
     await waitFor(() => Math.abs(Number(axis()?.split(',')[0]) - (nativeWindMinimum + 3) * 3600 / 1852) < 0.001,
       'display-unit conversion corrupted the locked physical offset');
     if (window.ncx.getState().selection.units !== windState.selection.units) failures.push('display units changed source metadata');
@@ -767,7 +791,7 @@ try {
     await waitFor(() => document.querySelector('.curve-tooltip [data-wind-time]')?.textContent.includes('kt'), 'shared wind tooltip did not use knots');
     tab('Field');
     await waitFor(() => fieldCanvas()?.dataset.rendered === 'true', 'field did not resume');
-    if (control('Units')) failures.push('curve units leaked into field');
+    if (!control('Unit')) failures.push('Field display unit selector missing');
   } else if (browserMode === "station") {
     await waitFor(() => document.querySelectorAll(".curve-line").length === 2,
       "hosted station did not receive its supplied series");
@@ -1276,6 +1300,27 @@ try {
     const node = document.querySelector(".field-canvas[data-rendered='true']");
     return node && !document.querySelector(".plot-loading") ? node : null;
   }, "field slice did not render");
+  window.__ncxStep = "plot style resolution";
+  const styledFigure = document.querySelector(".figure");
+  const savedFigureSize = [styledFigure.style.width, styledFigure.style.height];
+  const savedRootSize = document.documentElement.style.fontSize;
+  const matchingPlotType = () => {
+    const axis = styledFigure.querySelector(".plot-axis");
+    if (!axis) return false;
+    const tickSize = parseFloat(getComputedStyle(axis).fontSize);
+    const lengths = [...axis.querySelectorAll("line")].filter(line => line.getAttribute("x1") === line.getAttribute("x2"))
+      .map(line => Math.abs(Number(line.getAttribute("y2")) - Number(line.getAttribute("y1")))).filter(length => length > 0 && length < 50);
+    return lengths.length && Math.abs(Math.max(...lengths) - tickSize * ${JSON.stringify(PLOT_STYLE.geometry.tickMajor)}) < 0.05;
+  };
+  for (const [width, height, rem] of [[900, 600, 16], [2000, 1200, 16], [2000, 1200, 24]]) {
+    styledFigure.style.width = width + "px";
+    styledFigure.style.height = height + "px";
+    document.documentElement.style.fontSize = rem + "px";
+    await waitFor(matchingPlotType, "plot geometry differs from rendered type at " + [width, height, rem]);
+  }
+  [styledFigure.style.width, styledFigure.style.height] = savedFigureSize;
+  document.documentElement.style.fontSize = savedRootSize;
+  await waitFor(matchingPlotType, "plot style did not recover after resize");
   if (!chromeHidden && !document.querySelector(".path")?.textContent.includes("rectilinear.nc")) failures.push("dataset identity is missing");
   if (!chromeHidden && !document.querySelector(".statusbar")?.textContent.includes("dim(")) failures.push("status shape does not identify display dimensions");
   await waitFor(() => document.querySelector(".figure-head h1")?.textContent === "2024-07-25 00:00 HKT", "field did not open at the first valid CF time");
@@ -1495,6 +1540,36 @@ try {
   await checkProbeExport();
   if (!chromeHidden && !/°[NS].*°[EW]/.test(document.querySelector(".statusbar span:last-child")?.textContent ?? "")) failures.push("field probe status did not use latitude then longitude");
 
+  window.__ncxStep = "playback";
+  window.__ncxMaxScalarReads = window.__ncxScalarReads;
+  const timelineRange = document.querySelector('.timeline input[type="range"]');
+  const transport = (name) => document.querySelector('.playback .' + name);
+  transport('to-start').click();
+  await waitFor(() => timelineRange.value === '0' && transport('back').disabled, 'First sample did not disable backward controls');
+  if (!transport('to-start').disabled || transport('forward').disabled || transport('to-end').disabled) {
+    failures.push('incorrect playback controls at the first frame');
+  }
+  const disabledStyle = getComputedStyle(transport('back'));
+  const raisedStyle = getComputedStyle(transport('forward'));
+  if (disabledStyle.boxShadow !== 'none' || !disabledStyle.transform.endsWith('0, 2)') ||
+      disabledStyle.color === raisedStyle.color || raisedStyle.boxShadow === 'none') {
+    failures.push('unavailable playback button is not grey and pressed down');
+  }
+  transport('forward').click();
+  await waitFor(() => timelineRange.value === timelineRange.max && transport('stop').getAttribute('aria-pressed') === 'true',
+    'playback did not stop at the last frame');
+  if (!transport('forward').disabled || !transport('to-end').disabled || transport('back').disabled) {
+    failures.push('incorrect playback controls at the last frame');
+  }
+  await new Promise(resolve => setTimeout(resolve, 400));
+  if (timelineRange.value !== timelineRange.max) failures.push('forward playback wrapped past the last frame');
+  transport('back').click();
+  await waitFor(() => timelineRange.value === '0' && transport('stop').getAttribute('aria-pressed') === 'true',
+    'backward playback did not stop at the first frame');
+  await new Promise(resolve => setTimeout(resolve, 400));
+  if (timelineRange.value !== '0') failures.push('backward playback wrapped past the first frame');
+  if (window.__ncxMaxScalarReads > 1) failures.push("animation overlapped scalar reads");
+
   window.__ncxStep = "curve";
   [...document.querySelectorAll(".view-tabs button")].find((button) => button.textContent === "Curve").click();
   const curve = await waitFor(() => {
@@ -1519,13 +1594,17 @@ try {
     if (document.activeElement !== offsetInput) failures.push("Y offset cannot take keyboard focus");
   }
 
+  await document.fonts.ready;
   const curveBounds = curve.getBoundingClientRect();
-  curve.dispatchEvent(new PointerEvent("pointermove", {
-    bubbles: true,
-    clientX: curveBounds.left + curveBounds.width * 0.637,
-    clientY: curveBounds.top + curveBounds.height * 0.45,
-  }));
-  const crosshair = await waitFor(() => document.querySelector(".hover-crosshair"), "curve crosshair did not appear");
+  // A final font/layout update can clear hover after the first synthetic move.
+  const crosshair = await waitFor(() => {
+    curve.dispatchEvent(new PointerEvent("pointermove", {
+      bubbles: true,
+      clientX: curveBounds.left + curveBounds.width * 0.637,
+      clientY: curveBounds.top + curveBounds.height * 0.45,
+    }));
+    return document.querySelector(".hover-crosshair");
+  }, "curve crosshair did not appear");
   const marker = document.querySelector(".hover-dot");
   if (document.querySelectorAll(".hover-crosshair").length !== 1) failures.push("curve has duplicate crosshairs");
   if (Math.abs(Number(crosshair.getAttribute("x1")) - Number(marker?.getAttribute("cx"))) < 0.2) failures.push("crosshair did not move continuously between samples");
@@ -1554,15 +1633,6 @@ try {
   if (axisExtent() !== fieldViewBeforeTab) failures.push("field zoom reset after Curve → Field tab switch");
   if (shell !== document.querySelector(".shell")) failures.push("view switch replaced the application shell");
   if (document.querySelectorAll(".field-canvas").length !== 1) failures.push("view switch duplicated the field canvas");
-
-  window.__ncxStep = "playback";
-  window.__ncxMaxScalarReads = window.__ncxScalarReads;
-  const timelineRange = document.querySelector('.timeline input[type="range"]');
-  const initialFrame = timelineRange.value;
-  document.querySelector('button[title="Play forward"]').click();
-  await waitFor(() => timelineRange.value !== initialFrame, "frame-paced playback did not advance");
-  document.querySelector('button[title="Stop"]').click();
-  if (window.__ncxMaxScalarReads > 1) failures.push("animation overlapped scalar reads");
 
   window.__ncxStep = "metadata typography";
   [...document.querySelectorAll(".view-tabs button")].find(button => button.textContent === "Metadata").click();

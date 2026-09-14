@@ -1,3 +1,4 @@
+import { displayValue, convertedLabel, unitChoice } from "../data/units";
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 
 import { LatestSliceLoader, fetchCoordinate, fetchSlice, fetchStaticSlice } from "../data/api";
@@ -378,8 +379,8 @@ export function FieldView(props: FieldViewProps) {
     <div className="plot-frame field-frame" ref={frame}>
       {props.variable.dimensions.length === 0 ? (
         <div className="scalar-value" aria-label={`${props.variable.name} scalar value`}>
-          <strong>{slice ? formatNumber(Number(slice.values[0])) : "—"}</strong>
-          <span>{displayUnit(props.variable)}</span>
+          <strong>{slice ? formatNumber(displayValue(Number(slice.values[0]), props.variable, props.targetUnit)) : "—"}</strong>
+          <span>{props.targetUnit?.label ?? displayUnit(props.variable)}</span>
           <small>{props.variable.dtype}</small>
         </div>
       ) : (
@@ -416,7 +417,9 @@ export function FieldView(props: FieldViewProps) {
               range={props.range}
               colormap={props.colormap}
               scale={props.scale}
-              label={quantityLabel(props.variable)}
+              label={props.targetUnit ? convertedLabel(props.variable, props.targetUnit.label) : quantityLabel(props.variable)}
+              sourceUnit={unitChoice(props.variable).source}
+              targetUnit={props.targetUnit}
             />
             <FieldMarks plot={plot} dragBox={dragBox} probe={probePosition && {
               x: plot.left + probePosition.x * plot.width,
@@ -439,7 +442,7 @@ export function FieldView(props: FieldViewProps) {
             node.style.top = `${Math.max(0, Math.min(frameSize.height - node.offsetHeight, hover.top + 12))}px`;
           }}
         >
-          <strong>{formatNumber(hover.value)} {displayUnit(props.variable)}</strong>
+          <strong>{formatNumber(displayValue(hover.value, props.variable, props.targetUnit))} {props.targetUnit?.label ?? displayUnit(props.variable)}</strong>
           <span>{formatPosition(props.metadata, props.variable, hover.x, hover.y)}</span>
         </output>
       )}

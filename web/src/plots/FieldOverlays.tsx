@@ -1,16 +1,17 @@
+import { PLOT_STYLE, centreMarkSize } from "./plotStyle";
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { fetchCoordinate, fetchSlice } from "../data/api";
 import type { Metadata, Variable } from "../data/model";
 import { windPair, windValues, windSampleRequest, fieldWindReason } from "../data/wind";
-import { PRESSURE_COLOUR, pressureVariable } from "../data/pressure";
+import { pressureVariable } from "../data/pressure";
 import type { MeshGeometry } from "./mesh";
 import type { ViewBounds } from "./view";
 import { meshWindAnchors, type FieldVector } from "./windGeometry";
 import { fieldVectorMarks } from "./fieldVectors";
 import { loadPressureContours } from "./pressureLoad";
 import {
-  projectContours, contourLabels, contourInterval, projectCentres, centreBox,
-  CONTOUR_WIDTH, type ContourBox, type PressureCentre, type PressureContour,
+  projectContours, smoothVisibleContours, contourLabels, contourInterval, projectCentres, centreBox,
+  CONTOUR_WIDTH, CONTOUR_LABEL_SCALE, type ContourBox, type PressureCentre, type PressureContour,
 } from "./pressureContours";
 
 type Arrow = FieldVector;
@@ -25,6 +26,10 @@ export function FieldOverlays({ metadata, variable, wind = false, pressure, indi
   children?: ReactNode;
 }) {
   const id = `vectors-${useId().replaceAll(":", "")}`;
+  // One size drives the glyphs and the break they sit in; drifting them apart
+  // leaves the label either crowded or floating in a hole.
+  const textSize = labelSize * CONTOUR_LABEL_SCALE;
+  const markSize = centreMarkSize();
   const maskId = `contour-mask-${id}`;
   const [loadedWind, setLoadedWind] = useState<Loaded>();
   const [loadedPressure, setLoadedPressure] = useState<{
@@ -62,16 +67,21 @@ export function FieldOverlays({ metadata, variable, wind = false, pressure, indi
   const currentPressure = pressure && loadedPressure?.key === pressureKey ? loadedPressure : undefined;
   const view = [bounds.minimumX, bounds.maximumX, bounds.minimumY, bounds.maximumY,
     plot.left, plot.top, plot.width, plot.height];
-  const { contours, centres } = useMemo(() => {
+  const { contours: candidates, centres } = useMemo(() => {
     const all = projectContours(currentPressure?.contours ?? [], bounds, plot);
+    const centres = projectCentres(currentPressure?.extrema ?? [], all, bounds, plot, textSize, markSize);
     const interval = contourInterval(all, plot);
-    const drawn = all.filter(contour => contour.level % interval === 0);
-    return { contours: drawn, centres: projectCentres(currentPressure?.extrema ?? [], drawn, bounds, plot) };
-  }, [currentPressure, ...view]);
-  const reserved = useMemo(() => [...centres.map(centreBox), ...(reserve ? [reserve] : [])],
-    [centres, reserve?.left, reserve?.right, reserve?.top, reserve?.bottom]);
-  const labels = useMemo(() => contourLabels(contours, plot, labelSize, reserved),
-    [contours, reserved, labelSize, ...view]);
+    const drawn = smoothVisibleContours(all.filter(contour => contour.level % interval === 0), plot);
+    return { contours: drawn, centres };
+  }, [currentPressure, textSize, markSize, ...view]);
+  const centreBoxes = useMemo(() => centres.map(centre => centreBox(centre, textSize, markSize)),
+    [centres, textSize, markSize]);
+  const reserved = useMemo(() => [...centreBoxes, ...(reserve ? [reserve] : [])],
+    [centreBoxes, reserve?.left, reserve?.right, reserve?.top, reserve?.bottom]);
+  const labels = useMemo(() => contourLabels(candidates, plot, textSize, reserved),
+    [candidates, reserved, textSize, ...view]);
+  // Each visible run must earn its own label, including disconnected runs at the same level.
+  const contours = useMemo(() => [...new Set(labels.map(label => label.contour))], [labels]);
   // Labels name specific lines; arrows yield any slot that overlaps a label.
   const marks = useMemo(() => fieldVectorMarks(currentWind?.arrows ?? [], bounds, plot,
     [...reserved, ...labels.map(label => label.box)]),
@@ -95,11 +105,11 @@ export function FieldOverlays({ metadata, variable, wind = false, pressure, indi
         x={plot.left} y={plot.top} width={plot.width} height={plot.height}>
         <rect x={plot.left} y={plot.top} width={plot.width} height={plot.height} fill="white" />
         {labels.map((label, index) => <rect key={`label-${index}`} fill="black"
-          x={label.x - label.half} y={label.y - (labelSize + 1) / 2}
-          width={label.half * 2} height={labelSize + 1}
+          x={label.x - label.half} y={label.y - (textSize + 2) / 2}
+          width={label.half * 2} height={textSize + 2}
           transform={`rotate(${label.angle} ${label.x} ${label.y})`} />)}
-        {centres.map((centre, index) => <rect key={`centre-${index}`} fill="black"
-          x={centre.x - 13} y={centre.y - 12} width={26} height={27} />)}
+        {centreBoxes.map((box, index) => <rect key={`centre-${index}`} fill="black"
+          x={box.left} y={box.top} width={box.right - box.left} height={box.bottom - box.top} />)}
       </mask>
     </defs>
     {pressure && <g className="pressure-contours" data-pressure={currentPressure?.error ? "error" : currentPressure?.contours ? "ready" : "loading"}>
@@ -107,7 +117,7 @@ export function FieldOverlays({ metadata, variable, wind = false, pressure, indi
       <g clipPath={`url(#${id})`} mask={`url(#${maskId})`} fill="none" strokeLinecap="round" strokeLinejoin="round">
         {contourPaths.map(contour => <path key={contour.level} className="pressure-contour"
           data-level={contour.level} d={contour.path} strokeDasharray={contour.level < 0 ? "5 3" : undefined}
-          stroke={PRESSURE_COLOUR} strokeWidth={CONTOUR_WIDTH} />)}
+          stroke={PLOT_STYLE.ink} strokeWidth={CONTOUR_WIDTH} />)}
       </g>
     </g>}
     {children}
@@ -115,19 +125,19 @@ export function FieldOverlays({ metadata, variable, wind = false, pressure, indi
       {currentWind?.error && <text className="wind-key" x={8} y={plot.top - 20}>Wind unavailable</text>}
       <g clipPath={`url(#${id})`} strokeLinecap="round" strokeLinejoin="round">
         {/* A wider casing makes the arrow read white on a dark colour map. */}
-        <path d={windPath} fill="none" stroke="white" strokeWidth={2.2} opacity={0.6} />
-        <path className="wind-arrows" d={windPath} fill="#101418" stroke="#101418" strokeWidth={1.3} />
+        <path d={windPath} fill="none" stroke={PLOT_STYLE.paper} strokeWidth={PLOT_STYLE.wind.casing} opacity={PLOT_STYLE.wind.casingOpacity} />
+        <path className="wind-arrows" d={windPath} fill="none" stroke={PLOT_STYLE.ink} strokeWidth={PLOT_STYLE.wind.width} />
       </g>
     </g>}
     <g className="pressure-contour-labels" clipPath={`url(#${id})`}>
       {labels.map((label, index) => <text key={index} className="pressure-contour-label"
-        x={label.x} y={label.y} transform={`rotate(${label.angle} ${label.x} ${label.y})`}
-        textAnchor="middle" dominantBaseline="central" fill={PRESSURE_COLOUR}>{label.text}</text>)}
+        x={label.x} y={label.y} fontSize={textSize} transform={`rotate(${label.angle} ${label.x} ${label.y})`}
+        textAnchor="middle" dominantBaseline="central" fill={PLOT_STYLE.ink}>{label.text}</text>)}
       {centres.map((centre, index) => <g key={`centre-${index}`} className="pressure-centre">
-        <text x={centre.x} y={centre.y - 3} textAnchor="middle" dominantBaseline="central"
-          fill={PRESSURE_COLOUR} className="pressure-centre-mark">{centre.kind}</text>
-        <text x={centre.x} y={centre.y + 9} textAnchor="middle" dominantBaseline="central"
-          fill={PRESSURE_COLOUR} className="pressure-centre-value">{Math.round(centre.value)}</text>
+        <text x={centre.x} y={centre.y - (textSize + PLOT_STYLE.pressure.centreGap) / 2} textAnchor="middle" dominantBaseline="central"
+          fill={PLOT_STYLE.ink} className="pressure-centre-mark">{centre.kind}</text>
+        <text x={centre.x} y={centre.y + (markSize + PLOT_STYLE.pressure.centreGap) / 2} textAnchor="middle" dominantBaseline="central"
+          fontSize={textSize} fill={PLOT_STYLE.ink} className="pressure-centre-value">{Math.round(centre.value)}</text>
       </g>)}
     </g>
   </g>;

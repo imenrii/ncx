@@ -1,3 +1,4 @@
+import { PLOT_STYLE } from "./plotStyle";
 import { useLayoutEffect, type ComponentProps } from "react";
 import { ViewControls } from "./plot";
 import { useElementSize } from "./useElementSize";
@@ -12,18 +13,21 @@ export interface OverlayToggles {
   onWind: (on: boolean) => void;
 }
 
-/** The mark column keeps one width, so both labels start on the same x. */
+/** The mark column keeps one width, so both labels start on the same x. CSS
+    sets that width; the mark stays left-anchored at its drawn size inside it. */
+const MARK = { viewBox: `0 0 ${PLOT_STYLE.legend.markWidth} ${PLOT_STYLE.legend.markHeight}`, height: PLOT_STYLE.legend.markHeight, preserveAspectRatio: "xMinYMid meet", "aria-hidden": true } as const;
+
 function PressureMark() {
-  return <svg viewBox="0 0 36 14" width={36} height={14} aria-hidden="true">
-    <path d="M0 7H5" strokeWidth={0.9} /><path d="M31 7H36" strokeWidth={0.9} />
-    <text x={18} y={7} textAnchor="middle" dominantBaseline="central" fontSize={9}>1013</text>
+  return <svg {...MARK}>
+    <path d="M0 7H9" strokeWidth={PLOT_STYLE.pressure.width} /><path d="M41 7H50" strokeWidth={PLOT_STYLE.pressure.width} />
+    <text x={25} y={7} textAnchor="middle" dominantBaseline="central" fontSize={PLOT_STYLE.legend.sampleFont}>1013</text>
   </svg>;
 }
 
 function WindMark() {
-  return <svg viewBox="0 0 36 14" width={36} height={14} aria-hidden="true">
-    <path d="M15.4 12.6L20.6 1.4" strokeWidth={1.1} />
-    <path className="solid" d="M20.6 1.4L21.2 5.4L17.7 4.2Z" />
+  return <svg {...MARK}>
+    <path d="M21.8 12.6L27 1.4" strokeWidth={PLOT_STYLE.legend.windWidth} />
+    <path className="solid" d="M27 1.4L27.6 5.4L24.1 4.2Z" />
   </svg>;
 }
 

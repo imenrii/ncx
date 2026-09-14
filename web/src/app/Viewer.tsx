@@ -3,7 +3,7 @@ import { initialVariableState, updateVariableState, savedSelection, saveSelectio
 import { PlotBoundary } from "./PlotBoundary";
 
 import { fetchCoordinate } from "../data/api";
-import { convert, unitChoice } from "../data/units";
+import { convert, displayValue, unitChoice } from "../data/units";
 import { unitAssignments } from "../data/unitAssignments";
 import { windPair, fieldWindReason } from "../data/wind";
 import { pressureVariables, pressureReason } from "../data/pressure";
@@ -136,13 +136,14 @@ export function Viewer({
   const units = useMemo(() => variable ? unitChoice(variable) : undefined, [variable]);
   const sourceUnit = units?.source;
   const targetUnit = units?.choices.find(item => item.id === unitId) ?? sourceUnit;
-  const useBeaufort = Boolean(units?.beaufort && unitId === "Bft");
+  const useBeaufort = Boolean(view === "curve" && units?.beaufort && unitId === "Bft");
   const windUnit = useBeaufort ? "Bft" : targetUnit?.id;
   const windMatch = useMemo(() => metadata && variable
     ? windPair(metadata, variable, view === "curve" ? windUnit : undefined) : {},
   [metadata, variable, view, windUnit]);
-  const shownRange = view !== "curve" ? colorRange : useBeaufort ? beaufortRange : sourceUnit && targetUnit
-    ? { minimum: convert(curveRange.minimum, sourceUnit, targetUnit), maximum: convert(curveRange.maximum, sourceUnit, targetUnit) } : curveRange;
+  const nativeRange = view === "curve" ? curveRange : colorRange;
+  const shownRange = useBeaufort ? beaufortRange : sourceUnit && targetUnit
+    ? { minimum: convert(nativeRange.minimum, sourceUnit, targetUnit), maximum: convert(nativeRange.maximum, sourceUnit, targetUnit) } : nativeRange;
   const shownLocked = view === "curve" ? curveLocked : rangeLocked;
   const changeCurveRange = useCallback((range: ColorRange) => {
     if (useBeaufort) setBeaufortRange(range);
@@ -269,8 +270,14 @@ export function Viewer({
     const timer = window.setTimeout(() => {
       updateSelection((current) => {
         const value = current.indices[timeline.dimension.path] ?? 0;
-        const next = (value + playDirection + timeline.dimension.length) % timeline.dimension.length;
-        return { frameReady: false, indices: { ...current.indices, [timeline.dimension.path]: next } };
+        const last = timeline.dimension.length - 1;
+        const next = value + playDirection;
+        if (next < 0 || next > last) return { playDirection: 0 };
+        return {
+          frameReady: false,
+          playDirection: next === 0 || next === last ? 0 : playDirection,
+          indices: { ...current.indices, [timeline.dimension.path]: next },
+        };
       });
     }, 180);
     return () => window.clearTimeout(timer);
@@ -356,7 +363,10 @@ export function Viewer({
     probePosition ? `probe ${probePosition}` : undefined,
   ].filter(Boolean).join(" · ");
   const derivation = derivedValueLabel(fieldVariable);
-  const figureSubtitle = [figureDetails(displayUnit(variable)), derivation].filter(Boolean).join(" · ");
+  const changeFieldRange = (range: ColorRange) => setColorRange(sourceUnit && targetUnit ? {
+    minimum: convert(range.minimum, targetUnit, sourceUnit), maximum: convert(range.maximum, targetUnit, sourceUnit),
+  } : range);
+  const figureSubtitle = [figureDetails(targetUnit?.label ?? displayUnit(variable)), derivation].filter(Boolean).join(" · ");
   const curveSubtitle = [
     probePosition ? `at ${probePosition}` : figureDetails(useBeaufort ? "Bft" : targetUnit?.label ?? displayUnit(variable)),
     probe?.average ? derivation : undefined,
@@ -565,8 +575,8 @@ export function Viewer({
                 ))}
               </div>
             )}
-            {view === "curve" && <div className="control-group" role="group" aria-label="Curve units">
-              <label>Units<select value={useBeaufort ? "Bft" : targetUnit?.id ?? "native"}
+            {view !== "metadata" && <div className="control-group" role="group" aria-label="Display units">
+              <label>Unit<select id="display-unit" value={useBeaufort ? "Bft" : targetUnit?.id ?? "native"}
                 disabled={!sourceUnit} title={units?.reason}
                 onChange={event => {
                   setUnitId(event.target.value);
@@ -574,7 +584,7 @@ export function Viewer({
                 }}>
                 {!sourceUnit && <option value="native">{attributeText(variable, "units") ?? "native"}</option>}
                 {units?.choices.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
-                {units?.beaufort && <option value="Bft">Bft</option>}
+                {view === "curve" && units?.beaufort && <option value="Bft">Bft</option>}
               </select></label>
             </div>}
             {view === "curve" && !useBeaufort && <div className="control-group curve-offset-controls">
@@ -602,7 +612,7 @@ export function Viewer({
                     <option value="off">Off</option><option value="on">On</option>
                   </select></label>
                 </div>}
-                {/* Field ranges stay native; curve controls show the selected unit. */}
+                {/* Range state stays native; controls show the selected display unit. */}
                 {(view === "curve" || view === "field") && variable.dimensions.length >= 1 && (
                   <div className="control-group" role="group" aria-label={view === "curve" ? "Value axis" : "Colour"}>
                     {view !== "curve" && <label>
@@ -660,7 +670,7 @@ export function Viewer({
                         value={shownRange.minimum}
                         onChange={(event) => {
                           const value = Number(event.target.value);
-                          if (Number.isFinite(value) && value < shownRange.maximum) (view === "curve" ? changeCurveRange : setColorRange)({ ...shownRange, minimum: value });
+                          if (Number.isFinite(value) && value < shownRange.maximum) (view === "curve" ? changeCurveRange : changeFieldRange)({ ...shownRange, minimum: value });
                         }}
                       />
                       Max
@@ -672,7 +682,7 @@ export function Viewer({
                         value={shownRange.maximum}
                         onChange={(event) => {
                           const value = Number(event.target.value);
-                          if (Number.isFinite(value) && value > shownRange.minimum) (view === "curve" ? changeCurveRange : setColorRange)({ ...shownRange, maximum: value });
+                          if (Number.isFinite(value) && value > shownRange.minimum) (view === "curve" ? changeCurveRange : changeFieldRange)({ ...shownRange, maximum: value });
                         }}
                       />
                     </label>
@@ -729,6 +739,7 @@ export function Viewer({
               colormap={colormap}
               scale={scale}
               range={colorRange}
+              targetUnit={targetUnit}
               rangeLocked={rangeLocked}
               mapSource={mapSource}
               wind={wind && !windUnavailable}
@@ -762,6 +773,7 @@ export function Viewer({
                   colormap={colormap}
                   scale={scale}
                   range={colorRange}
+                  targetUnit={targetUnit}
                   rangeLocked={rangeLocked}
                   mapSource={mapSource}
                   wind={wind && !windUnavailable}
@@ -823,7 +835,7 @@ export function Viewer({
         <footer className="statusbar">
           <span>{status}</span>
           <span>{shapeText(variable, display)}</span>
-          <span>{probePosition ? `${probePosition} · ${formatNumber(probe!.value)} ${displayUnit(variable)}` : "click field to probe"}</span>
+          <span>{probePosition ? `${probePosition} · ${formatNumber(displayValue(probe!.value, variable, targetUnit))} ${targetUnit?.label ?? displayUnit(variable)}` : "click field to probe"}</span>
         </footer>
       )}
     </div>
@@ -898,11 +910,11 @@ function Timeline({
   return (
     <div className="timeline">
       <div className="playback" aria-label="Dimension playback">
-        <button className="to-start" title="First sample" aria-label="First sample" onClick={() => { onPlay(0); onChange(0); }} />
-        <button className="back" title="Play backward" aria-label="Play backward" aria-pressed={playing === -1} onClick={() => onPlay(-1)} />
+        <button className="to-start" disabled={value <= 0} title="First sample" aria-label="First sample" onClick={() => { onPlay(0); onChange(0); }} />
+        <button className="back" disabled={value <= 0} title="Play backward" aria-label="Play backward" aria-pressed={playing === -1} onClick={() => onPlay(-1)} />
         <button className="stop" title="Stop" aria-label="Stop" aria-pressed={playing === 0} onClick={() => onPlay(0)} />
-        <button className="forward" title="Play forward" aria-label="Play forward" aria-pressed={playing === 1} onClick={() => onPlay(1)} />
-        <button className="to-end" title="Last sample" aria-label="Last sample" onClick={() => { onPlay(0); onChange(last); }} />
+        <button className="forward" disabled={value >= last} title="Play forward" aria-label="Play forward" aria-pressed={playing === 1} onClick={() => onPlay(1)} />
+        <button className="to-end" disabled={value >= last} title="Last sample" aria-label="Last sample" onClick={() => { onPlay(0); onChange(last); }} />
       </div>
       <strong>
         {timeline.dimension.name}

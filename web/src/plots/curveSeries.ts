@@ -1,3 +1,4 @@
+import { PLOT_STYLE } from "./plotStyle.ts";
 import type { Variable } from "../data/model.ts";
 import { attributeText, displayUnit } from "../data/model.ts";
 import type { CurveRange } from "./curve.ts";
@@ -21,8 +22,8 @@ export interface CurvePresentation {
   xRange?: CurveRange;
 }
 
-export const SERIES_COLORS = ["#011959", "#4D734D", "#114160", "#747E38", "#1E5D62", "#765179", "#B58E30"];
-export const SERIES_DASHES = ["none", "7 3", "2 2", "9 3 2 3", "12 3", "2 3 8 3", "4 2", "8 2 2 2 2 2"];
+export const SERIES_COLORS = PLOT_STYLE.series.colours;
+export const SERIES_DASHES = PLOT_STYLE.series.dashes;
 
 export function displaySeries(series: CurveSeries, offset = 0): CurveSeries {
   if (!validCurveOffset(series, offset)) throw new Error("Invalid Y display offset");

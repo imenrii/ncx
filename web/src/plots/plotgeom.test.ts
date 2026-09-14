@@ -1,3 +1,5 @@
+import { PLOT_STYLE, plotStyleCss, plotFontSize } from "./plotStyle.ts";
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -128,4 +130,12 @@ test("the annotation strip is reserved globally, including explicit curve top pa
 test("widestLabel measures the longest formatted tick", () => {
   assert.equal(widestLabel([0, -8e5, 1], (value) => String(value)), 7);
   assert.equal(widestLabel([], () => ""), 0);
+});
+
+
+test("plot CSS is generated from the canonical style and fallback sizes use its rem floors", () => {
+  assert.equal(readFileSync(new URL("../generated/plot-style.css", import.meta.url), "utf8"), plotStyleCss());
+  assert.equal(plotFontSize(null, "tick"), PLOT_STYLE.type.tick.min * 16);
+  assert.equal(plotFontSize(null, "axis"), PLOT_STYLE.type.axis.min * 16);
+  assert.ok(PLOT_STYLE.pressure.width > PLOT_STYLE.stroke.reference);
 });

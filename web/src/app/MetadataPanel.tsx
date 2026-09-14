@@ -1,5 +1,4 @@
 import { attributeText, type Attribute, type Metadata, type Variable } from "../data/model";
-import { PRESSURE_INTERVAL } from "../data/pressure";
 import { UNIT_FAMILIES, unitRule } from "../data/units";
 import { unitAssignments } from "../data/unitAssignments";
 
@@ -25,11 +24,6 @@ export function MetadataPanel({ metadata, variable }: { metadata: Metadata; vari
             <dd>{variable.dimensions.map((dimension) => `${dimension.name}=${dimension.length}`).join(" × ") || "scalar"}</dd>
           </div>
           <div><dt>view hint</dt><dd>{variable.view_hint.kind}</dd></div>
-          {/* The plot no longer carries the interval, so the number lives here. */}
-          {family === "pressure" && <div>
-            <dt>contour interval</dt>
-            <dd>{PRESSURE_INTERVAL} hPa, doubled while isobars crowd the pane</dd>
-          </div>}
           <div className="metadata-unit">
             <dt>{fileUnit?.trim() ? "Units" : <label htmlFor="metadata-unit">Units</label>}</dt>
             <dd>{fileUnit?.trim() ? fileUnit : <select

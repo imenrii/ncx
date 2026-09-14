@@ -172,31 +172,36 @@ Standalone dataset navigation and source participation stay available.
 defaults on reload. Storage failures use normal defaults. Rebuild the web assets
 and then Rust after UI changes: Rust embeds `web/dist` at compile time.
 
-### Curve Units and Wind
+### Display Units and Wind
 
-Curve has a **Units** selector in the toolbar. Supported quantities include
+Field and Curve have a **Unit** selector in the toolbar. Supported quantities include
 pressure, wind, temperature, water-equivalent depth, height, fractions, wave
-periods and directions, radiation, heat flux, and specific energy. The file's
+periods and directions, radiation, heat flux, and specific energy. The source
 unit is the default. Conversions change the plot, labels, readouts, offsets,
 and PNG output, not the file or source samples. Field colour ranges remain
 independent. Unit changes do not read another data slice.
 
-If a variable has no unit, select its source unit in **Metadata → Units**.
-This labels the source numbers without rescaling them. Curve initially uses
-this unit, replacing any previous display-unit choice. Use the Curve toolbar
+If a variable has no unit and its name matches a supported ECMWF quantity,
+**Metadata → Units** assigns the default ECMWF source unit. For example, `msl`
+uses Pa, `t2m` uses K, and `u10`/`v10` use m/s. Use the same control to override
+or clear the assignment. Unknown names and conflicting CF quantities have no
+automatic assignment. You can assign their source unit manually in the same control.
+This labels the source numbers without rescaling them. Field and Curve initially use
+this unit, replacing any previous display-unit choice. Use the toolbar
 to convert the display: for example, assign Pa in Metadata, then select hPa in
-Curve. The source-unit choice applies to detection, plot labels, conversion,
+the toolbar. The source-unit choice applies to detection, plot labels, conversion,
 comparisons, and export. Selecting a unit for `u10` or `v10` also sets its missing-unit twin in
 the same group. File-provided units remain unchanged. **Not specified** clears
-both missing-unit twins. Choices stay with their dataset and variable while
-the viewer is open; reload or viewer replacement clears them. The file and
+both missing-unit twins. Manual choices stay with their dataset and variable while
+the viewer is open; reload or viewer replacement restores ECMWF defaults. The file and
 raw Attributes table never change. Source-unit changes clear range locks and
 Y offsets, including locked offsets. A unit alone does not identify an unknown
 quantity or enable Beaufort.
 
 The appendable rules are in `web/src/data/units.ts`, with aliases from the
 [ERA5 variable list](https://ecmwf-models.readthedocs.io/en/latest/variables_era5.html).
-A known name does not override incompatible or missing units. Accumulations
+Default source units follow the [ECMWF ERA5 documentation](https://confluence.ecmwf.int/pages/viewpage.action?pageId=239340673).
+A known name does not override file-provided units. Accumulations
 are not converted to rates. Pressure vertical velocity is not wind speed.
 
 Beaufort is available for recognized 10 m speed variables, not signed
@@ -242,6 +247,14 @@ Model display offsets do not change the physical wind components. Wind off
 makes no additional wind reads. Export
 requires the selected wind data to be ready, or Wind to be off.
 
+### Playback
+
+Playback buttons use the same raised style as the plot view controls. The
+active control is pressed down. At the first frame, First sample and Play
+backward are disabled, grey, and pressed down. At the last frame, Play forward
+and Last sample have the same disabled state. Playback stops at either end;
+it does not wrap around.
+
 ### Field Overlay Legend
 
 The field plot carries its own overlay legend under the view controls, at the
@@ -253,25 +266,40 @@ line through the text, so the state does not depend on colour. An
 unavailable layer is disabled and carries its reason as a title. The legend has
 no border and no plate; arrows and contour labels keep out of its corner.
 
+### Plot style
+
+[`web/src/plots/plotStyle.ts`](web/src/plots/plotStyle.ts) is the canonical browser
+plot profile. It supplies generated CSS, layout, and export. See
+[the style decision record](docs/plot-style.md) for intentional differences from
+Python figures, corrected mismatches, and the update procedure.
+
 ### Field Pressure Contours
 
 **Pressure** in the field plot legend draws isobars every **4 hPa** in the Met
-Office manner: one uniform 1.15 px line at every level, with no level made
-heavier than another. Corner cutting smooths the traced display lines; source
-values do not change. While the estimated visible gap between isobars is under
+Office manner: one uniform line weight at every level, with no level made
+heavier than another. Visible lines are sampled at 3 px spacing. Two short averaging passes remove
+small wiggles, with displacement limited to 2 px, then two corner-cutting
+passes round the lines. A shared point budget increases that spacing for very dense plots;
+smoothing does not turn off. Small eyes keep their native shape during
+smoothing, and source values do not change. While the estimated visible gap between isobars is under
 13 px the drawn interval doubles, 4 → 8 → 16 → 32 hPa, so a small pane shows
-fewer lines instead of a solid block. The interval note is in the Metadata
-panel, not on the plot.
+fewer lines instead of a solid block.
 
-Each drawn level is eligible for labels, repeated about every 260 px along the
-visible line. Placement tries nearby positions when a label is blocked; short
-lines or lines with no clear label position remain unlabelled. A label sits in
+Every drawn contour line must have a label, repeated about every 260 px along
+the visible line. Placement tries nearby positions when a label is blocked.
+If no label fits, the entire visible line is omitted. This includes small
+closed eyes and lines crowded by neighbouring labels or L/H marks. Disconnected
+lines at the same pressure level each need their own label. A label sits in
 a masked break in the line, not under a halo, and avoids the plot legend, other
 labels, and the frame. Negative levels are dashed.
 
-A strict local extremum with a closed isobar around it is marked **L** or **H**
-with its own central value; the lines are masked out behind the mark. An
-extremum on the domain edge is not a centre.
+Pressure basins must have at least 2 hPa of prominence relative to their spill
+saddle. Each basin retains its strongest native extremum; a flat extremum has
+one stable anchor. A closed isobar at least 2 hPa outward from that value must
+surround the centre. Detection uses all 4 hPa isobars, before display thinning
+or smoothing. Vertices on a data boundary or missing-data edge cannot become
+centres. Stronger prominence wins when marks would be within 64 px. Marks
+show **L** or **H** and the native central value; lines are masked behind them.
 
 Pressure contours sit below reference geometry and wind. Contour labels and
 centre marks are placed first. Wind arrows that overlap these marks are omitted.

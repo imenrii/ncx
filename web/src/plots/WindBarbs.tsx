@@ -1,3 +1,4 @@
+import { PLOT_STYLE } from "./plotStyle";
 import { useMemo } from "react";
 import { windDescription, type WindSamples } from "../data/wind";
 import { formatTimestamp, timeInZone, type DisplayTimeZone } from "../data/time";
@@ -6,7 +7,7 @@ import { annotationStrip } from "./plotgeom";
 import { barbGeometry } from "./windGeometry";
 
 // Style/plotstyle/palette.py: SEMANTIC["wind"], light-canvas cycle colour 2.
-export const WIND_COLOUR = "#4D734D";
+export const WIND_COLOUR = PLOT_STYLE.wind.colour;
 
 export function WindBarbs({ wind, geometry, knots, timeZone, onTrack }: {
   wind?: WindSamples; geometry: CurveGeometry; knots: boolean; timeZone: DisplayTimeZone;
@@ -20,7 +21,7 @@ export function WindBarbs({ wind, geometry, knots, timeZone, onTrack }: {
     for (let index = 0; index < wind.x.length; index += 1) {
       const x = plot.left + (wind.x[index] - geometry.xMinimum) / (geometry.xMaximum - geometry.xMinimum) * plot.width;
       if (!Number.isFinite(x) || x < plot.left || x > plot.left + plot.width) continue;
-      const bin = Math.floor((x - plot.left) / 42);
+      const bin = Math.floor((x - plot.left) / PLOT_STYLE.wind.barbSpacing);
       const glyph = barbGeometry(wind.u[index], wind.v[index], knots);
       if (bins.has(bin) || !glyph) continue;
       bins.add(bin); result.push({ index, x, glyph });
@@ -28,7 +29,7 @@ export function WindBarbs({ wind, geometry, knots, timeZone, onTrack }: {
     }
     return result;
   }, [wind, geometry, knots]);
-  const y = plot.top - annotationStrip(geometry.type) / 2 - 5;
+  const y = plot.top - annotationStrip(geometry.type) / 2 - PLOT_STYLE.wind.barbOffset;
   const time = timeInZone({ originMs: 0, multiplierMs: 1, zoneLabel: "UTC", offsetMinutes: 0 }, timeZone)!;
   const description = (index: number) => {
     if (!wind) return "";
@@ -43,7 +44,7 @@ export function WindBarbs({ wind, geometry, knots, timeZone, onTrack }: {
       onKeyDown={event => { if (event.key === "Escape") onTrack?.(); }}
       onFocus={() => onTrack?.(x)} onBlur={() => onTrack?.()}>
       <rect x={-20} y={-20} width={40} height={40} fill="transparent" />
-      <path d={glyph.path} transform={`rotate(${glyph.angle})`} fill={glyph.calm ? "none" : WIND_COLOUR} stroke={WIND_COLOUR} strokeWidth={1.2} />
+      <path d={glyph.path} transform={`rotate(${glyph.angle})`} fill={glyph.calm ? "none" : WIND_COLOUR} stroke={WIND_COLOUR} strokeWidth={PLOT_STYLE.wind.barbWidth} />
     </g>)}
   </g>;
 }

@@ -1,3 +1,4 @@
+import type { Unit } from "../data/units";
 import { FieldView } from "./FieldView";
 import { MeshFieldView } from "./MeshFieldView";
 import type { ColormapChoice, ColorRange } from "./color";
@@ -9,6 +10,7 @@ import type { OverlayToggles } from "./OverlayLegend";
 export interface FieldProps {
   metadata: Metadata;
   variable: Variable;
+  targetUnit?: Unit;
   display: DisplayDimensions;
   indices: Record<string, number>;
   settled: boolean;

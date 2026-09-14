@@ -31,7 +31,7 @@ interface QuantityRule {
   beaufort?: boolean;
 }
 // ERA5 aliases: https://ecmwf-models.readthedocs.io/en/latest/variables_era5.html
-// Append exact aliases here. Units must still agree; names never supply units.
+// Append exact aliases here. File units must still agree with the quantity.
 export const QUANTITY_RULES: QuantityRule[] = [
   { names: ["msl", "sp"], standardNames: ["air_pressure_at_mean_sea_level", "surface_air_pressure", "air_pressure"], family: "pressure" },
   { names: ["u10", "v10", "u100", "v100", "u10n", "v10n", "u", "v", "w10"], standardNames: ["eastward_wind", "northward_wind", "upward_air_velocity"], family: "velocity" },
@@ -100,4 +100,18 @@ export function convertValues(values: Float32Array, source: Unit, target: Unit |
 }
 export function convertedLabel(variable: Variable, unit: string): string {
   return unit && unit !== "1" ? `${variableLabel(variable)} (${unit})` : variableLabel(variable);
+}
+
+/** ECMWF defaults apply only to recognized short names without conflicting CF metadata.
+ * https://confluence.ecmwf.int/pages/viewpage.action?pageId=239340673
+ * Each family's first unit is its ECMWF source unit.
+ */
+export function defaultECMWFUnit(variable: Variable): string | undefined {
+  const { rule } = unitRule(variable);
+  return rule?.names.includes(variable.name) ? UNIT_FAMILIES[rule.family][0].id : undefined;
+}
+
+export function displayValue(value: number, variable: Variable, target?: Unit): number {
+  const source = unitChoice(variable).source;
+  return source && target ? convert(value, source, target) : value;
 }

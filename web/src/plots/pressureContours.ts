@@ -1,3 +1,4 @@
+import { PLOT_STYLE, measurePlotText } from "./plotStyle.ts";
 import { longitudeNear, PRESSURE_INTERVAL, MAX_PRESSURE_TRIANGLES, MAX_PRESSURE_VALUES } from "../data/pressure.ts";
 import type { Bounds } from "./mesh.ts";
 import { clipSegment } from "./coastline.ts";
@@ -7,25 +8,44 @@ export interface ContourPoint { x: number; y: number }
 export interface PressureContour { level: number; points: ContourPoint[] }
 export interface ContourBox { left: number; right: number; top: number; bottom: number }
 export interface ContourPlot { left: number; top: number; width: number; height: number }
-export interface PressureCentre { kind: "L" | "H"; x: number; y: number; value: number }
+export interface PressureCentre { kind: "L" | "H"; x: number; y: number; value: number; prominence?: number }
 export const MAX_CONTOUR_SEGMENTS = 50_000;
 
 /** One weight for every level. A thicker line at every second level invents a
-    hierarchy the pressure field does not have. */
-export const CONTOUR_WIDTH = 1.15;
-const MIN_CONTOUR_GAP = 13;
-const LABEL_SPACING = 260;
-const LABEL_PAD = 3.5;
-const CENTRE_RADIUS = 40;
-// ponytail: corner cutting quadruples the point count; skipped once the line is
-// already denser than the screen can show.
-const MAX_SMOOTH_POINTS = 40_000;
+    hierarchy the pressure field does not have. The isobar must outweigh the
+    coastline under it, as it does on a printed synoptic chart. */
+export const CONTOUR_WIDTH = PLOT_STYLE.pressure.width;
 
+/** Isobar labels ride inside the line, so they sit below the axis tick size. */
+export const CONTOUR_LABEL_SCALE = PLOT_STYLE.pressure.labelScale;
+const MIN_CONTOUR_GAP = PLOT_STYLE.pressure.minContourGap;
+const LABEL_SPACING = PLOT_STYLE.pressure.labelSpacing;
+const LABEL_PAD = PLOT_STYLE.pressure.labelPad;
+const CENTRE_RADIUS = PLOT_STYLE.pressure.centreSpacing;
+const MIN_CENTRE_PROMINENCE = 2;
 /** Corner cutting smooths the display geometry, not the source pressure values. */
 function smoothContour(points: ContourPoint[], rounds = 2): ContourPoint[] {
   const closed = points.length > 3 &&
     Math.hypot(points[0].x - points.at(-1)!.x, points[0].y - points.at(-1)!.y) < 1e-9;
   let line = points;
+  // Suppress short-wavelength wiggles before corner cutting. Limit movement
+  // to 2 px so tightly packed inner isobars retain their position.
+  const n = closed ? points.length - 1 : points.length;
+  for (let pass = 0; pass < 2; pass += 1) {
+    line = line.map((p, i) => {
+      if (!closed && (i === 0 || i === n - 1)) return p;
+      let x = 0, y = 0;
+      for (let k = -2; k <= 2; k += 1) {
+        const q = line[closed ? (i + k + n) % n : Math.max(0, Math.min(n - 1, i + k))];
+        const weight = [1, 4, 6, 4, 1][k + 2] / 16;
+        x += q.x * weight; y += q.y * weight;
+      }
+      const original = points[i], distance = Math.hypot(x - original.x, y - original.y);
+      const scale = distance > 2 ? 2 / distance : 1;
+      return { x: original.x + (x - original.x) * scale, y: original.y + (y - original.y) * scale };
+    });
+    if (closed) line[n] = line[0];
+  }
   for (let round = 0; round < rounds && line.length > 2; round += 1) {
     const next: ContourPoint[] = closed ? [] : [line[0]];
     for (let i = 0; i + 1 < line.length; i += 1) {
@@ -113,7 +133,6 @@ export function pressureContours(mesh: ContourMesh): PressureContour[] {
     for (const [key, edges] of adjacency) if (edges.length !== 2) for (const edge of edges) if (!visited[edge]) trace(key, edge);
     segments.forEach((segment, index) => { if (!visited[index]) trace(segment.a, index); });
   }
-  if (count <= MAX_SMOOTH_POINTS) for (const contour of result) contour.points = smoothContour(contour.points);
   return result;
 }
 
@@ -138,6 +157,35 @@ function visibleContours(contours: PressureContour[], plot: ContourPlot): Pressu
     }
   }
   return visible;
+}
+
+/** Uniform screen samples remove tiny zigzags without changing source values.
+    Clip first so off-screen paths cannot consume the display point budget. */
+export function smoothVisibleContours(contours: PressureContour[], plot: ContourPlot): PressureContour[] {
+  const visible = visibleContours(contours, plot);
+  const lengths = visible.map(line => line.points.slice(1).reduce((sum, p, i) =>
+    sum + Math.hypot(p.x - line.points[i].x, p.y - line.points[i].y), 0));
+  const spacing = Math.max(3, lengths.reduce((a, b) => a + b, 0) / MAX_CONTOUR_SEGMENTS);
+  return visible.map((line, index) => {
+    const length = lengths[index];
+    // Keep small closed eyes intact. Smoothing them can erase their centre.
+    if (length < spacing * 4) return line;
+    const count = Math.ceil(length / spacing), step = length / count;
+    const points = [line.points[0]];
+    let walked = 0, target = step;
+    for (let i = 1; i < line.points.length; i += 1) {
+      const a = line.points[i - 1], b = line.points[i];
+      const span = Math.hypot(b.x - a.x, b.y - a.y);
+      while (span > 0 && target < length && target <= walked + span) {
+        const t = (target - walked) / span;
+        points.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+        target += step;
+      }
+      walked += span;
+    }
+    points.push(line.points.at(-1)!);
+    return { level: line.level, points: smoothContour(points) };
+  });
 }
 
 /** Mean isobar gap on screen, from the drawn length over the plot area. Halving
@@ -178,18 +226,18 @@ const overlaps = (a: ContourBox, b: ContourBox) =>
 /** Every level carries its value, repeated along the line. The value sits in a
     break in the line, so the break must stay short or it reads as a gap. */
 export function contourLabels(contours: PressureContour[], plot: ContourPlot, fontSize: number, obstacles: ContourBox[]) {
-  const labels: { text: string; x: number; y: number; angle: number; half: number; box: ContourBox }[] = [];
+  const labels: { contour: PressureContour; text: string; x: number; y: number; angle: number; half: number; box: ContourBox }[] = [];
   const height = fontSize + 2;
   const lines = visibleContours(contours, plot).map(contour => {
     const lengths = [0];
     for (let i = 1; i < contour.points.length; i += 1) {
       lengths.push(lengths[i - 1] + Math.hypot(contour.points[i].x - contour.points[i - 1].x, contour.points[i].y - contour.points[i - 1].y));
     }
-    return { level: contour.level, points: contour.points, lengths, length: lengths.at(-1)! };
+    return { contour, level: contour.level, points: contour.points, lengths, length: lengths.at(-1)! };
   }).sort((a, b) => b.length - a.length);
   for (const line of lines) {
     const text = String(line.level).replace("-", "−");
-    const half = text.length * fontSize * 0.62 / 2 + LABEL_PAD;
+    const half = measurePlotText(text, fontSize) / 2 + LABEL_PAD;
     if (line.length < half * 3) continue;
     const at = (distance: number): ContourPoint => {
       let i = 1;
@@ -220,7 +268,7 @@ export function contourLabels(contours: PressureContour[], plot: ContourPlot, fo
             obstacles.some(other => overlaps(box, other)) || labels.some(other => overlaps(box, other.box))) continue;
         if (angle > Math.PI / 2) angle -= Math.PI;
         if (angle < -Math.PI / 2) angle += Math.PI;
-        labels.push({ text, ...centre, angle: angle * 180 / Math.PI, half, box });
+        labels.push({ contour: line.contour, text, ...centre, angle: angle * 180 / Math.PI, half, box });
         break;
       }
     }
@@ -228,39 +276,58 @@ export function contourLabels(contours: PressureContour[], plot: ContourPlot, fo
   return labels;
 }
 
-/** Strict one-ring extrema of the source values, in native coordinates. */
+/** Flood each pressure basin to its spill saddle. Boundary-connected basins
+    cannot establish a centre; equal-valued plateaus have one stable anchor. */
 export function meshExtrema(mesh: ContourMesh): PressureCentre[] {
   const { longitude: x, latitude: y, values, triangles } = mesh;
-  const higher = new Uint8Array(values.length), lower = new Uint8Array(values.length), seen = new Uint8Array(values.length);
-  // A vertex on the domain edge only looks extreme because the data stops there.
+  const neighbours = Array.from({ length: values.length }, () => new Set<number>());
   const uses = new Map<string, number>();
-  for (let triangle = 0; triangle < triangles.length; triangle += 3) {
-    for (let edge = 0; edge < 3; edge += 1) {
-      const a = triangles[triangle + edge], b = triangles[triangle + (edge + 1) % 3];
+  for (let t = 0; t < triangles.length; t += 3) {
+    const ids = Array.from(triangles.subarray(t, t + 3));
+    if (ids.some(i => i >= values.length || !Number.isFinite(values[i] + x[i] + y[i]))) continue;
+    for (let e = 0; e < 3; e += 1) {
+      const a = ids[e], b = ids[(e + 1) % 3];
+      neighbours[a].add(b); neighbours[b].add(a);
       const key = `${Math.min(a, b)}:${Math.max(a, b)}`;
       uses.set(key, (uses.get(key) ?? 0) + 1);
     }
   }
   const border = new Uint8Array(values.length);
   for (const [key, count] of uses) if (count === 1) {
-    for (const id of key.split(":").map(Number)) if (id < values.length) border[id] = 1;
-  }
-  for (let triangle = 0; triangle < triangles.length; triangle += 3) {
-    for (let edge = 0; edge < 3; edge += 1) {
-      const a = triangles[triangle + edge], b = triangles[triangle + (edge + 1) % 3];
-      if (a >= values.length || b >= values.length) continue;
-      if (!Number.isFinite(values[a]) || !Number.isFinite(values[b])) continue;
-      seen[a] = 1; seen[b] = 1;
-      if (values[b] > values[a]) { higher[a] = 1; lower[b] = 1; }
-      else if (values[b] < values[a]) { lower[a] = 1; higher[b] = 1; }
-      else { higher[a] = 1; lower[a] = 1; higher[b] = 1; lower[b] = 1; }
-    }
+    for (const i of key.split(":").map(Number)) border[i] = 1;
   }
   const found: PressureCentre[] = [];
-  for (let index = 0; index < values.length; index += 1) {
-    if (!seen[index] || border[index] || !Number.isFinite(x[index]) || !Number.isFinite(y[index])) continue;
-    if (!higher[index] === !lower[index]) continue;
-    found.push({ kind: higher[index] ? "L" : "H", x: x[index], y: y[index], value: values[index] });
+  for (const kind of ["L", "H"] as const) {
+    const sign = kind === "L" ? 1 : -1;
+    const order = Array.from(values, (_, i) => i).filter(i => neighbours[i].size)
+      .sort((a, b) => sign * (values[a] - values[b]) || x[a] - x[b] || y[a] - y[b]);
+    const parent = new Int32Array(values.length).fill(-1);
+    const edge = border.slice();
+    const root = (i: number): number => {
+      let r = i;
+      while (parent[r] !== r) r = parent[r];
+      while (parent[i] !== i) { const next = parent[i]; parent[i] = r; i = next; }
+      return r;
+    };
+    for (const i of order) {
+      parent[i] = i;
+      for (const j of neighbours[i]) {
+        if (parent[j] < 0) continue;
+        let a = root(i), b = root(j);
+        if (a === b) continue;
+        // The open boundary wins every merge. Otherwise retain the stronger
+        // extremum, with a coordinate tie-break independent of mesh ordering.
+        if (edge[b] > edge[a] || (edge[a] === edge[b] &&
+            (sign * (values[b] - values[a]) < 0 || (values[a] === values[b] &&
+              (x[b] < x[a] || (x[a] === x[b] && y[b] < y[a])))))) [a, b] = [b, a];
+        const prominence = sign * (values[i] - values[b]);
+        if (!edge[b] && prominence >= MIN_CENTRE_PROMINENCE) {
+          found.push({ kind, x: x[b], y: y[b], value: values[b], prominence });
+        }
+        parent[b] = a;
+        edge[a] ||= edge[b];
+      }
+    }
   }
   return found;
 }
@@ -280,27 +347,37 @@ const encloses = (contour: PressureContour, x: number, y: number) => {
     separates a centre from a ripple in the source. */
 export function projectCentres(
   extrema: PressureCentre[], contours: PressureContour[], bounds: Bounds, plot: ContourPlot,
+  valueSize = PLOT_STYLE.type.tick.min * 16, markSize = PLOT_STYLE.pressure.centreMarkRem * 16,
 ): PressureCentre[] {
   const sx = plot.width / (bounds.maximumX - bounds.minimumX), sy = plot.height / (bounds.maximumY - bounds.minimumY);
   if (!Number.isFinite(sx + sy)) return [];
   const centre = (bounds.minimumX + bounds.maximumX) / 2;
   const kept: PressureCentre[] = [];
-  // ponytail: bounded scan. A field with hundreds of ripples marks the centres it
-  // can prove first; raise the bound with a spatial index, not with a longer scan.
-  let tested = 0;
-  for (const item of extrema) {
-    if (tested >= 256) break;
+  for (const item of [...extrema].sort((a, b) =>
+    (b.prominence ?? 0) - (a.prominence ?? 0) ||
+    (a.kind === b.kind ? (a.kind === "L" ? a.value - b.value : b.value - a.value) : a.kind.localeCompare(b.kind)) ||
+    a.x - b.x || a.y - b.y)) {
     const x = plot.left + (longitudeNear(item.x, centre) - bounds.minimumX) * sx;
     const y = plot.top + plot.height - (item.y - bounds.minimumY) * sy;
     if (!Number.isFinite(x + y)) continue;
-    if (x < plot.left + 16 || x > plot.left + plot.width - 16 || y < plot.top + 16 || y > plot.top + plot.height - 16) continue;
-    if (kept.some(other => Math.hypot(other.x - x, other.y - y) < CENTRE_RADIUS)) continue;
-    tested += 1;
-    if (!contours.some(contour => encloses(contour, x, y))) continue;
+    const box = centreBox({ ...item, x, y }, valueSize, markSize);
+    if (box.left < plot.left || box.right > plot.left + plot.width ||
+        box.top < plot.top || box.bottom > plot.top + plot.height) continue;
+    if (kept.some(other => Math.hypot(other.x - x, other.y - y) < CENTRE_RADIUS ||
+        overlaps(box, centreBox(other, valueSize, markSize)))) continue;
+    if (!contours.some(contour =>
+      (item.kind === "L" ? contour.level - item.value : item.value - contour.level) >= MIN_CENTRE_PROMINENCE &&
+      encloses(contour, x, y))) continue;
     kept.push({ kind: item.kind, x, y, value: item.value });
   }
   return kept;
 }
 
-export const centreBox = (centre: PressureCentre): ContourBox =>
-  ({ left: centre.x - 15, right: centre.x + 15, top: centre.y - 14, bottom: centre.y + 16 });
+/** The same box masks the lines and reserves room for both centre text rows. */
+export function centreBox(centre: PressureCentre, valueSize: number, markSize: number): ContourBox {
+  const halfWidth = Math.max(measurePlotText(centre.kind, markSize, PLOT_STYLE.weight.strong),
+    measurePlotText(String(Math.round(centre.value)), valueSize)) / 2 + PLOT_STYLE.pressure.centrePad;
+  const halfHeight = (markSize + valueSize + PLOT_STYLE.pressure.centreGap) / 2 + PLOT_STYLE.pressure.centrePad;
+  return { left: centre.x - halfWidth, right: centre.x + halfWidth,
+    top: centre.y - halfHeight, bottom: centre.y + halfHeight };
+}

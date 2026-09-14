@@ -3,7 +3,7 @@ import test from "node:test";
 import { buildUgridGeometry } from "./mesh.ts";
 import { gridContourMesh, meshContourMesh } from "./pressureGeometry.ts";
 import {
-  contourInterval, contourLabels, meshExtrema, pressureContours, projectCentres, projectContours,
+  centreBox, contourInterval, contourLabels, meshExtrema, pressureContours, projectCentres, projectContours, smoothVisibleContours,
 } from "./pressureContours.ts";
 import { fieldVectorMarks } from "./fieldVectors.ts";
 import { MAX_PRESSURE_TRIANGLES } from "../data/pressure.ts";
@@ -30,8 +30,11 @@ test("pressure isolines join native triangles at exact 4 hPa levels on rectiline
 });
 
 test("corner cutting rounds a closed isobar", () => {
-  const loop = pressureContours(grid(9, 9, (x, y) => 980 + ((x - 4) ** 2 + (y - 4) ** 2)))
-    .find(line => line.level === 988)!;
+  const loop = smoothVisibleContours(projectContours(pressureContours(grid(9, 9, (x, y) =>
+    980 + ((x - 4) ** 2 + (y - 4) ** 2))),
+  { minimumX: 0, maximumX: 8, minimumY: 0, maximumY: 8 },
+  { left: 0, top: 0, width: 400, height: 400 }),
+  { left: 0, top: 0, width: 400, height: 400 }).find(line => line.level === 988)!;
   assert.deepEqual(loop.points[0], loop.points.at(-1));
   let sharpest = 0, left = Infinity, right = -Infinity;
   for (let i = 1; i + 1 < loop.points.length; i += 1) {
@@ -42,7 +45,7 @@ test("corner cutting rounds a closed isobar", () => {
   }
   // A marching-squares diamond turns a right angle at every cell.
   assert.ok(sharpest < Math.PI / 4, `sharpest turn ${sharpest}`);
-  assert.ok(left >= 0 && right <= 8);
+  assert.ok(left >= 0 && right <= 400);
 });
 
 test("the drawn interval doubles while isobars crowd the pane", () => {
@@ -154,4 +157,124 @@ test("every level is labelled inside the frame and wind glyphs do not overlap", 
     const a = marks[i].box, b = other.box;
     assert.ok(!(a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top));
   }
+});
+
+
+test("basin prominence removes ripples and retains separate deep systems and plateaus", () => {
+  const bowl = grid(41, 41, (x, y) => 980 + 0.1 * ((x - 20) ** 2 + (y - 20) ** 2) +
+    0.4 * Math.cos(x * 2) * Math.cos(y * 2));
+  assert.equal(meshExtrema(bowl).filter(c => c.kind === "L").length, 1);
+  for (const sign of [1, -1]) {
+    const field = grid(41, 41, (x, y) => 1000 + sign * Math.min(
+      (x - 10) ** 2 + (y - 20) ** 2, (x - 30) ** 2 + (y - 20) ** 2));
+    assert.equal(meshExtrema(field).filter(c => c.kind === (sign === 1 ? "L" : "H")).length, 2);
+  }
+  const flat = grid(9, 9, (x, y) => 980 + Math.max(0, (x - 4) ** 2 + (y - 4) ** 2 - 2));
+  assert.equal(meshExtrema(flat).length, 1);
+  assert.equal(meshExtrema(flat)[0].value, 980);
+  const hole = grid(9, 9, (x, y) => x === 4 && y === 4 ? NaN : 980 + (x - 4) ** 2 + (y - 4) ** 2);
+  assert.deepEqual(meshExtrema(hole), []);
+});
+
+test("centre ranking is independent of input order and requires the correct isobar polarity", () => {
+  const bounds = { minimumX: 0, maximumX: 10, minimumY: 0, maximumY: 10 };
+  const plot = { left: 0, top: 0, width: 400, height: 400 };
+  const contours = [{ level: 1008, points: [
+    { x: 20, y: 20 }, { x: 380, y: 20 }, { x: 380, y: 380 }, { x: 20, y: 380 }, { x: 20, y: 20 },
+  ] }];
+  const weak = { kind: "L" as const, x: 5, y: 5, value: 1006 };
+  const strong = { ...weak, x: 5.5, value: 985 };
+  for (const items of [[weak, strong], [strong, weak]]) {
+    assert.deepEqual(projectCentres(items, contours, bounds, plot).map(c => c.value), [985]);
+  }
+  assert.deepEqual(projectCentres([{ ...weak, kind: "H", value: 1005 }], contours, bounds, plot), []);
+  const edge = { ...strong, x: 0.7, y: 0.7 };
+  assert.equal(projectCentres([edge], contours, bounds, plot).length, 1);
+  assert.deepEqual(projectCentres([edge], contours, bounds, plot, 40, 40), []);
+});
+
+test("dense contours still smooth, preserve endpoints and leave native geometry intact", () => {
+  const points = Array.from({ length: 41001 }, (_, i) => ({ x: i / 100, y: 50 + (i % 2) * 0.7 }));
+  const raw = [{ level: 1000, points }];
+  const smoothed = smoothVisibleContours(raw, { left: 0, top: 0, width: 500, height: 100 });
+  assert.deepEqual(smoothed[0].points[0], points[0]);
+  assert.deepEqual(smoothed[0].points.at(-1), points.at(-1));
+  assert.ok(smoothed[0].points.length < points.length);
+  assert.equal(raw[0].points.length, 41001);
+  const interior = smoothed[0].points.filter(p => p.x > 10 && p.x < 400);
+  assert.ok(Math.max(...interior.map(p => p.y)) - Math.min(...interior.map(p => p.y)) < 0.7);
+});
+
+test("screen smoothing suppresses small waves without erasing a small closed eye", () => {
+  const plot = { left: 0, top: 0, width: 500, height: 100 };
+  const points = Array.from({ length: 101 }, (_, i) => ({ x: i * 4, y: 50 + (i % 2 ? 2 : -2) }));
+  const [line] = smoothVisibleContours([{ level: 1000, points }], plot);
+  const middle = line.points.filter(p => p.x > 20 && p.x < 380);
+  assert.ok(Math.max(...middle.map(p => p.y)) - Math.min(...middle.map(p => p.y)) < 2);
+  const eye = { level: 984, points: [
+    { x: 50, y: 49 }, { x: 51, y: 50 }, { x: 50, y: 51 }, { x: 49, y: 50 }, { x: 50, y: 49 },
+  ] };
+  assert.deepEqual(smoothVisibleContours([eye], plot), [eye]);
+});
+
+
+test("only individually labelled visible runs survive, even at the same pressure level", () => {
+  const plot = { left: 0, top: 0, width: 200, height: 120 };
+  const line = (y: number) => ({ level: 1008, points: [{ x: 10, y }, { x: 190, y }] });
+  const tiny = { level: 984, points: [
+    { x: 50, y: 49 }, { x: 51, y: 50 }, { x: 50, y: 51 }, { x: 49, y: 50 }, { x: 50, y: 49 },
+  ] };
+  const labels = contourLabels([line(25), line(85), tiny], plot, 14,
+    [{ left: 0, right: 200, top: 65, bottom: 110 }]);
+  assert.equal(labels.length, 1);
+  assert.ok(labels.every(label => label.contour.points.every(p => p.y === 25)));
+  assert.deepEqual(contourLabels([line(25)], plot, 14,
+    [{ left: 0, right: 200, top: 0, bottom: 120 }]), []);
+  // Exactly coincident neighbours compete for the only available label slot.
+  const short = { level: 1004, points: [{ x: 60, y: 40 }, { x: 140, y: 40 }] };
+  const crowded = contourLabels([short, { ...short, level: 1008 }], plot, 14, []);
+  assert.equal(new Set(crowded.map(label => label.contour)).size, 1);
+  // Clipping splits one source path into separately labelled visible runs.
+  const split = { level: 1012, points: [
+    { x: 10, y: 25 }, { x: 220, y: 25 }, { x: 220, y: 85 }, { x: 10, y: 85 },
+  ] };
+  const clipped = contourLabels([split], plot, 14, [{ left: 0, right: 200, top: 65, bottom: 110 }]);
+  assert.equal(new Set(clipped.map(label => label.contour)).size, 1);
+  assert.ok(clipped.every(label => label.contour.points.every(p => p.y === 25)));
+});
+
+
+test("centre clearance follows both text rows and grows with typography", () => {
+  const centre = { kind: "L" as const, x: 100, y: 100, value: 985 };
+  const small = centreBox(centre, 14, 16), large = centreBox(centre, 28, 32);
+  assert.ok(large.right - large.left > small.right - small.left);
+  assert.ok(large.bottom - large.top > small.bottom - small.top);
+  assert.equal(small.left + small.right, centre.x * 2);
+  assert.equal(small.top + small.bottom, centre.y * 2);
+});
+
+test("wind arrows sit on one lattice, scale length with speed, and ignore sample resolution", () => {
+  const world = { minimumX: 0, maximumX: 20, minimumY: 0, maximumY: 20 };
+  const plot = { left: 0, top: 0, width: 400, height: 400 };
+  const ends = (mark: { path: string }) => {
+    const [tailX, tailY, headX, headY] = mark.path.match(/-?\d+(\.\d+)?/g)!.slice(0, 4).map(Number);
+    return { x: (tailX + headX) / 2, y: (tailY + headY) / 2, length: Math.hypot(headX - tailX, headY - tailY) };
+  };
+  const sample = (step: number) => Array.from({ length: (20 / step) ** 2 }, (_, i) => ({
+    longitude: (i % (20 / step)) * step, latitude: Math.floor(i / (20 / step)) * step, u: 5, v: 0,
+  }));
+  const coarse = fieldVectorMarks(sample(1), world, plot).map(ends);
+  const fine = fieldVectorMarks(sample(0.25), world, plot).map(ends);
+  assert.ok(coarse.length > 20);
+  assert.deepEqual(fine.map(mark => [mark.x, mark.y, mark.length.toFixed(6)]),
+    coarse.map(mark => [mark.x, mark.y, mark.length.toFixed(6)]));
+  const columns = [...new Set(coarse.map(mark => mark.x))].sort((a, b) => a - b);
+  const gaps = columns.slice(1).map((value, index) => value - columns[index]);
+  assert.ok(Math.max(...gaps) - Math.min(...gaps) < 0.05);
+  // Speed, not sample position, sets length: a calm half draws shorter arrows.
+  const mixed = sample(1).map(vector => ({ ...vector, u: vector.longitude < 10 ? 1 : 5 }));
+  const drawn = fieldVectorMarks(mixed, world, plot).map(ends);
+  const slow = drawn.filter(mark => mark.x < 200), fast = drawn.filter(mark => mark.x > 200);
+  assert.ok(slow.length && fast.length);
+  assert.ok(Math.max(...slow.map(mark => mark.length)) * 2 < Math.min(...fast.map(mark => mark.length)));
 });

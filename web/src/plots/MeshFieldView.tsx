@@ -1,3 +1,4 @@
+import { displayValue, convertedLabel, unitChoice } from "../data/units";
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 
 import { LatestSliceLoader, fetchCoordinate, fetchSlice, fetchStaticSlice } from "../data/api";
@@ -428,7 +429,9 @@ export function MeshFieldView(props: MeshFieldViewProps) {
           range={activeRange}
           colormap={props.colormap}
           scale={props.scale}
-          label={quantityLabel(props.variable)}
+          label={props.targetUnit ? convertedLabel(props.variable, props.targetUnit.label) : quantityLabel(props.variable)}
+          sourceUnit={unitChoice(props.variable).source}
+          targetUnit={props.targetUnit}
         />
         <FieldMarks plot={plot} dragBox={dragBox} probe={
           probePosition && Number.isFinite(probePosition.x) && Number.isFinite(probePosition.y)
@@ -451,7 +454,7 @@ export function MeshFieldView(props: MeshFieldViewProps) {
             node.style.top = `${Math.max(0, Math.min(size.height - node.offsetHeight, hover.top + 12))}px`;
           }}
         >
-          <strong>{formatNumber(hover.value)} {displayUnit(props.variable)}</strong>
+          <strong>{formatNumber(displayValue(hover.value, props.variable, props.targetUnit))} {props.targetUnit?.label ?? displayUnit(props.variable)}</strong>
           <span>{formatPosition(
             props.metadata,
             props.variable,

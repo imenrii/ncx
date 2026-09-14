@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Variable } from "./model.ts";
-import { BEAUFORT_LIMITS, UNIT_FAMILIES, beaufort, convert, convertValues, findUnit, unitChoice } from "./units.ts";
+import { BEAUFORT_LIMITS, UNIT_FAMILIES, beaufort, convert, convertValues, findUnit, unitChoice, displayValue } from "./units.ts";
 
 const variable = (name: string, units: string, standard?: string): Variable => ({
   name, path: `/${name}`, dtype: "float", dimensions: [], view_hint: { kind: "plain" },
@@ -83,4 +83,14 @@ test("Beaufort has half-open categories and rejects signed components", () => {
   assert.equal(beaufort(80), 12);
   assert.ok(Number.isNaN(beaufort(-1)));
   assert.ok(Number.isNaN(beaufort(NaN)));
+});
+
+test("display readouts convert source values without changing variable metadata", () => {
+  const temperature = variable("t2m", "K");
+  close(displayValue(273.15, temperature, findUnit("temperature", "°C")), 0);
+  close(displayValue(101325, variable("msl", "Pa"), findUnit("pressure", "hPa")), 1013.25);
+  assert.equal(temperature.attributes[0].value, "K");
+  assert.equal(displayValue(12, temperature), 12);
+  assert.equal(displayValue(12, variable("unknown", ""), findUnit("pressure", "hPa")), 12);
+  assert.ok(Number.isNaN(displayValue(NaN, temperature, findUnit("temperature", "°C"))));
 });

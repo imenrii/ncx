@@ -1,3 +1,4 @@
+import { PLOT_STYLE, plotFontSize } from "./plotStyle";
 /**
  * Print-ready PNG export.
  *
@@ -26,7 +27,7 @@ import {
 import { parseMath } from "./mathtext";
 
 /** Style's print resolution. */
-export const EXPORT_DPI = 400;
+export const EXPORT_DPI = PLOT_STYLE.exportDpi;
 
 /**
  * Presentation properties worth carrying into the isolated SVG document.
@@ -43,26 +44,6 @@ const CARRIED = [
   "text-anchor", "dominant-baseline", "opacity", "visibility", "display",
 ] as const;
 
-/** Faces the plot can set: AVHershey, National Park behind it per glyph, and
- *  CM Math ahead of both for Greek, arrows and operators. */
-const FONT_FILES = [
-  { family: "Commit Mono", weight: 400, url: "fonts/commit-400.woff2" },
-  { family: "Commit Mono", weight: 700, url: "fonts/commit-700.woff2" },
-  // Comparison pane headers are web UI text; plot lettering stays unchanged.
-  { family: "Commit Mono Web", weight: 400, url: "fonts/commit-web-400.woff2" },
-  { family: "Commit Mono Web", weight: 450, url: "fonts/commit-web-450.woff2" },
-  { family: "Commit Mono Web", weight: 600, url: "fonts/commit-web-600.woff2" },
-  { family: "AVHershey Simplex", weight: 300, url: "fonts/hershey-light.woff2" },
-  { family: "AVHershey Simplex", weight: 400, url: "fonts/hershey-medium.woff2" },
-  { family: "AVHershey Simplex", weight: 700, url: "fonts/hershey-heavy.woff2" },
-  { family: "National Park", weight: 400, url: "fonts/nationalpark.woff2" },
-  // CM Math leads --plot-face, so the copied computed `font-family` names it on
-  // every text node here. It has to carry its unicode-range too: without one it
-  // would claim Latin as well, and its subset has no Latin to answer with.
-  { family: "CM Math", weight: 400, url: "fonts/cmmath.woff2",
-    range: "U+00B1, U+00D7, U+00F7, U+0370-03FF, U+2190-21FF, U+2200-22FF" },
-];
-
 let fontCache: string | undefined;
 
 function base64(buffer: ArrayBuffer): string {
@@ -78,13 +59,27 @@ function base64(buffer: ArrayBuffer): string {
 
 async function embeddedFontCss(): Promise<string> {
   if (fontCache !== undefined) return fontCache;
-  const faces = await Promise.all(FONT_FILES.map(async (font) => {
-    const response = await fetch(new URL(font.url, document.baseURI));
-    if (!response.ok) throw new Error(`Cannot load export font ${font.family} (${response.status})`);
+  // CSS owns family, weight, file and coverage for both plot and web fonts.
+  // Walk imports as well as bundled stylesheets so dev and built export agree.
+  const definitions: { css: string; source: string; url: string }[] = [];
+  const collect = (sheet: CSSStyleSheet) => {
+    for (const rule of sheet.cssRules) {
+      if (rule instanceof CSSImportRule && rule.styleSheet) collect(rule.styleSheet);
+      if (!(rule instanceof CSSFontFaceRule)) continue;
+      const family = rule.style.getPropertyValue("font-family").replace(/["']/g, "");
+      if (!PLOT_STYLE.face.includes(family) && family !== "Commit Mono Web") continue;
+      const source = rule.style.getPropertyValue("src").match(/url\(["']?([^"')]+)["']?\)/)?.[1];
+      if (source) definitions.push({ css: rule.cssText, source,
+        url: new URL(source, sheet.href ?? document.baseURI).href });
+    }
+  };
+  for (const sheet of document.styleSheets) collect(sheet);
+  if (!definitions.length) throw new Error("Plot font definitions are not available for export");
+  const faces = await Promise.all(definitions.map(async font => {
+    const response = await fetch(font.url);
+    if (!response.ok) throw new Error(`Cannot load export font (${response.status})`);
     const data = base64(await response.arrayBuffer());
-    return `@font-face{font-family:"${font.family}";font-weight:${font.weight};`
-      + (font.range ? `unicode-range:${font.range};` : "")
-      + `src:url(data:font/woff2;base64,${data}) format("woff2")}`;
+    return font.css.replace(font.source, `data:font/woff2;base64,${data}`);
   }));
   fontCache = faces.join("");
   return fontCache;
@@ -233,8 +228,8 @@ export async function exportPlotPng(name: string, options?: ExportOptions): Prom
     ...lettering,
   ]);
   const heading = { title: settings.title, subtitle: settings.subtitle };
-  const titleSize = parseFloat(getComputedStyle(frames[0]).getPropertyValue("--plot-title-size")) || 20;
-  const subtitleSize = parseFloat(getComputedStyle(frames[0]).getPropertyValue("--plot-subtitle-size")) || 14;
+  const titleSize = plotFontSize(frames[0], "title");
+  const subtitleSize = plotFontSize(frames[0], "subtitle");
   const titleHeight = heading.title
     ? Math.round(titleSize * 1.5 + (heading.subtitle ? subtitleSize * 1.5 : 0))
     : 0;
@@ -259,7 +254,7 @@ export async function exportPlotPng(name: string, options?: ExportOptions): Prom
   const paper = svgElement("rect");
   paper.setAttribute("width", "100%");
   paper.setAttribute("height", "100%");
-  paper.setAttribute("fill", "#ffffff");
+  paper.setAttribute("fill", PLOT_STYLE.paper);
   output.append(paper);
   appendHeading(output, frames[0], contentRect.width, titleHeight, titleSize, subtitleSize, heading);
 
@@ -312,7 +307,7 @@ export async function exportPlotPng(name: string, options?: ExportOptions): Prom
   raster.height = layout.pixelHeight;
   const context = raster.getContext("2d", { alpha: false });
   if (!context) throw new Error("The browser could not create an export canvas");
-  context.fillStyle = "#ffffff";
+  context.fillStyle = PLOT_STYLE.paper;
   context.fillRect(0, 0, raster.width, raster.height);
 
   const markup = new XMLSerializer().serializeToString(output);
@@ -365,7 +360,7 @@ function appendHeading(
   title.setAttribute("x", centre);
   title.setAttribute("y", String(titleSize * 1.05));
   title.setAttribute("text-anchor", "middle");
-  title.setAttribute("style", `font-family:${face};font-size:${titleSize}px;font-weight:700;fill:#101418`);
+  title.setAttribute("style", `font-family:${face};font-size:${titleSize}px;font-weight:${PLOT_STYLE.weight.strong};fill:${PLOT_STYLE.ink}`);
   appendMath(title, heading.title, titleSize);
   output.append(title);
   if (heading.subtitle && bandHeight > 0) {
@@ -375,7 +370,7 @@ function appendHeading(
     subtitle.setAttribute("text-anchor", "middle");
     const windKey = frame.closest(".figure")?.querySelector(".curve-head .wind-key");
     const isWindKey = windKey?.textContent === heading.subtitle;
-    const colour = isWindKey ? getComputedStyle(windKey!).color : "#4a5058";
+    const colour = isWindKey ? getComputedStyle(windKey!).color : PLOT_STYLE.muted;
     if (isWindKey) subtitle.setAttribute("class", "wind-key");
     subtitle.setAttribute("style", `font-family:${face};font-size:${subtitleSize}px;fill:${colour}`);
     appendMath(subtitle, heading.subtitle, subtitleSize);
@@ -408,7 +403,8 @@ function appendComparisonLabels(target: SVGGElement, figure: HTMLElement, conten
     border.setAttribute("width", String(paneRect.width));
     border.setAttribute("height", String(paneRect.height));
     border.setAttribute("fill", "none");
-    border.setAttribute("stroke", "#c8ccd0");
+    border.setAttribute("stroke", getComputedStyle(pane).borderTopColor);
+    border.setAttribute("stroke-width", getComputedStyle(pane).borderTopWidth);
     target.append(border);
     const header = pane.querySelector<HTMLElement>(":scope > header");
     if (!header) continue;
@@ -421,7 +417,7 @@ function appendComparisonLabels(target: SVGGElement, figure: HTMLElement, conten
     background.setAttribute("fill", getComputedStyle(header).backgroundColor || "#f4f4f0");
     target.append(background);
     const label = svgElement("text");
-    label.setAttribute("x", String(headerRect.left - content.left + 8));
+    label.setAttribute("x", String(headerRect.left - content.left + parseFloat(getComputedStyle(header).paddingLeft)));
     label.setAttribute("y", String(headerRect.top - content.top + headerRect.height * 0.68));
     const type = getComputedStyle(header);
     const lettering = `font-family:${type.fontFamily};font-size:${type.fontSize};font-feature-settings:${type.fontFeatureSettings};letter-spacing:${type.letterSpacing};word-spacing:${type.wordSpacing};font-kerning:${type.fontKerning};font-variant-ligatures:${type.fontVariantLigatures};font-variant-numeric:${type.fontVariantNumeric};font-synthesis:${type.fontSynthesis}`;

@@ -5,8 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "test": "node --test 'src/**/*.test.ts'"
+    "build": "npm run style:check && tsc --noEmit && vite build",
+    "test": "npm run style:check && node --test 'src/**/*.test.ts'",
+    "style:sync": "node scripts/sync-plot-style.mjs",
+    "style:check": "node scripts/sync-plot-style.mjs --check"
   },
   "dependencies": {
     "react": "^19.2.8",

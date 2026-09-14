@@ -1,5 +1,5 @@
 import { attributeText, type Metadata } from "./model.ts";
-import { UNIT_FAMILIES, unitRule } from "./units.ts";
+import { UNIT_FAMILIES, unitRule, defaultECMWFUnit } from "./units.ts";
 
 /** Unit choices are local to a viewer identity, not the shared raw metadata cache. */
 export function createUnitAssignments() {
@@ -25,7 +25,7 @@ export function createUnitAssignments() {
       if (cached?.revision === revision && cached.scope === origin.scope) return cached.metadata;
       const values = assignments.get(key(raw, origin.scope));
       const effective = { ...raw, variables: raw.variables.map(variable => {
-        const unit = values?.get(variable.path);
+        const unit = values?.get(variable.path) ?? defaultECMWFUnit(variable);
         if (!unit || attributeText(variable, "units")?.trim()) return variable;
         return { ...variable, attributes: [
           ...variable.attributes.filter(attribute => attribute.name !== "units"),
@@ -52,8 +52,7 @@ export function createUnitAssignments() {
       const twin = variable.name === "u10" ? `${group}v10` : variable.name === "v10" ? `${group}u10` : undefined;
       for (const item of raw.variables) {
         if (item.path !== path && item.path !== twin || attributeText(item, "units")?.trim()) continue;
-        if (unit) values.set(item.path, unit);
-        else values.delete(item.path);
+        values.set(item.path, unit);
       }
       assignments.set(datasetKey, values);
       revision += 1;

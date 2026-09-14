@@ -22,7 +22,14 @@ export function useElementSize<T extends HTMLElement>() {
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(node);
-    return () => observer.disconnect();
+    // A base-font change can alter plot type while the frame stays fixed.
+    const remProbe = document.createElement("span");
+    remProbe.style.cssText = "position:absolute;visibility:hidden;pointer-events:none;left:0;top:0;width:1rem;height:1rem";
+    document.body.append(remProbe);
+    observer.observe(remProbe);
+    // Fonts can change label widths without changing the plot frame.
+    document.fonts.addEventListener("loadingdone", measure);
+    return () => { observer.disconnect(); remProbe.remove(); document.fonts.removeEventListener("loadingdone", measure); };
   }, []);
 
   return [element, size] as const;

@@ -1,3 +1,4 @@
+import { PLOT_STYLE } from "./plotStyle";
 import { useEffect, useId, useMemo, useRef, useState, type PointerEvent } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
@@ -54,7 +55,7 @@ export function InteractiveCurvePlot({
       const context = document.createElement("canvas").getContext("2d");
       if (!context) throw new Error("The browser could not measure the series legend");
       const face = getComputedStyle(element).getPropertyValue("--plot-face");
-      context.font = `400 ${geometry.type.axis}px ${face}`;
+      context.font = `${PLOT_STYLE.weight.normal} ${geometry.type.axis}px ${face}`;
       const layout = curveLegendLayout(legend, geometry.plot.width, geometry.type.axis,
         text => context.measureText(text).width);
       const exported = series.map(item => ({ item, geometry: curveGeometry(
@@ -198,7 +199,7 @@ function CurveDrawing({ geometries, clip, dimension, valueLabel, time, step,
       clipPath={`url(#${clip})`} style={{ stroke: item.color, strokeDasharray: item.dash }} d={line.path} />)}
     {legend && legend.items.length > 0 && <g className="export-series-legend"
       transform={`translate(${plot.left} ${plot.top})`}
-      style={{ fontFamily: "var(--plot-face)", fontSize: "var(--plot-axis-size)", fill: "var(--ink)", fontWeight: 400 }}>
+      style={{ fontFamily: "var(--plot-face)", fontSize: "var(--plot-axis-size)", fill: "var(--ink)", fontWeight: PLOT_STYLE.weight.normal }}>
       {legend.items.map(({ entry, lines, x, y }, index) => <g key={index}>
         <line x1={x} x2={x + legend.handle} y1={y + legend.em * 0.5} y2={y + legend.em * 0.5}
           style={{ stroke: entry.color, strokeDasharray: entry.dash, strokeWidth: "var(--stroke-data)" }} />

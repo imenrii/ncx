@@ -1,3 +1,5 @@
+import { convert, type Unit } from "../data/units";
+import { PLOT_STYLE } from "./plotStyle";
 /**
  * Plot furniture shared by the field, mesh, and curve views.
  *
@@ -28,7 +30,7 @@ export interface PlotBounds {
   height: number;
 }
 
-const RAMP_STOPS = 24;
+const RAMP_STOPS = PLOT_STYLE.geometry.colorbar.stops;
 
 function scaleFor(domain: [number, number], length: number, invert: boolean) {
   const span = domain[1] - domain[0];
@@ -174,6 +176,8 @@ export function Colorbar({
   colormap,
   scale,
   label,
+  sourceUnit,
+  targetUnit,
   type = DEFAULT_TYPE,
 }: {
   plot: PlotBounds;
@@ -181,10 +185,16 @@ export function Colorbar({
   colormap: ColormapChoice;
   scale: ColorScale;
   label: string;
+  sourceUnit?: Unit;
+  targetUnit?: Unit;
   type?: PlotType;
 }) {
   const gradientId = `ramp-${colormap}`;
-  const ticks = axisTicks(range.minimum, range.maximum, tickCountForLength(plot.height, type.tick * PITCH.across));
+  const shown = sourceUnit && targetUnit ? {
+    minimum: convert(range.minimum, sourceUnit, targetUnit),
+    maximum: convert(range.maximum, sourceUnit, targetUnit),
+  } : range;
+  const ticks = axisTicks(shown.minimum, shown.maximum, tickCountForLength(plot.height, type.tick * PITCH.across));
   const bar = colorbarGeometry(type, widestLabel(ticks.values, ticks.format));
   const width = bar.bar;
   const right = plot.left + plot.width;
@@ -209,7 +219,7 @@ export function Colorbar({
       <rect x={left} y={plot.top} width={width} height={plot.height} fill={`url(#${gradientId})`} />
       <rect className="colorbar-frame" x={left} y={plot.top} width={width} height={plot.height} />
       {ticks.values.map((value) => {
-        const position = colorPosition(value, range, scale);
+        const position = colorPosition(sourceUnit && targetUnit ? convert(value, targetUnit, sourceUnit) : value, range, scale);
         if (position === undefined) return null;
         const y = plot.top + (1 - position) * plot.height;
         return (
