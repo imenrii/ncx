@@ -1,5 +1,5 @@
 import { PLOT_STYLE, measurePlotText } from "./plotStyle.ts";
-import { longitudeNear, PRESSURE_INTERVAL, MAX_PRESSURE_TRIANGLES, MAX_PRESSURE_VALUES } from "../data/pressure.ts";
+import { longitudeNear, PRESSURE_INTERVAL, validPressureInterval, MAX_PRESSURE_TRIANGLES, MAX_PRESSURE_VALUES } from "../data/pressure.ts";
 import type { Bounds } from "./mesh.ts";
 import { clipSegment } from "./coastline.ts";
 
@@ -60,7 +60,8 @@ function smoothContour(points: ContourPoint[], rounds = 2): ContourPoint[] {
 }
 
 /** Linear isolines on native triangles. Edge identities join paths without coordinate rounding. */
-export function pressureContours(mesh: ContourMesh): PressureContour[] {
+export function pressureContours(mesh: ContourMesh, interval = PRESSURE_INTERVAL): PressureContour[] {
+  if (!validPressureInterval(interval)) throw new Error("Pressure interval must be positive and finite");
   const { longitude: x, latitude: y, values, triangles } = mesh;
   if (values.length > MAX_PRESSURE_VALUES || x.length !== values.length || y.length !== values.length ||
       triangles.length % 3 || triangles.length / 3 > MAX_PRESSURE_TRIANGLES) throw new Error("Pressure contour mesh exceeds the supported limits");
@@ -69,7 +70,7 @@ export function pressureContours(mesh: ContourMesh): PressureContour[] {
     minimum = Math.min(minimum, values[i]); maximum = Math.max(maximum, values[i]);
   }
   if (!(maximum > minimum)) return [];
-  if ((maximum - minimum) / PRESSURE_INTERVAL > 512) throw new Error("Pressure range exceeds the 4 hPa contour limit; check the source unit");
+  if ((maximum - minimum) / interval > 512) throw new Error("Pressure range exceeds the contour level limit; check the source unit or interval");
   type Segment = { a: string; b: string; from: ContourPoint; to: ContourPoint };
   const levels = new Map<number, Map<string, Segment>>();
   let count = 0;
@@ -80,11 +81,11 @@ export function pressureContours(mesh: ContourMesh): PressureContour[] {
     const xs = ids.map(id => longitudeNear(x[id], x[ids[0]]));
     if (Math.max(...xs) - Math.min(...xs) >= 180 ||
         (xs[1] - xs[0]) * (y[ids[2]] - y[ids[0]]) === (xs[2] - xs[0]) * (y[ids[1]] - y[ids[0]])) continue;
-    const low = Math.ceil(Math.min(...ids.map(id => values[id])) / PRESSURE_INTERVAL);
-    const high = Math.floor(Math.max(...ids.map(id => values[id])) / PRESSURE_INTERVAL);
+    const low = Math.ceil(Math.min(...ids.map(id => values[id])) / interval);
+    const high = Math.floor(Math.max(...ids.map(id => values[id])) / interval);
     if (!Number.isSafeInteger(low) || !Number.isSafeInteger(high)) throw new Error("Pressure contour levels are outside the supported range");
     for (let step = low; step <= high; step += 1) {
-      const level = step * PRESSURE_INTERVAL;
+      const level = step * interval;
       const crossings: { key: string; point: ContourPoint }[] = [];
       for (let edge = 0; edge < 3; edge += 1) {
         const a = ids[edge], b = ids[(edge + 1) % 3];
@@ -190,7 +191,7 @@ export function smoothVisibleContours(contours: PressureContour[], plot: Contour
 
 /** Mean isobar gap on screen, from the drawn length over the plot area. Halving
     the number of levels doubles the gap, so the interval steps in powers of two. */
-export function contourInterval(contours: PressureContour[], plot: ContourPlot): number {
+export function contourInterval(contours: PressureContour[], plot: ContourPlot, interval = PRESSURE_INTERVAL): number {
   let length = 0;
   for (const contour of visibleContours(contours, plot)) {
     for (let i = 1; i < contour.points.length; i += 1) {
@@ -198,8 +199,8 @@ export function contourInterval(contours: PressureContour[], plot: ContourPlot):
     }
   }
   const gap = length > 0 ? (plot.width * plot.height) / length : Infinity;
-  for (const step of [1, 2, 4, 8]) if (gap * step >= MIN_CONTOUR_GAP) return PRESSURE_INTERVAL * step;
-  return PRESSURE_INTERVAL * 8;
+  for (const step of [1, 2, 4, 8]) if (gap * step >= MIN_CONTOUR_GAP) return interval * step;
+  return interval * 8;
 }
 
 export function projectContours(contours: PressureContour[], bounds: Bounds, plot: ContourPlot): PressureContour[] {
@@ -225,8 +226,13 @@ const overlaps = (a: ContourBox, b: ContourBox) =>
 
 /** Every level carries its value, repeated along the line. The value sits in a
     break in the line, so the break must stay short or it reads as a gap. */
-export function contourLabels(contours: PressureContour[], plot: ContourPlot, fontSize: number, obstacles: ContourBox[]) {
-  const labels: { contour: PressureContour; text: string; x: number; y: number; angle: number; half: number; box: ContourBox }[] = [];
+type ContourLabel = { contour: PressureContour; text: string; x: number; y: number; angle: number; half: number; box: ContourBox };
+
+/** `obstacles` are absolute: no label may sit on one. `yielding` are preferred
+    clear, but a line that cannot find a slot outside them takes its place
+    anyway, because a line without its value is not drawn at all. */
+export function contourLabels(contours: PressureContour[], plot: ContourPlot, fontSize: number, obstacles: ContourBox[], yielding: ContourBox[] = []) {
+  const labels: ContourLabel[] = [];
   const height = fontSize + 2;
   const lines = visibleContours(contours, plot).map(contour => {
     const lengths = [0];
@@ -236,7 +242,7 @@ export function contourLabels(contours: PressureContour[], plot: ContourPlot, fo
     return { contour, level: contour.level, points: contour.points, lengths, length: lengths.at(-1)! };
   }).sort((a, b) => b.length - a.length);
   for (const line of lines) {
-    const text = String(line.level).replace("-", "−");
+    const text = String(Number(line.level.toPrecision(12))).replace("-", "−");
     const half = measurePlotText(text, fontSize) / 2 + LABEL_PAD;
     if (line.length < half * 3) continue;
     const at = (distance: number): ContourPoint => {
@@ -252,25 +258,28 @@ export function contourLabels(contours: PressureContour[], plot: ContourPlot, fo
       const target = line.length * step / (count + 1);
       const reach = line.length / (count + 1) / 2;
       // Try nearby positions within this label's slot before omitting its value.
-      for (let attempt = 0; attempt * 6 <= reach; attempt += 1) {
-        const offset = Math.ceil(attempt / 2) * 12 * (attempt % 2 ? 1 : -1);
-        const distance = target + offset;
-        if (distance < half || distance > line.length - half) continue;
-        const centre = at(distance), before = at(distance - half), after = at(distance + half);
-        // A label across a bend hides more line than it names.
-        if (Math.hypot(after.x - before.x, after.y - before.y) < half * 1.7) continue;
-        let angle = Math.atan2(after.y - before.y, after.x - before.x);
-        const w = Math.abs(Math.cos(angle)) * half * 2 + Math.abs(Math.sin(angle)) * height;
-        const h = Math.abs(Math.sin(angle)) * half * 2 + Math.abs(Math.cos(angle)) * height;
-        const box = { left: centre.x - w / 2, right: centre.x + w / 2, top: centre.y - h / 2, bottom: centre.y + h / 2 };
-        if (box.left < plot.left + 6 || box.right > plot.left + plot.width - 6 ||
-            box.top < plot.top + 6 || box.bottom > plot.top + plot.height - 6 ||
-            obstacles.some(other => overlaps(box, other)) || labels.some(other => overlaps(box, other.box))) continue;
-        if (angle > Math.PI / 2) angle -= Math.PI;
-        if (angle < -Math.PI / 2) angle += Math.PI;
-        labels.push({ contour: line.contour, text, ...centre, angle: angle * 180 / Math.PI, half, box });
-        break;
-      }
+      const place = (avoid: ContourBox[]): ContourLabel | undefined => {
+        for (let attempt = 0; attempt * 6 <= reach; attempt += 1) {
+          const offset = Math.ceil(attempt / 2) * 12 * (attempt % 2 ? 1 : -1);
+          const distance = target + offset;
+          if (distance < half || distance > line.length - half) continue;
+          const centre = at(distance), before = at(distance - half), after = at(distance + half);
+          // A label across a bend hides more line than it names.
+          if (Math.hypot(after.x - before.x, after.y - before.y) < half * 1.7) continue;
+          let angle = Math.atan2(after.y - before.y, after.x - before.x);
+          const w = Math.abs(Math.cos(angle)) * half * 2 + Math.abs(Math.sin(angle)) * height;
+          const h = Math.abs(Math.sin(angle)) * half * 2 + Math.abs(Math.cos(angle)) * height;
+          const box = { left: centre.x - w / 2, right: centre.x + w / 2, top: centre.y - h / 2, bottom: centre.y + h / 2 };
+          if (box.left < plot.left + 6 || box.right > plot.left + plot.width - 6 ||
+              box.top < plot.top + 6 || box.bottom > plot.top + plot.height - 6 ||
+              avoid.some(other => overlaps(box, other)) || labels.some(other => overlaps(box, other.box))) continue;
+          if (angle > Math.PI / 2) angle -= Math.PI;
+          if (angle < -Math.PI / 2) angle += Math.PI;
+          return { contour: line.contour, text, ...centre, angle: angle * 180 / Math.PI, half, box };
+        }
+      };
+      const label = yielding.length ? place([...obstacles, ...yielding]) ?? place(obstacles) : place(obstacles);
+      if (label) labels.push(label);
     }
   }
   return labels;

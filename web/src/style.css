@@ -238,6 +238,9 @@
   --timeline-height: 72px;
   --status-height: 24px;
   --sidebar-width: 256px;
+  --sidebar-min: 192px;
+  --sidebar-max: 480px;
+  --plot-min: 320px;
 
   font-family: var(--ui-face);
   /* Gorton sets tight, and a monoline face needs air between strokes to stay
@@ -281,6 +284,8 @@ body,
   margin: 0;
   overflow: hidden;
 }
+
+#app { overflow-x: auto; }
 
 body {
   font-size: var(--size-body);
@@ -442,15 +447,28 @@ button:disabled {
 
 .shell {
   display: grid;
-  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width) minmax(var(--plot-min), 1fr);
+  min-width: calc(var(--sidebar-min) + var(--plot-min));
   grid-template-rows: var(--topbar-height) minmax(0, 1fr) var(--status-height);
   width: 100%;
   height: 100%;
   background: var(--paper);
 }
 
-.shell[data-sidebar="closed"] {
-  grid-template-columns: 0 minmax(0, 1fr);
+.sidebar-resize {
+  grid-column: 1;
+  grid-row: 2;
+  justify-self: end;
+  width: 24px;
+  margin-right: -12px;
+  z-index: 25;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.sidebar-resize:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -10px;
 }
 
 /* Keep row indices stable while the embedding host supplies both bars. */
@@ -537,24 +555,39 @@ button:disabled {
    character to exist, so these are geometry instead: clipped boxes, solid
    strokes, and `currentColor` so every one inherits the control's state.
    ----------------------------------------------------------------------- */
-.menu-button {
-  align-self: stretch;
-  min-width: 40px;
+.settings-button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 33px;
+  height: 33px;
+  padding: 4px;
+  margin: 0;
   border: 0;
-  border-right: 1px solid var(--line);
-  border-radius: 0;
   background: transparent;
-  font-size: var(--size-body);
+  box-shadow: none;
 }
 
-.menu-button::before {
+.settings-button::after {
   content: "";
-  display: block;
-  width: 14px;
-  height: 1.5px;
-  margin: 0 auto;
-  background: currentColor;
-  box-shadow: 0 -4.25px 0 currentColor, 0 4.25px 0 currentColor;
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: 1px;
+  background: var(--ink);
+}
+
+.settings-button svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+
+.settings-button:active,
+.settings-button[aria-expanded="true"] {
+  background: var(--amber-deep);
 }
 
 .brand {
@@ -578,9 +611,13 @@ button:disabled {
 
 .topbar-identity .brand {
   padding: 0;
+  height: 20.5px;
   line-height: 1;
   position: relative;
-  top: -3px;
+}
+
+.topbar-identity .path > * {
+  text-box: trim-both cap alphabetic;
 }
 
 .path {
@@ -662,10 +699,6 @@ button:disabled {
   /* Rules go warm with the ground; the cool greys read as dirt on stock. */
   --line: var(--stock-edge);
   --line-faint: color-mix(in srgb, var(--stock-edge) 55%, var(--stock));
-}
-
-.shell[data-sidebar="closed"] .sidebar {
-  visibility: hidden;
 }
 
 .sidebar:has(> .dataset-head) {
@@ -1347,20 +1380,38 @@ input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
   top: 3px;
   /* Same left margin as `.figure-head`: the panel reads on one edge. */
   left: 12px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  /* One button width sets both rows: the legend text then starts where the
-     third button does, so the stack has one inner edge instead of two. */
+  display: grid;
+  grid-template-columns: max-content max-content auto;
+  column-gap: var(--corner-gap);
+  /* The control and legend rows share their actual column widths. */
   --corner-button: 26px;
   --corner-gap: 2px;
-  --mark-gap: 6px;
-  gap: 9px;
+  --view-padding: 7px;
+  row-gap: 9px;
 }
 
 .view-controls {
   display: flex;
   gap: var(--corner-gap);
+}
+
+.corner-stack .view-controls,
+.corner-stack .overlay-legend,
+.corner-stack .overlay-toggle {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  column-gap: var(--corner-gap);
+}
+
+.corner-stack .view-controls button:last-child {
+  justify-self: start;
+}
+
+.corner-stack .overlay-toggle span {
+  grid-column: 3;
+  padding-left: calc(var(--view-padding) + 1px);
+  text-align: left;
 }
 
 /* A key, not a control panel: a border or a plate here would read as chrome
@@ -1376,7 +1427,6 @@ input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
 .overlay-toggle {
   display: flex;
   align-items: center;
-  gap: var(--mark-gap);
   min-height: 24px;
   padding: 0;
   border: 0;
@@ -1390,12 +1440,13 @@ input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
   cursor: pointer;
 }
 
-/* One mark column, so both labels start on the same x — and on the same x as
-   the third view-control button. */
+/* Symbols occupy the two zoom columns; labels share Reset's text inset. */
 .overlay-toggle svg {
   display: block;
   flex: none;
-  width: calc(var(--corner-button) * 2 + var(--corner-gap) * 2 - var(--mark-gap));
+  grid-column: 1 / 3;
+  min-width: 0;
+  width: 100%;
   height: 14px;
 }
 
@@ -1436,7 +1487,7 @@ input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
 :is(.view-controls, .playback) button {
   min-width: var(--corner-button, 28px);
   min-height: var(--corner-button, 28px);
-  padding: 0 7px;
+  padding: 0 var(--view-padding, 7px);
   border-color: var(--ink);
   /* A hairline cast below the box, not a blur: the button has a thickness, and
      pressing it takes the thickness away. */
@@ -1608,30 +1659,47 @@ input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
   font-size: max(var(--size-micro), 0.9em);
 }
 
+/* The curve readout is an anchored rail in the strip above the frame. */
 .curve-tooltip {
-  grid-template-columns: minmax(0, max-content) max-content minmax(0, 1fr);
-  width: max-content;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: baseline;
   min-width: 0;
-  max-width: calc(100% - 16px);
-  column-gap: 8px;
+  max-width: none;
+  gap: 0 1.1em;
+  padding: 0;
+  border: 0;
+  background: none;
+  overflow: hidden;
+  white-space: nowrap;
+  transform: translateY(calc(-100% - 0.25em));
+}
+
+.curve-tooltip span {
+  font-size: inherit;
 }
 
 .curve-tooltip .curve-tooltip-time {
-  grid-column: 1 / -1;
   color: var(--ink);
+  font-weight: var(--plot-weight-strong);
 }
 
 .curve-tooltip-row {
-  display: contents;
+  display: flex;
+  align-items: baseline;
+  gap: 0 0.4em;
 }
 
 .curve-tooltip-label {
-  max-width: 20ch;
-  overflow-wrap: anywhere;
+  max-width: none;
+  color: var(--ink-medium);
 }
 
-.curve-tooltip-value {
-  text-align: right;
+/* Every reading is bold, including its unit and datum. */
+.curve-tooltip-value,
+.curve-tooltip-row > span:last-child {
+  color: var(--ink);
+  font-weight: var(--plot-weight-strong);
   white-space: nowrap;
 }
 
@@ -2047,29 +2115,6 @@ input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
   }
   .display-controls label { flex-wrap: wrap; max-width: 100%; }
 
-  :root {
-    --sidebar-width: min(82vw, 288px);
-  }
-
-  .shell {
-    grid-template-columns: 0 minmax(0, 1fr);
-  }
-
-  .shell[data-sidebar="open"] .sidebar {
-    position: fixed;
-    z-index: 20;
-    top: var(--topbar-height);
-    bottom: var(--status-height);
-    left: 0;
-    width: var(--sidebar-width);
-    visibility: visible;
-    box-shadow: 8px 0 22px var(--shadow);
-  }
-
-  .shell[data-chrome="none"][data-sidebar="open"] .sidebar {
-    top: var(--toolbar-height);
-  }
-
   .main {
     grid-column: 2;
   }
@@ -2107,7 +2152,7 @@ input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
     --corner-button: 44px;
   }
 
-  .menu-button,
+  .settings-button,
   .playback button {
     min-width: 44px;
     min-height: 44px;
@@ -2633,3 +2678,97 @@ i .value {
   border: 1px solid currentcolor;
   background: var(--paper);
 }
+
+.settings-dialog h3 {
+  grid-column: 1 / -1;
+  margin: 0 0 4px;
+  font-family: var(--label-face);
+  font-size: var(--size-micro);
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: var(--track-caps);
+}
+
+.settings-pair {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.settings-pair label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+  font-family: var(--mono);
+  font-size: var(--size-tick);
+}
+
+.settings-pair select {
+  width: 100%;
+  min-width: 0;
+  max-width: 24ch;
+}
+
+.settings-dialog .toggle svg {
+  width: 24px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+}
+
+.settings-dialog .toggle svg .solid { fill: currentColor; }
+.settings-dialog .toggle .chip[data-on="true"] { transform: none; }
+
+@media (pointer: coarse) {
+  .settings-button { width: 45px; height: 45px; padding: 10px; }
+ .sidebar-resize { width: 44px; margin-right: -22px; }
+}
+
+@media (max-width: 600px) {
+  .settings-dialog form { grid-template-columns: minmax(0, 1fr); padding: 16px; }
+  .settings-dialog form > * { grid-column: 1; }
+  .settings-dialog .row-label,
+  .settings-dialog form > label:not(.switch) { justify-self: start; }
+  .settings-pair label { min-width: 12ch; }
+}
+
+.settings-dialog { width: 520px; }
+.settings-dialog :is(select, button, .chip) {
+  height: var(--hit);
+  min-height: var(--hit);
+  padding-block: 0;
+}
+.settings-dialog .chip.custom {
+  width: 88px;
+  flex: none;
+}
+.settings-dialog .chip.custom input {
+  height: calc(var(--hit) - 2px);
+  min-height: 0;
+  min-width: 0;
+  width: 0;
+  flex: 1;
+}
+.settings-dialog .toggle { border: 0; }
+.settings-dialog .toggle .chip { padding: 0 4px; border: 1px solid var(--ink); }
+.settings-dialog .toggle .chip:first-child { border-left: 1px solid var(--ink); }
+.settings-dialog .toggle .chip + .chip { border-left: 0; }
+.settings-dialog .settings-dimensions { flex-wrap: nowrap; align-items: center; }
+
+.settings-dialog .toggle svg path {
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.stage[data-fixed-size="true"] { overflow: auto; }
+.settings-dimensions .dimension-chip { display: inline-flex; align-items: center; gap: 4px; }
+
+
+/* Both panels use the same frame and font geometry; only their Y domains differ. */
+.linked-curves { overflow-y: auto; }
+.linked-curves > .plot-frame { flex: 1 0 18rem; min-height: 18rem; }
+.secondary-curve-head { border-top: 1px solid var(--line); padding-top: .35rem; }
+.curve-zero { stroke: var(--ink-quiet); stroke-width: 1; stroke-dasharray: 3 3; }

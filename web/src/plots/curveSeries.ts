@@ -20,6 +20,8 @@ export interface CurveSeries {
 
 export interface CurvePresentation {
   xRange?: CurveRange;
+  cursor?: number;
+  selection?: CurveRange;
 }
 
 export const SERIES_COLORS = PLOT_STYLE.series.colours;

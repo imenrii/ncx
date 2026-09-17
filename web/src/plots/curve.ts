@@ -1,8 +1,15 @@
 import { plotMargin, DEFAULT_TYPE, type PlotType } from "./plotgeom.ts";
+import { tickLadder } from "./ticks.ts";
+import { PLOT_STYLE } from "./plotStyle.ts";
 
 /** A multi-day time axis stacks the time under the date, so reserve two label rows. */
 export function curveMargin(type: PlotType) {
-  return plotMargin(type, { colorbar: 28, top: Math.round(type.axis * 1.25), xRows: 2 });
+  // Only the one-line readout sits above the frame; wind barbs sit inside it.
+  return plotMargin(type, {
+    colorbar: 28,
+    top: Math.round(type.axis * PLOT_STYLE.geometry.header),
+    xRows: 2,
+  });
 }
 
 export interface CurveRange {
@@ -46,7 +53,11 @@ export function curveGeometry(
     yRange,
     step = false,
     headroom = 0,
-  }: { log?: boolean; xRange?: CurveRange; yRange?: CurveRange; step?: boolean; headroom?: number } = {},
+    reserveTop = false,
+  }: {
+    log?: boolean; xRange?: CurveRange; yRange?: CurveRange; step?: boolean;
+    headroom?: number; reserveTop?: boolean;
+  } = {},
 ) {
   if (!values?.length) return undefined;
   const xValues = coordinate?.length === values.length
@@ -104,6 +115,16 @@ export function curveGeometry(
     width: Math.max(1, width - margin.left - margin.right),
     height: Math.max(1, height - margin.top - margin.bottom),
   };
+  // An automatic range keeps the data clear of the frame by one tick quantity,
+  // never by a fraction of the span, so the axis keeps its standard spacing and
+  // a display offset still moves the range by exactly that offset. The barb row
+  // inside the frame needs the labelled step rather than the small one.
+  if (!yRange && !log && !step && yMaximum > yMinimum) {
+    const ladder = tickLadder(yMinimum, yMaximum, plot.height, type.tick, { across: true });
+    const label = ladder.major.length > 1 ? ladder.major[1] - ladder.major[0] : ladder.step;
+    yMinimum -= ladder.step;
+    yMaximum += reserveTop ? label : ladder.step;
+  }
   // Export headroom extends the display scale, not the samples or stored range.
   // Clip at the original upper bound so off-viewport data cannot enter the legend.
   if (headroom) {

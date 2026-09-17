@@ -408,6 +408,7 @@ export function MeshFieldView(props: MeshFieldViewProps) {
       <svg className="plot-svg" width={size.width} height={size.height} aria-hidden="true">
         {(props.wind || props.pressure || props.mapSource === "coastline") && geometry && view && <FieldOverlays
           metadata={props.metadata} variable={props.variable} wind={props.wind} pressure={props.pressure}
+          settings={props.fieldSettings}
           indices={props.indices} bounds={view} plot={plot} labelSize={type.tick} geometry={geometry}
           spatialDimension={props.variable.dimensions[spatialDimension]?.path}
           reserve={reserve} onStatus={props.onStatus}>

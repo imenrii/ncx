@@ -54,7 +54,7 @@ export function axisOffsets(type: PlotType, yLabelChars = 0, xRows = 1) {
   };
 }
 
-/** Always reserve the annotation strip, including plots with no wind data. */
+/** Field annotation space remains reserved when overlays are off. */
 export function annotationStrip(type: PlotType): number {
   return Math.round(type.axis * PLOT_STYLE.geometry.annotationRows);
 }
@@ -66,7 +66,7 @@ export function plotMargin(
 ) {
   const offsets = axisOffsets(type, options.yLabelChars ?? 5, options.xRows ?? 1);
   return {
-    top: annotationStrip(type) + (options.top ?? Math.round(type.axis * PLOT_STYLE.geometry.header)),
+    top: options.top ?? annotationStrip(type) + Math.round(type.axis * PLOT_STYLE.geometry.header),
     right: options.colorbar ?? PLOT_STYLE.geometry.margin,
     bottom: Math.round(offsets.xTitle + type.axis * PLOT_STYLE.geometry.edgePad),
     left: Math.round(offsets.yTitle + type.axis * PLOT_STYLE.geometry.edgePad),

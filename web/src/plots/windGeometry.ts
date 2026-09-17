@@ -1,3 +1,4 @@
+import { PLOT_STYLE } from "./plotStyle.ts";
 import { windFrom } from "../data/wind.ts";
 import type { MeshGeometry, Bounds } from "./mesh.ts";
 
@@ -26,24 +27,61 @@ export function meshWindAnchors(geometry: MeshGeometry, faces: boolean, bounds: 
   return { anchors, range: { min: minimum, max: maximum } };
 }
 
-/** A shaft points toward the wind source; feathers encode speed, not length. */
-export function barbGeometry(u: number, v: number, knots: boolean) {
+/** A barb is a symbol, not a scaled arrow: its shaft length and feather pitch
+    are fixed lengths in CSS pixels, as on a printed station plot. Feathers sit
+    on the low-pressure side of the shaft, so they mirror below the equator. */
+export interface BarbGlyph {
+  angle: number;
+  strokes: { points: [number, number][]; close?: boolean }[];
+  calm: boolean;
+  extent: number;
+}
+
+const CALM_RADIUS = 3;
+
+export function barbGeometry(u: number, v: number, knots: boolean, side: 1 | -1 = 1): BarbGlyph | undefined {
   const speed = Math.hypot(u, v);
   if (!Number.isFinite(speed)) return undefined;
   const increment = knots ? 5 * 1852 / 3600 : 2.5;
   let halves = Math.floor(speed / increment + 0.5);
-  if (halves === 0) return { angle: 0, path: "M-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0", calm: true };
-  // Keep malformed extreme samples from allocating an unbounded SVG path.
+  if (halves === 0) return { angle: 0, strokes: [], calm: true, extent: CALM_RADIUS };
+  // Keep malformed extreme samples from allocating an unbounded glyph.
   if (halves > 200) return undefined;
-  let path = "M0 12L0 -12", y = -12;
+
+  const halfLength = PLOT_STYLE.wind.barbLength / 2;
+  const strokes: BarbGlyph["strokes"] = [{ points: [[0, halfLength], [0, -halfLength]] }];
+  let y = -halfLength;
+
   while (halves >= 10) {
-    path += `M0 ${y}L9 ${y + 3}L0 ${y + 6}Z`; y += 7; halves -= 10;
+    strokes.push({ points: [[0, y], [9 * side, y + 3], [0, y + 6]], close: true });
+    y += 7; halves -= 10;
   }
   while (halves >= 2) {
-    path += `M0 ${y}L9 ${y - 4}`; y += 4; halves -= 2;
+    strokes.push({ points: [[0, y], [9 * side, y - 4]] });
+    y += 4; halves -= 2;
   }
-  if (halves) path += `M0 ${y === -12 ? y + 4 : y}l4.5 -2`;
-  return { angle: windFrom(u, v), path, calm: false };
+  // A lone half feather stands clear of the shaft end, where a full feather would sit.
+  if (halves) {
+    const at = y === -halfLength ? y + 4 : y;
+    strokes.push({ points: [[0, at], [4.5 * side, at - 2]] });
+  }
+
+  return { angle: windFrom(u, v), strokes, calm: false, extent: Math.hypot(9, Math.max(halfLength + 4, y)) };
+}
+
+/** Absolute path data, so a whole field draws as one path per fill rule
+    instead of one group per glyph. */
+export function barbPath(glyph: BarbGlyph, x: number, y: number, angle = glyph.angle): string {
+  if (glyph.calm) {
+    return `M${(x - CALM_RADIUS).toFixed(2)} ${y.toFixed(2)}` +
+      `a${CALM_RADIUS} ${CALM_RADIUS} 0 1 0 ${CALM_RADIUS * 2} 0a${CALM_RADIUS} ${CALM_RADIUS} 0 1 0 ${-CALM_RADIUS * 2} 0`;
+  }
+
+  const radians = angle * Math.PI / 180, cos = Math.cos(radians), sin = Math.sin(radians);
+
+  return glyph.strokes.map(stroke => stroke.points.map(([px, py], index) =>
+    `${index ? "L" : "M"}${(x + px * cos - py * sin).toFixed(2)} ${(y + px * sin + py * cos).toFixed(2)}`,
+  ).join("") + (stroke.close ? "Z" : "")).join("");
 }
 
 export interface FieldVector { longitude: number; latitude: number; u: number; v: number }

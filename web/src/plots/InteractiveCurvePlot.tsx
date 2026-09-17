@@ -1,5 +1,5 @@
 import { PLOT_STYLE } from "./plotStyle";
-import { useEffect, useId, useMemo, useRef, useState, type PointerEvent } from "react";
+import { useEffect, useId, useMemo, useRef, type PointerEvent } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { curveLegendLayout, type CurveLegendLayout } from "./curveLegend";
@@ -17,6 +17,7 @@ import { formatTimestamp, timeInZone, type DisplayTimeZone } from "../data/time"
 export function InteractiveCurvePlot({
   series, legend, dimension, variableName, valueLabel, timeZone, log, yRange, xRange, onXRange,
   wind, windEnabled = false, windKnots = false, step = false,
+  cursor, onCursor, selectionRange, onSelectionRange, linkedXRange, zeroLine = false, onDisplayRange,
 }: {
   series: CurveSeries[];
   wind?: WindSamples;
@@ -32,17 +33,24 @@ export function InteractiveCurvePlot({
   yRange?: ColorRange;
   xRange?: CurveRange;
   onXRange: (range?: CurveRange) => void;
+  cursor?: number;
+  onCursor: (value?: number) => void;
+  selectionRange?: CurveRange;
+  onSelectionRange: (value?: CurveRange) => void;
+  linkedXRange?: CurveRange;
+  zeroLine?: boolean;
+  /** The limits actually drawn, so locking keeps the range the reader sees. */
+  onDisplayRange?: (range: CurveRange) => void;
 }) {
   const [frame, size] = useElementSize<HTMLDivElement>();
-  const [hoverX, setHoverX] = useState<number>();
-  const [selection, setSelection] = useState<{ start: number; end: number }>();
+  const effectiveXRange = xRange ?? linkedXRange;
   const drag = useRef<{ start: number; id: number } | undefined>(undefined);
   const clip = `curve-${useId().replaceAll(":", "")}`;
   const domain = useMemo(() => sharedCurveDomain(series), [series]);
   const geometries = useMemo(() => series.map(item => ({
     item, geometry: curveGeometry(item.y, item.x, size.width, size.height, domain,
-      plotType(frame.current), { log, xRange, yRange, step }),
-  })), [series, size, domain, log, xRange, yRange, step]);
+      plotType(frame.current), { log, xRange: effectiveXRange, yRange, step, reserveTop: windEnabled }),
+  })), [series, size, domain, log, effectiveXRange, yRange, step, windEnabled]);
   const geometry = geometries.find(item => item.geometry)?.geometry;
   const time = series[0]?.absoluteTime
     ? timeInZone({ originMs: 0, multiplierMs: 1, zoneLabel: "UTC", offsetMinutes: 0 }, timeZone)
@@ -60,7 +68,7 @@ export function InteractiveCurvePlot({
         text => context.measureText(text).width);
       const exported = series.map(item => ({ item, geometry: curveGeometry(
         item.y, item.x, size.width, size.height, domain, geometry.type,
-        { log, xRange, yRange, step, headroom: layout.height },
+        { log, xRange: effectiveXRange, yRange, step, headroom: layout.height, reserveTop: windEnabled },
       ) }));
       // Keep inherited plot styles available until export copies computed values.
       // This short-lived root must not change the interactive SVG or its range.
@@ -72,20 +80,33 @@ export function InteractiveCurvePlot({
         flushSync(() => root.render(<svg className="curve-svg" width={size.width} height={size.height}>
           <CurveDrawing geometries={exported} clip={`${clip}-export`} dimension={dimension}
             valueLabel={valueLabel} time={time} step={step} wind={wind}
-            windEnabled={windEnabled} windKnots={windKnots} timeZone={timeZone} legend={layout} />
+            windEnabled={windEnabled} windKnots={windKnots} timeZone={timeZone} legend={layout} zeroLine={zeroLine} />
         </svg>));
         consume(host.querySelector("svg")!);
       } finally { root.unmount(); host.remove(); }
     });
   }, [legend, geometry, series, size, domain, log, xRange, yRange, step,
-    clip, dimension, valueLabel, time, wind, windEnabled, windKnots, timeZone]);
-  useEffect(() => { setHoverX(undefined); setSelection(undefined); drag.current = undefined; }, [series, xRange, size.width, size.height]);
+    clip, dimension, valueLabel, time, wind, windEnabled, windKnots, timeZone, effectiveXRange, zeroLine]);
+  useEffect(() => { drag.current = undefined; }, [series, xRange, size.width, size.height]);
+  const yMinimum = geometry?.yMinimum, yMaximum = geometry?.yMaximum;
+  useEffect(() => {
+    if (yMinimum !== undefined && yMaximum !== undefined) onDisplayRange?.({ minimum: yMinimum, maximum: yMaximum });
+  }, [yMinimum, yMaximum, onDisplayRange]);
+  const dataX = (x: number) => geometry!.xMinimum +
+    (x - geometry!.plot.left) / geometry!.plot.width * (geometry!.xMaximum - geometry!.xMinimum);
+  const pixelX = (x: number) => geometry!.plot.left +
+    (x - geometry!.xMinimum) / (geometry!.xMaximum - geometry!.xMinimum) * geometry!.plot.width;
+  const hoverX = geometry && cursor !== undefined ? pixelX(cursor) : undefined;
+  const setHoverX = (x?: number) => onCursor(x === undefined ? undefined : dataX(x));
+  const selection = geometry && selectionRange ? {
+    start: pixelX(selectionRange.minimum), end: pixelX(selectionRange.maximum),
+  } : undefined;
 
   const pointerX = (event: PointerEvent<SVGSVGElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect();
     return Math.max(geometry!.plot.left, Math.min(geometry!.plot.left + geometry!.plot.width, event.clientX - bounds.left));
   };
-  const cancel = () => { drag.current = undefined; setSelection(undefined); };
+  const cancel = () => { drag.current = undefined; onSelectionRange(undefined); };
   const target = geometry && hoverX !== undefined
     ? geometry.xMinimum + (hoverX - geometry.plot.left) / geometry.plot.width * (geometry.xMaximum - geometry.xMinimum)
     : undefined;
@@ -99,13 +120,13 @@ export function InteractiveCurvePlot({
   const windText = wind && windIndex >= 0 ? windReading(wind.u[windIndex], wind.v[windIndex], windKnots) : undefined;
   const tracked = samples.find(sample => sample.item.primary) ?? samples[0];
   const timestamp = tracked ? tracked.item.x[tracked.index] : wind && windIndex >= 0 ? wind.x[windIndex] : undefined;
-  const positionTooltip = (element: HTMLOutputElement | null) => {
-    if (!element || hoverX === undefined) return;
-    // Follow the primary track as before; measured bounds also fit multi-source readouts.
-    element.style.left = `${Math.max(0, Math.min(size.width - element.offsetWidth, hoverX + 14))}px`;
-    element.style.top = `${Math.max(8, Math.min(size.height - element.offsetHeight - 8,
-      (tracked?.y ?? geometry?.plot.top ?? 56) - 48))}px`;
-  };
+  // The readout is a rail in the strip above the frame, so it never covers the
+  // data and no reading moves under the eye while the pointer travels.
+  const rail = geometry ? {
+    left: `${geometry.plot.left}px`,
+    top: `${geometry.plot.top}px`,
+    width: `${geometry.plot.width}px`,
+  } : undefined;
 
   return <div className="plot-frame curve-frame" ref={frame}>
     {xRange && <button className="curve-range-reset" onClick={() => onXRange(undefined)}>Reset X</button>}
@@ -129,7 +150,7 @@ export function InteractiveCurvePlot({
         if (event.clientY - event.currentTarget.getBoundingClientRect().top < geometry.plot.top) { setHoverX(undefined); return; }
         const x = pointerX(event);
         if (drag.current) {
-          setSelection(Math.abs(x - drag.current.start) > 10 ? { start: drag.current.start, end: x } : undefined);
+          onSelectionRange(Math.abs(x - drag.current.start) > 10 ? { minimum: dataX(drag.current.start), maximum: dataX(x) } : undefined);
         } else setHoverX(x);
       }}
       onPointerUp={event => {
@@ -145,7 +166,7 @@ export function InteractiveCurvePlot({
       {geometry && <>
         <CurveDrawing geometries={geometries} clip={clip} dimension={dimension}
           valueLabel={valueLabel} time={time} step={step} wind={wind}
-          windEnabled={windEnabled} windKnots={windKnots} timeZone={timeZone} onWindTrack={setHoverX} />
+          windEnabled={windEnabled} windKnots={windKnots} timeZone={timeZone} onWindTrack={setHoverX} zeroLine={zeroLine} />
         {selection && <rect className="zoom-box curve-zoom-box" x={Math.min(selection.start, selection.end)}
           y={geometry.plot.top} width={Math.abs(selection.end - selection.start)} height={geometry.plot.height} />}
         {hoverX !== undefined && <g className="curve-tracker">
@@ -156,7 +177,7 @@ export function InteractiveCurvePlot({
       </>}
     </svg>
     {hoverX !== undefined && (samples.length > 0 || windText) && <output className="plot-tooltip curve-tooltip"
-      ref={positionTooltip}>
+      style={rail}>
       {timestamp !== undefined && <span className="curve-tooltip-time">
         {time ? formatTimestamp(timestamp, time) : `${dimension}: ${formatNumber(timestamp)}`}
       </span>}
@@ -176,13 +197,14 @@ export function InteractiveCurvePlot({
 }
 
 function CurveDrawing({ geometries, clip, dimension, valueLabel, time, step,
-  wind, windEnabled, windKnots, timeZone, legend, onWindTrack,
+  wind, windEnabled, windKnots, timeZone, legend, onWindTrack, zeroLine,
 }: {
   geometries: { item: CurveSeries; geometry: CurveGeometry | undefined }[];
   clip: string; dimension: string; valueLabel: string;
   time: ReturnType<typeof timeInZone>; step: boolean;
   wind?: WindSamples; windEnabled: boolean; windKnots: boolean; timeZone: DisplayTimeZone;
   legend?: CurveLegendLayout;
+  zeroLine?: boolean;
   onWindTrack?: (x?: number) => void;
 }) {
   const geometry = geometries.find(item => item.geometry)?.geometry;
@@ -192,6 +214,8 @@ function CurveDrawing({ geometries, clip, dimension, valueLabel, time, step,
     <defs><clipPath id={clip}><rect x={plot.left} y={plot.top + headroom}
       width={plot.width} height={plot.height - headroom} /></clipPath></defs>
     <CurveAxes geometry={geometry} dimension={dimension} time={time} valueLabel={valueLabel} integer={step} />
+    {zeroLine && geometry.yMinimum <= 0 && geometry.yMaximum >= 0 && <line className="curve-zero"
+      x1={plot.left} x2={plot.left + plot.width} y1={geometry.yFor(0)} y2={geometry.yFor(0)} />}
     {windEnabled && <WindBarbs wind={wind} geometry={geometry} knots={windKnots} timeZone={timeZone} onTrack={onWindTrack} />}
     {geometries.map(({ item, geometry: line }) => line && <path
       key={item.id} data-series={item.id}

@@ -183,3 +183,32 @@ test("eight sources keep distinct styles and the six-dataset and aggregate sampl
   assert.equal(validateSources([samples("a", 50_000), samples("b", 50_000)], datasets).length, 2);
   assert.throws(() => validateSources([samples("a", 50_000), samples("b", 50_001)], datasets), /too many samples/);
 });
+
+test("secondary panel is atomic, revision scoped, and independent of offsets", () => {
+  const sources: Source[] = [{id: "a", dataset: "a"}, inline];
+  const state = feed();
+  assert.equal(state.api.capabilities.secondaryCurve, true);
+  const revision = state.api.getState().revision;
+  const secondary = {label: "Difference", sources: [{id: "difference", series: inline.series, color: "#123456", dash: "none"}]};
+  state.api.setSources({revision, sources, secondary});
+  assert.equal(state.secondary?.sources.length, 1);
+  state.setOffset(4);
+  assert.deepEqual(state.secondary?.sources[0].series.y, inline.series.y);
+  const previous = state.secondary;
+  assert.throws(() => state.api.setSources({revision: state.api.getState().revision, sources,
+    secondary: {...secondary, sources: [{...secondary.sources[0], color: "url(evil)"}]}}), /color/);
+  assert.equal(state.secondary, previous);
+  state.select("next", null);
+  assert.equal(state.secondary, undefined);
+  assert.throws(() => state.api.setSources({revision, sources, secondary}), /Stale/);
+});
+
+test("secondary empty panel is distinct from absent input", () => {
+  const sources: Source[] = [{id: "a", dataset: "a"}];
+  const state = feed();
+  state.api.setSources({revision: state.api.getState().revision, sources,
+    secondary: {label: "Other curves", sources: [], error: "Reading curves"}});
+  assert.equal(state.secondary?.error, "Reading curves");
+  state.api.setSources({revision: state.api.getState().revision, sources});
+  assert.equal(state.secondary, undefined);
+});

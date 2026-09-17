@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { pressureVariable, pressureVariables } from "./pressure.ts";
+import { pressureVariable, pressureVariables, selectedPressureVariable } from "./pressure.ts";
 import type { Metadata, Variable } from "./model.ts";
 
 test("pressure selection uses effective units but never substitutes surface pressure for MSLP", () => {
@@ -13,6 +13,11 @@ test("pressure selection uses effective units but never substitutes surface pres
   const peer = make("b", "pressure", "air_pressure_at_mean_sea_level");
   const metadata = { dataset_id: "b", variables: [surface, peer] } as Metadata;
   assert.equal(pressureVariables(metadata).length, 2);
+  assert.equal(selectedPressureVariable(metadata, surface), peer);
+  assert.equal(selectedPressureVariable(metadata, surface, "/sp"), surface);
+  assert.equal(selectedPressureVariable(metadata, surface, "/missing"), undefined);
+  const defaultMetadata = { ...metadata, variables: [surface, { ...msl, dataset_id: "b" }, peer] };
+  assert.equal(selectedPressureVariable(defaultMetadata, surface)?.name, "msl");
   assert.equal(pressureVariable(metadata, msl), peer);
   assert.equal(pressureVariable({ ...metadata, variables: [surface] }, msl), undefined);
 });

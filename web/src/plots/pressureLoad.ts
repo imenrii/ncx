@@ -1,6 +1,6 @@
 import { fetchCoordinate, fetchSlice } from "../data/api";
 import { unitChoice } from "../data/units";
-import { longitudeNear, pressureReason, MAX_PRESSURE_VALUES } from "../data/pressure";
+import { longitudeNear, pressureReason, MAX_PRESSURE_VALUES, PRESSURE_INTERVAL } from "../data/pressure";
 import type { Metadata, Variable, SliceRequest } from "../data/model";
 import type { MeshGeometry, Bounds } from "./mesh";
 import { gridContourMesh, meshContourMesh } from "./pressureGeometry";
@@ -8,7 +8,9 @@ import { pressureContours, meshExtrema, type ContourMesh, type PressureCentre, t
 
 export interface PressureField { contours: PressureContour[]; extrema: PressureCentre[] }
 
-const traced = (mesh: ContourMesh): PressureField => ({ contours: pressureContours(mesh), extrema: meshExtrema(mesh) });
+const traced = (mesh: ContourMesh, interval: number): PressureField => ({
+  contours: pressureContours(mesh, interval), extrema: meshExtrema(mesh),
+});
 
 function request(variable: Variable, ranges: Map<string, number[]>, indices: Record<string, number>, maxBytes: number): SliceRequest {
   let count = 1;
@@ -33,7 +35,7 @@ function request(variable: Variable, ranges: Map<string, number[]>, indices: Rec
 
 export async function loadPressureContours(
   metadata: Metadata, field: Variable, pressure: Variable, indices: Record<string, number>,
-  bounds: Bounds, geometry: MeshGeometry | undefined, signal: AbortSignal,
+  bounds: Bounds, geometry: MeshGeometry | undefined, signal: AbortSignal, interval = PRESSURE_INTERVAL,
 ): Promise<PressureField> {
   const reason = pressureReason(metadata, field, pressure);
   if (reason) throw new Error(reason);
@@ -55,7 +57,7 @@ export async function loadPressureContours(
     const ranges = new Map([[spatial.path, Array.from({ length: spatial.length }, (_, i) => i)]]);
     const data = await fetchSlice(request(pressure, ranges, indices, metadata.limits.max_response_bytes), signal);
     if (data.values.length !== spatial.length) throw new Error("Pressure response shape differs from the mesh");
-    return traced(meshContourMesh(geometry, x, y, data.values, scale, hint.location === "face"));
+    return traced(meshContourMesh(geometry, x, y, data.values, scale, hint.location === "face"), interval);
   }
   const row = hint.kind === "rectilinear" ? yVariable.dimensions[0] : xVariable.dimensions[0];
   const column = hint.kind === "rectilinear" ? xVariable.dimensions[0] : xVariable.dimensions[1];
@@ -104,5 +106,5 @@ export async function loadPressureContours(
     longitude[index] = point.longitude; latitude[index] = point.latitude;
     values[index] = data.values[rowFirst ? index : j * rs.length + i] * scale;
   }));
-  return traced(gridContourMesh(longitude, latitude, values, rs.length, cs.length));
+  return traced(gridContourMesh(longitude, latitude, values, rs.length, cs.length), interval);
 }

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { Metadata, Variable } from "./model.ts";
 import { windFrom, windPair, windValues, windSampleRequest, windDescription } from "./wind.ts";
-import { arrowVector, barbGeometry, meshWindAnchors } from "../plots/windGeometry.ts";
+import { arrowVector, barbGeometry, barbPath, meshWindAnchors } from "../plots/windGeometry.ts";
 import { buildUgridGeometry } from "../plots/mesh.ts";
 
 const make = (name: string, standard: string): Variable => ({
@@ -102,11 +102,29 @@ test("mesh anchors use native IDs and bounded representative positions", () => {
 });
 
 test("Style barbs use 2.5/5/25 m/s or 5/10/50 kt increments", () => {
+  const local = (u: number, v: number, knots: boolean, side: 1 | -1 = 1) =>
+    barbPath(barbGeometry(u, v, knots, side)!, 0, 0, 0);
   assert.equal(barbGeometry(0, 0, false)?.calm, true);
   assert.equal(barbGeometry(0, -5, false)?.angle, 0);
-  assert.equal(barbGeometry(0, -5, false)?.path, "M0 12L0 -12M0 -12L9 -16");
-  assert.equal(barbGeometry(0, -10 * 1852 / 3600, true)?.path, barbGeometry(0, -5, false)?.path);
-  assert.match(barbGeometry(25, 0, false)!.path, /Z/);
+  assert.equal(local(0, -5, false), "M0.00 11.00L0.00 -11.00M0.00 -11.00L9.00 -15.00");
+  assert.equal(local(0, -10 * 1852 / 3600, true), local(0, -5, false));
+  assert.match(local(25, 0, false), /Z/);
+  // Feathers sit on the low-pressure side, so the southern hemisphere mirrors them.
+  assert.equal(local(0, -5, false, -1), "M0.00 11.00L0.00 -11.00M0.00 -11.00L-9.00 -15.00");
   assert.equal(barbGeometry(NaN, 1, false), undefined);
   assert.equal(barbGeometry(1e20, 0, false), undefined);
+});
+
+
+test("explicit wind components reuse automatic-pair validation without falling back", () => {
+  const east = make("east", "eastward_wind"), north = make("north", "northward_wind");
+  const all = metadata([u, v, east, north]);
+  const components = { u: east.path, v: north.path };
+  assert.equal(windPair(all, field, undefined, components).pair?.u, east);
+  assert.equal(windPair(all, field).pair?.u, u);
+  assert.ok(windPair(all, field, undefined, { u: "/missing", v: north.path }).reason);
+  assert.ok(windPair(all, field, undefined, { u: east.path, v: east.path }).reason);
+  assert.ok(windPair(all, field, undefined, { u: north.path, v: east.path }).reason);
+  assert.ok(windPair(metadata([east, { ...north, dimensions: [] }]), field, undefined, components).reason);
+  assert.ok(windPair(metadata([east, { ...north, dataset_id: "other" }]), field, undefined, components).reason);
 });

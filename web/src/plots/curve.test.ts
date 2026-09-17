@@ -20,9 +20,10 @@ test("curve geometry preserves finite domains and breaks paths at NaN values", (
     TYPE,
   );
   assert.ok(geometry);
+  // The y limits carry the reserved tick quantity; x is the measured span.
   assert.deepEqual(
     [geometry.xMinimum, geometry.xMaximum, geometry.yMinimum, geometry.yMaximum],
-    [10, 40, 1, 4],
+    [10, 40, 0.5, 4.5],
   );
   assert.match(geometry.path, /^M.*L.*M/);
   assert.equal((geometry.path.match(/M/g) ?? []).length, 2);
@@ -76,4 +77,19 @@ test("log scaling maps decades evenly and floors non-positive data", () => {
   assert.ok(geometry);
   assert.equal(geometry.yMinimum, 0.004);
   assert.equal(geometry.yMaximum, 4);
+});
+
+test("an automatic y range reserves tick quantities and barbs take the labelled step", () => {
+  const values = new Float32Array([1003.2, 1011.7, 1007.4]);
+  const x = new Float32Array([0, 1, 2]);
+  const plain = curveGeometry(values, x, 400, 240, undefined, TYPE);
+  const reserved = curveGeometry(values, x, 400, 240, undefined, TYPE, { reserveTop: true });
+  assert.ok(plain && reserved);
+  assert.ok(plain.yMinimum < 1003.2 && plain.yMaximum > 1011.7, "the data touches the frame");
+  assert.ok(reserved.yMaximum > plain.yMaximum, "barbs did not reserve a taller step");
+  assert.equal(reserved.yMinimum, plain.yMinimum);
+  // A display offset has to move the whole range by exactly that offset.
+  const shifted = curveGeometry(values.map(value => value + 1), x, 400, 240, undefined, TYPE);
+  assert.ok(shifted);
+  assert.ok(Math.abs(shifted.yMinimum - plain.yMinimum - 1) < 1e-3);
 });

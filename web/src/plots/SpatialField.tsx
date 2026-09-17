@@ -1,3 +1,4 @@
+import type { FieldSettings } from "../data/fieldSettings";
 import type { Unit } from "../data/units";
 import { FieldView } from "./FieldView";
 import { MeshFieldView } from "./MeshFieldView";
@@ -21,6 +22,7 @@ export interface FieldProps {
   sharedRange?: boolean;
   mapSource: "none" | "coastline";
   wind?: boolean;
+  fieldSettings: FieldSettings;
   pressure?: Variable;
   overlays?: OverlayToggles;
   probe: Probe | undefined;

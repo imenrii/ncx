@@ -1,45 +1,96 @@
+import type { WindStyle } from "../data/fieldSettings.ts";
 import { PLOT_STYLE } from "./plotStyle.ts";
 import { longitudeNear } from "../data/pressure.ts";
-import { arrowVector, type FieldVector } from "./windGeometry.ts";
+import { arrowVector, barbGeometry, barbPath, type FieldVector } from "./windGeometry.ts";
 import type { Bounds } from "./mesh.ts";
 import type { ContourBox } from "./pressureContours.ts";
 
 interface Plot { left: number; top: number; width: number; height: number }
-export interface VectorMark { path: string; box: ContourBox }
+export interface VectorMark { path: string; box: ContourBox; calm?: boolean; tail?: Point; head?: Point }
+interface Point { x: number; y: number }
 
-/** Arrows sit on a uniform screen lattice, as on an ECMWF chart: one arrow per
-    cell centre, drawn from the sample nearest that centre. Spacing is a screen
-    quantity, so the same field reads the same at any pane size or resolution,
-    and length carries speed relative to the field, not the sample geometry. */
-export function fieldVectorMarks(vectors: FieldVector[], bounds: Bounds, plot: Plot, obstacles: ContourBox[] = []): VectorMark[] {
-  const spacing = Math.min(PLOT_STYLE.wind.maxSpacing, Math.max(PLOT_STYLE.wind.minSpacing,
+/** Liang-Barsky: does the drawn shaft itself enter the box? A bounding box
+    around a diagonal arrow claims about twice the area its ink occupies. */
+function shaftEnters(tail: Point, head: Point, box: ContourBox, clearance: number) {
+  const dx = head.x - tail.x, dy = head.y - tail.y;
+  let enter = 0, leave = 1;
+  for (const [delta, from, to] of [[dx, box.left - clearance - tail.x, box.right + clearance - tail.x],
+    [dy, box.top - clearance - tail.y, box.bottom + clearance - tail.y]] as const) {
+    if (delta === 0) { if (from > 0 || to < 0) return false; continue; }
+    const first = Math.min(from / delta, to / delta), last = Math.max(from / delta, to / delta);
+    enter = Math.max(enter, first); leave = Math.min(leave, last);
+    if (enter > leave) return false;
+  }
+  return true;
+}
+
+/** Target distance between neighbouring glyphs, px. Sources that arrive already
+    thinned in grid-index space use it to choose their index stride. */
+export function latticeSpacing(plot: Plot): number {
+  return Math.min(PLOT_STYLE.wind.maxSpacing, Math.max(PLOT_STYLE.wind.minSpacing,
     Math.min(plot.width, plot.height) / PLOT_STYLE.wind.cells));
+}
+
+/** A fixed decimation of a regular source grid: draw every nth grid point. The
+    same grid point is kept at every plot size, so the lattice does not reshuffle
+    on resize the way screen bins do. Slack is split between the two edges. */
+export function gridStride(range: { min: number; max: number }, slots: number, limit: number) {
+  const span = range.max - range.min;
+  const stride = Math.max(1, Math.ceil(span / Math.max(1, Math.min(slots, limit - 1))));
+
+  return { start: range.min + Math.floor(span % stride / 2), stop: range.max + 1, stride };
+}
+
+/** Glyphs sit at their native coordinates. A curvilinear or mesh source is
+    thinned here by screen bins; a regular grid arrives thinned by index and
+    passes through. Arrow length carries speed relative to the field, not
+    sample spacing. */
+export function fieldVectorMarks(vectors: FieldVector[], bounds: Bounds, plot: Plot, obstacles: ContourBox[] = [], style: WindStyle = "arrow", clearance = 0, thinned = false): VectorMark[] {
+  const spacing = latticeSpacing(plot);
   const sx = plot.width / (bounds.maximumX - bounds.minimumX), sy = plot.height / (bounds.maximumY - bounds.minimumY);
-  const columns = Math.max(1, Math.floor(plot.width / spacing)), rows = Math.max(1, Math.floor(plot.height / spacing));
-  const originX = plot.left + (plot.width - columns * spacing) / 2, originY = plot.top + (plot.height - rows * spacing) / 2;
+  // Cells tile the pane exactly, so an edge cell is a whole cell and not the
+  // leftover of a centred lattice.
+  const columns = Math.max(1, Math.round(plot.width / spacing)), rows = Math.max(1, Math.round(plot.height / spacing));
+  const cellX = plot.width / columns, cellY = plot.height / rows;
   const slots = new Map<number, { vector: FieldVector; x: number; y: number; distance: number }>();
   for (const vector of vectors) {
     const longitude = longitudeNear(vector.longitude, (bounds.minimumX + bounds.maximumX) / 2);
     const x = plot.left + (longitude - bounds.minimumX) * sx;
     const y = plot.top + plot.height - (vector.latitude - bounds.minimumY) * sy;
-    if (!Number.isFinite(x + y)) continue;
-    const column = Math.floor((x - originX) / spacing), row = Math.floor((y - originY) / spacing);
-    if (column < 0 || column >= columns || row < 0 || row >= rows) continue;
-    const centreX = originX + (column + 0.5) * spacing, centreY = originY + (row + 0.5) * spacing;
+    if (!Number.isFinite(x + y) || x < plot.left || x > plot.left + plot.width ||
+        y < plot.top || y > plot.top + plot.height) continue;
+    if (thinned) { slots.set(slots.size, { vector, x, y, distance: 0 }); continue; }
+    const column = Math.max(0, Math.min(columns - 1, Math.floor((x - plot.left) / cellX)));
+    const row = Math.max(0, Math.min(rows - 1, Math.floor((y - plot.top) / cellY)));
+    const centreX = plot.left + (column + 0.5) * cellX, centreY = plot.top + (row + 0.5) * cellY;
     const distance = (x - centreX) ** 2 + (y - centreY) ** 2;
     const key = row * columns + column;
     const held = slots.get(key);
-    if (!held || distance < held.distance) slots.set(key, { vector, x: centreX, y: centreY, distance });
+    if (!held || distance < held.distance) slots.set(key, { vector, x, y, distance });
   }
   // One strong gust must not shrink a whole chart, so normalize on a high
   // quantile of the drawn speeds and let the few faster arrows saturate.
   const speeds = [...slots.values()].map(slot => Math.hypot(slot.vector.u, slot.vector.v)).filter(Number.isFinite).sort((a, b) => a - b);
   const reference = speeds.length ? speeds[Math.min(speeds.length - 1, Math.floor(speeds.length * PLOT_STYLE.wind.speedQuantile))] : 0;
-  if (!(reference > 0)) return [];
+  if (style === "arrow" && !(reference > 0)) return [];
   const full = spacing * PLOT_STYLE.wind.lengthRatio;
   const marks: VectorMark[] = [];
-  for (const { vector, x, y } of slots.values()) {
+  for (const { vector, x: nativeX, y: nativeY } of slots.values()) {
     const speed = Math.hypot(vector.u, vector.v);
+    // A 1 px glyph stroke centred on a fractional coordinate is spread over two
+    // device columns, which reads as a blurred, irregular lattice.
+    const x = Math.round(nativeX - 0.5) + 0.5, y = Math.round(nativeY - 0.5) + 0.5;
+    if (style === "barb") {
+      const glyph = barbGeometry(vector.u, vector.v, false, vector.latitude < 0 ? -1 : 1);
+      if (!glyph) continue;
+      const direction = arrowVector(vector.u, vector.v, vector.latitude, sx, sy);
+      if (!glyph.calm && !direction) continue;
+      const angle = direction ? Math.atan2(direction.x, -direction.y) * 180 / Math.PI + 180 : 0;
+      const radius = glyph.extent + PLOT_STYLE.wind.halo / 2;
+      marks.push({ path: barbPath(glyph, x, y, angle), calm: glyph.calm,
+        box: { left: x - radius, right: x + radius, top: y - radius, bottom: y + radius } });
+      continue;
+    }
     const length = full * Math.min(1, speed / reference);
     if (!(length >= PLOT_STYLE.wind.minLength)) continue;
     const direction = arrowVector(vector.u, vector.v, vector.latitude, sx, sy, length);
@@ -53,11 +104,17 @@ export function fieldVectorMarks(vectors: FieldVector[], bounds: Bounds, plot: P
     const path = `M${tailX.toFixed(2)} ${tailY.toFixed(2)}L${headX.toFixed(2)} ${headY.toFixed(2)}` +
       `m${(-dx * back - dy * side).toFixed(2)} ${(-dy * back + dx * side).toFixed(2)}L${headX.toFixed(2)} ${headY.toFixed(2)}` +
       `l${(-dx * back + dy * side).toFixed(2)} ${(-dy * back - dx * side).toFixed(2)}`;
-    const pad = PLOT_STYLE.wind.headLength * PLOT_STYLE.wind.headSpread;
-    marks.push({ path, box: { left: Math.min(tailX, headX) - pad, right: Math.max(tailX, headX) + pad,
-      top: Math.min(tailY, headY) - pad, bottom: Math.max(tailY, headY) + pad } });
+    const pad = PLOT_STYLE.wind.headLength * PLOT_STYLE.wind.headSpread + PLOT_STYLE.wind.halo / 2;
+    marks.push({ path, tail: { x: tailX, y: tailY }, head: { x: headX, y: headY },
+      box: { left: Math.min(tailX, headX) - pad, right: Math.max(tailX, headX) + pad,
+        top: Math.min(tailY, headY) - pad, bottom: Math.max(tailY, headY) + pad } });
   }
-  // Overlay toggles only remove marks from the fixed wind lattice.
-  const overlaps = (a: ContourBox, b: ContourBox) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
-  return marks.filter(mark => !obstacles.some(other => overlaps(mark.box, other)));
+  // Overlay toggles only remove marks from the fixed wind lattice, and an arrow
+  // yields only where its shaft would actually run into the label's clearance.
+  // A barb is a compact glyph, so its whole box, halo included, stays the hitbox.
+  const reach = clearance + PLOT_STYLE.wind.halo / 2;
+  const overlaps = (a: ContourBox, b: ContourBox) => a.left < b.right + reach && a.right + reach > b.left &&
+    a.top < b.bottom + reach && a.bottom + reach > b.top;
+  return marks.filter(mark => !obstacles.some(box => mark.tail && mark.head
+    ? shaftEnters(mark.tail, mark.head, box, reach) : overlaps(mark.box, box)));
 }

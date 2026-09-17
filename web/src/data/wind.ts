@@ -1,15 +1,18 @@
 import { attributeText, hasGeographicCoordinates, isNumeric, type Metadata, type Variable, type SliceRequest } from "./model.ts";
 import { findUnit, type Unit } from "./units.ts";
 
+export interface WindComponents { u: string; v: string }
 export interface WindPair { u: Variable; v: Variable; uUnit: Unit; vUnit: Unit }
 export interface WindMatch { pair?: WindPair; reason?: string }
 const group = (variable: Variable) => variable.path.slice(0, variable.path.lastIndexOf("/"));
 
-export function windPair(metadata: Metadata, variable: Variable, fallbackUnit = attributeText(variable, "units")): WindMatch {
+export function windPair(metadata: Metadata, variable: Variable, fallbackUnit = attributeText(variable, "units"), components?: WindComponents): WindMatch {
   const candidates = (name: string) => metadata.variables.filter(item => item.name === name && group(item) === group(variable));
-  const us = candidates("u10"), vs = candidates("v10");
-  if (us.length !== 1 || vs.length !== 1) return { reason: "A unique u10/v10 pair is required in this group" };
+  const us = components ? metadata.variables.filter(item => item.path === components.u) : candidates("u10");
+  const vs = components ? metadata.variables.filter(item => item.path === components.v) : candidates("v10");
+  if (us.length !== 1 || vs.length !== 1) return { reason: components ? "Selected wind components are not available" : "A unique u10/v10 pair is required in this group" };
   const u = us[0], v = vs[0];
+  if (u.path === v.path) return { reason: "Choose two different wind components" };
   if (!isNumeric(u) || !isNumeric(v)) return { reason: "Wind components must be numeric" };
   // Explicit component units win. Only absent units use the selected unit.
   const componentUnit = (item: Variable) => findUnit("velocity",
@@ -38,8 +41,8 @@ export function windPair(metadata: Metadata, variable: Variable, fallbackUnit = 
   return { pair: { u, v, uUnit, vUnit } };
 }
 
-export function fieldWindReason(metadata: Metadata, variable: Variable): string | undefined {
-  const match = windPair(metadata, variable);
+export function fieldWindReason(metadata: Metadata, variable: Variable, components?: WindComponents): string | undefined {
+  const match = windPair(metadata, variable, undefined, components);
   if (!match.pair) return match.reason;
   const hint = match.pair.u.view_hint;
   if (hint.kind === "plain") return "Wind requires geographic field coordinates";

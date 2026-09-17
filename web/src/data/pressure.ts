@@ -1,12 +1,28 @@
 import { attributeText, hasGeographicCoordinates, isNumeric, type Metadata, type Variable } from "./model.ts";
 import { unitChoice, unitRule } from "./units.ts";
 
-export const PRESSURE_INTERVAL = 4;
+export const PRESSURE_INTERVAL = 2;
+
+export function validPressureInterval(value: number): boolean {
+  return Number.isFinite(value) && value > 0;
+}
 export const MAX_PRESSURE_VALUES = 20_000;
 export const MAX_PRESSURE_TRIANGLES = 40_000;
 
 export function pressureVariables(metadata: Metadata): Variable[] {
   return metadata.variables.filter(variable => isNumeric(variable) && unitRule(variable).rule?.family === "pressure");
+}
+
+export function selectedPressureVariable(metadata: Metadata, field: Variable, path?: string): Variable | undefined {
+  const choices = pressureVariables(metadata);
+  if (path) return choices.find(item => item.path === path);
+  const group = field.path.slice(0, field.path.lastIndexOf("/"));
+  const ecmwf = choices.filter(item => item.name === "msl" &&
+    item.path.slice(0, item.path.lastIndexOf("/")) === group);
+  if (ecmwf.length === 1) return ecmwf[0];
+  const meanSeaLevel = choices.filter(item => attributeText(item, "standard_name") === "air_pressure_at_mean_sea_level");
+  return meanSeaLevel.length === 1 ? meanSeaLevel[0]
+    : choices.find(item => item.path === field.path) ?? (choices.length === 1 ? choices[0] : undefined);
 }
 
 export function pressureVariable(metadata: Metadata, reference: Variable): Variable | undefined {

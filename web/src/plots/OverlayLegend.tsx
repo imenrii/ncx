@@ -1,3 +1,5 @@
+import type { WindStyle } from "../data/fieldSettings";
+import { barbGeometry, barbPath } from "./windGeometry";
 import { PLOT_STYLE } from "./plotStyle";
 import { useLayoutEffect, type ComponentProps } from "react";
 import { ViewControls } from "./plot";
@@ -7,6 +9,7 @@ import type { ContourBox } from "./pressureContours";
 export interface OverlayToggles {
   pressure: boolean;
   wind: boolean;
+  windStyle?: WindStyle;
   pressureReason?: string;
   windReason?: string;
   onPressure: (on: boolean) => void;
@@ -24,16 +27,18 @@ function PressureMark() {
   </svg>;
 }
 
-function WindMark() {
-  return <svg {...MARK}>
-    <path d="M21.8 12.6L27 1.4" strokeWidth={PLOT_STYLE.legend.windWidth} />
-    <path className="solid" d="M27 1.4L27.6 5.4L24.1 4.2Z" />
+export function WindMark({ style = "barb", compact = false }: { style?: WindStyle; compact?: boolean }) {
+  return <svg {...MARK} viewBox={compact ? "0 0 28 28" : MARK.viewBox}>
+    <g transform={compact ? undefined : "translate(19 0) scale(.5)"}>
+      {style === "barb" ? <path d={barbPath(barbGeometry(0, -10, false)!, 0, 0, 0)}
+        transform="translate(13 16) rotate(30) scale(.825)" strokeWidth={PLOT_STYLE.legend.windWidth} vectorEffect="non-scaling-stroke" /> : <path d="M6 23L20 9M12 9H20V17" strokeWidth={PLOT_STYLE.legend.windWidth} vectorEffect="non-scaling-stroke" />}
+    </g>
   </svg>;
 }
 
 /** Reads as a key, not as chrome: the overlay it names is the only other thing
     on this corner of the plot. */
-export function OverlayLegend({ pressure, wind, pressureReason, windReason, onPressure, onWind, hidden = false }: OverlayToggles & { hidden?: boolean }) {
+export function OverlayLegend({ pressure, wind, windStyle, pressureReason, windReason, onPressure, onWind, hidden = false }: OverlayToggles & { hidden?: boolean }) {
   return <div className="overlay-legend" role="group" aria-label="Plot overlays"
     aria-hidden={hidden || undefined} inert={hidden} style={hidden ? { visibility: "hidden" } : undefined}>
     <button type="button" className="overlay-toggle" aria-pressed={pressure && !pressureReason}
@@ -41,7 +46,7 @@ export function OverlayLegend({ pressure, wind, pressureReason, windReason, onPr
       onClick={() => onPressure(!pressure)}><PressureMark /><span>Pressure</span></button>
     <button type="button" className="overlay-toggle" aria-pressed={wind && !windReason}
       disabled={Boolean(windReason)} title={windReason}
-      onClick={() => onWind(!wind)}><WindMark /><span>Wind vector</span></button>
+      onClick={() => onWind(!wind)}><WindMark style={windStyle} /><span>Wind vector</span></button>
   </div>;
 }
 

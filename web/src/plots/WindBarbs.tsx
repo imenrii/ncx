@@ -1,10 +1,9 @@
 import { PLOT_STYLE } from "./plotStyle";
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
 import { windDescription, type WindSamples } from "../data/wind";
 import { formatTimestamp, timeInZone, type DisplayTimeZone } from "../data/time";
 import type { CurveGeometry } from "./curve";
-import { annotationStrip } from "./plotgeom";
-import { barbGeometry } from "./windGeometry";
+import { barbGeometry, barbPath } from "./windGeometry";
 
 // Style/plotstyle/palette.py: SEMANTIC["wind"], light-canvas cycle colour 2.
 export const WIND_COLOUR = PLOT_STYLE.wind.colour;
@@ -29,13 +28,19 @@ export function WindBarbs({ wind, geometry, knots, timeZone, onTrack }: {
     }
     return result;
   }, [wind, geometry, knots]);
-  const y = plot.top - annotationStrip(geometry.type) / 2 - PLOT_STYLE.wind.barbOffset;
+  const clip = `wind-${useId().replaceAll(":", "")}`;
+  const y = plot.top + PLOT_STYLE.wind.barbInset;
   const time = timeInZone({ originMs: 0, multiplierMs: 1, zoneLabel: "UTC", offsetMinutes: 0 }, timeZone)!;
   const description = (index: number) => {
     if (!wind) return "";
     return `${formatTimestamp(wind.x[index], time)} · ${windDescription(wind.u[index], wind.v[index], knots)}`;
   };
-  return <g className="wind-barbs" data-wind={wind ? "ready" : "loading"}>
+  // The barb row lives in the reserved headroom, so a tall glyph near the edge
+  // is cut at the axis rather than drawn over the frame.
+  return <g className="wind-barbs" data-wind={wind ? "ready" : "loading"} clipPath={`url(#${clip})`}>
+    <defs><clipPath id={clip}>
+      <rect x={plot.left} y={plot.top} width={plot.width} height={plot.height} />
+    </clipPath></defs>
     {marks.map(({ index, x, glyph }) => <g key={index} className="wind-barb" transform={`translate(${x} ${y})`}
       tabIndex={onTrack ? 0 : undefined} role="img" aria-label={description(index)}
       onPointerDown={event => { event.stopPropagation(); onTrack?.(x); }}
@@ -44,7 +49,7 @@ export function WindBarbs({ wind, geometry, knots, timeZone, onTrack }: {
       onKeyDown={event => { if (event.key === "Escape") onTrack?.(); }}
       onFocus={() => onTrack?.(x)} onBlur={() => onTrack?.()}>
       <rect x={-20} y={-20} width={40} height={40} fill="transparent" />
-      <path d={glyph.path} transform={`rotate(${glyph.angle})`} fill={glyph.calm ? "none" : WIND_COLOUR} stroke={WIND_COLOUR} strokeWidth={PLOT_STYLE.wind.barbWidth} />
+      <path d={barbPath(glyph, 0, 0)} fill={glyph.calm ? "none" : WIND_COLOUR} stroke={WIND_COLOUR} strokeWidth={PLOT_STYLE.wind.barbWidth} />
     </g>)}
   </g>;
 }

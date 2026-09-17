@@ -1,4 +1,4 @@
-import type { DatasetSummary, Source, SourceSelection } from "./model.ts";
+import type { DatasetSummary, Source, SourceSelection, SuppliedSeries } from "./model.ts";
 import { SERIES_COLORS, SERIES_DASHES, validCurveOffset, type CurveSeries } from "../plots/curveSeries.ts";
 
 export interface ResolvedSource {
@@ -8,6 +8,13 @@ export interface ResolvedSource {
   dash: string;
   primary: boolean;
   locked: boolean;
+}
+
+export interface SecondaryCurve {
+  label: string;
+  difference?: boolean;
+  sources: { id: string; series: SuppliedSeries; color?: string; dash?: string }[];
+  error?: string;
 }
 
 /** This store is also the synchronous browser boundary, independent of React closures. */
@@ -20,6 +27,7 @@ export function createSourceFeed() {
   let revision = 0;
   let suppliedRevision = -1;
   let sources: Source[] = [];
+  let secondary: SecondaryCurve | undefined;
   let explicit = false;
   let toolbar = 0;
   let offsets: Record<string, number> = {};
@@ -51,18 +59,24 @@ export function createSourceFeed() {
   };
   const api = {
     version: 1 as const,
+    capabilities: { secondaryCurve: true },
     getState: () => ({
       revision: String(revision),
       selection: selection ? { ...selection } : null,
       sources: resolved(),
     }),
     setSources(value: unknown) {
-      const input = object(value, ["revision", "sources"]);
+      const input = object(value, ["revision", "sources", "secondary"]);
       if (input.revision !== String(revision)) throw new Error("Stale source revision");
       const next = validateSources(input.sources, datasets);
+      const panel = validateSecondary(input.secondary);
+      const samples = [...next, ...(panel?.sources ?? [])].reduce((count, source) =>
+        count + ("series" in source ? source.series.x.length : 0), 0);
+      if (samples > 100_000) throw new Error("Source input has too many samples");
       const identity = (items: Source[]) => items.flatMap(source => "dataset" in source ? [source.dataset] : []);
       const changed = JSON.stringify(identity(next)) !== JSON.stringify(identity(sources));
       replace(next);
+      secondary = panel;
       explicit = true;
       if (changed) {
         revision += 1;
@@ -80,6 +94,7 @@ export function createSourceFeed() {
     },
     getSnapshot: () => snapshot,
     get sources() { return sources; },
+    get secondary() { return suppliedRevision === revision ? secondary : undefined; },
     get explicit() { return explicit; },
     get toolbar() { return toolbar; },
     get offsets() { return offsets; },
@@ -187,6 +202,36 @@ export function validateSources(value: unknown, datasets: readonly DatasetSummar
   });
   if (new Set(sources.map(source => source.id)).size !== sources.length) throw new Error("Source IDs must be unique");
   return sources;
+}
+
+export function validateSecondary(value: unknown): SecondaryCurve | undefined {
+  if (value === undefined || value === null) return undefined;
+  const panel = object(value, ["label", "sources", "error", "difference"]);
+  const label = text(panel.label);
+  if (panel.difference !== undefined && typeof panel.difference !== "boolean") throw new Error("Invalid difference flag");
+  if (!Array.isArray(panel.sources)) throw new Error("Secondary sources must be an array");
+  const styles = panel.sources.map(item => {
+    const source = object(item, ["id", "series", "color", "dash"]);
+    if (source.color !== undefined && (typeof source.color !== "string" ||
+        !/^#[0-9a-f]{6}$/i.test(source.color))) throw new Error("Invalid secondary color");
+    if (source.dash !== undefined && (typeof source.dash !== "string" || source.dash.length > 64 ||
+        source.dash !== "none" && !/^[0-9., ]*$/.test(source.dash))) throw new Error("Invalid secondary dash");
+    return source;
+  });
+  const parsed = validateSources(styles.map(({ id, series }) => ({ id, series })), []);
+  const first = parsed[0] && "series" in parsed[0] ? parsed[0].series : undefined;
+  if (parsed.some(source => "series" in source && first &&
+      (source.series.quantity !== first.quantity || source.series.y_units !== first.y_units ||
+       source.series.location_id !== first.location_id))) throw new Error("Incompatible secondary series");
+  return {
+    label, difference: panel.difference as boolean | undefined,
+    sources: parsed.map((source, index) => ({
+      id: source.id, series: (source as { series: SuppliedSeries }).series,
+      color: styles[index].color as string | undefined,
+      dash: styles[index].dash as string | undefined,
+    })),
+    ...(panel.error === undefined ? {} : { error: text(panel.error) }),
+  };
 }
 
 export const sourceFeed = createSourceFeed();

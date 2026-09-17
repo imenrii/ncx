@@ -1,20 +1,20 @@
 import { useEffect, useLayoutEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { fetchCoordinate, fetchMetadata, fetchSlice } from "../data/api";
-import { convertedLabel, convertValues, unitChoice, type Unit } from "../data/units";
+import { convertedLabel, convert, convertValues, findUnit, unitChoice, unitRule, type Unit } from "../data/units";
 import { windPair, type WindSamples } from "../data/wind";
 import { loadWindCurve } from "../data/windLoad";
 import { unitAssignments } from "../data/unitAssignments";
 import { findCompatibleVariable, matchesSeries, locationIdentity, verticalDatum } from "../data/comparison";
 import type { ColorScale, DatasetSummary, Metadata, Probe, Variable, Source } from "../data/model";
 import { attributeText, quantityLabel, variableLabel } from "../data/model";
-import { sourceFeed, type ResolvedSource } from "../data/sourceFeed";
+import { sourceFeed, type ResolvedSource, type SecondaryCurve } from "../data/sourceFeed";
 import { curveRequest } from "../data/selection";
 import { describeTime, type DisplayTimeZone } from "../data/time";
 import type { ColorRange } from "./color";
 import { InteractiveCurvePlot } from "./InteractiveCurvePlot";
 import { WIND_COLOUR } from "./WindBarbs";
 import {
-  curveSelection, displaySeries, seriesQuantity, type CurvePresentation, type CurveSeries,
+  curveSelection, displaySeries, seriesQuantity, SERIES_COLORS, SERIES_DASHES, type CurvePresentation, type CurveSeries,
 } from "./curveSeries";
 
 interface Props {
@@ -35,6 +35,7 @@ interface Props {
   resolvedSources: ResolvedSource[];
   offsets: Record<string, number>;
   inlineAvailable: boolean;
+  secondary?: SecondaryCurve;
   onExtent: (extent?: { start_ms: number; end_ms: number }) => void;
   presentation: CurvePresentation;
   onPresentation: Dispatch<SetStateAction<CurvePresentation>>;
@@ -161,6 +162,47 @@ export function CurveView(props: Props) {
     return { series, errors };
   }, [currentSeries, props.offsets, sourceUnit, props.targetUnit]);
   const displayed = presentation.series;
+  const lower = useMemo(() => (props.secondary?.sources ?? []).flatMap((source, index): CurveSeries[] => {
+    const item = source.series;
+    if (item.location_id !== location) return [];
+    const family = unitRule(props.variable).rule?.family;
+    const unit = family && item.quantity === quantity ? findUnit(family, item.y_units) : undefined;
+    const target = props.targetUnit !== "Bft" ? props.targetUnit : undefined;
+    const y = Float32Array.from(item.y, value => value === null ? NaN :
+      unit && target ? convert(value, unit, target, props.secondary?.difference ?? false) : value);
+    return [{ id: source.id, label: item.label, x: Float64Array.from(item.x), y,
+      absoluteTime: true, xUnit: "time", quantity: item.quantity,
+      units: unit && target ? target.label : item.y_units,
+      color: source.color ?? SERIES_COLORS[index % SERIES_COLORS.length],
+      dash: source.dash ?? SERIES_DASHES[index % SERIES_DASHES.length] }];
+  }), [props.secondary, props.targetUnit, location, quantity, props.variable]);
+  const linkedXRange = useMemo(() => {
+    if (!props.secondary) return undefined;
+    let minimum = Infinity, maximum = -Infinity;
+    for (const item of [...displayed, ...lower]) for (const x of item.x) {
+      minimum = Math.min(minimum, x); maximum = Math.max(maximum, x);
+    }
+    return minimum < maximum ? { minimum, maximum } : undefined;
+  }, [displayed, lower, props.secondary]);
+  const lowerRange = useMemo(() => {
+    let minimum = props.secondary?.difference ? 0 : Infinity;
+    let maximum = props.secondary?.difference ? 0 : -Infinity;
+    for (const item of lower) for (const value of item.y) if (Number.isFinite(value)) {
+      minimum = Math.min(minimum, value); maximum = Math.max(maximum, value);
+    }
+    if (!Number.isFinite(minimum)) { minimum = -1; maximum = 1; }
+    const pad = (maximum - minimum) * .08 || .1;
+    return { minimum: minimum - pad, maximum: maximum + pad };
+  }, [lower, props.secondary?.difference]);
+  const interaction = {
+    xRange: props.presentation.xRange, linkedXRange,
+    onXRange: (xRange?: CurvePresentation["xRange"]) => props.onPresentation(current => ({ ...current, xRange, cursor: undefined, selection: undefined })),
+    cursor: props.presentation.cursor,
+    onCursor: (cursor?: number) => props.onPresentation(current => current.cursor === cursor ? current : ({ ...current, cursor })),
+    selectionRange: props.presentation.selection,
+    onSelectionRange: (selection?: CurvePresentation["selection"]) => props.onPresentation(current => ({ ...current, selection })),
+  };
+
   const windKey = `${loadKey}:wind:${windUnitsKey}`;
   const primary = models.find(item => item.id === props.sources.find(source => "dataset" in source)?.dataset);
   const windEligible = props.wind && primary?.absoluteTime && Boolean(windMatch.pair);
@@ -178,18 +220,10 @@ export function CurveView(props: Props) {
   const legend = useMemo(() => displayed.map(item => ({
     description: item.label, color: item.color, dash: item.dash,
   })), [displayed]);
-  useEffect(() => {
-    if (props.rangeLocked) return;
-    let minimum = Infinity, maximum = -Infinity;
-    for (const item of displayed) for (const value of item.y) if (Number.isFinite(value)) {
-      minimum = Math.min(minimum, value); maximum = Math.max(maximum, value);
-    }
-    if (minimum <= maximum) props.onRange({ minimum, maximum });
-  }, [displayed, props.rangeLocked, props.onRange]);
 
   const hasOffset = props.targetUnit !== "Bft" && Object.values(props.offsets).some(Boolean);
   const windKnots = props.targetUnit !== "Bft" && props.targetUnit?.id === "kt";
-  return <div className="single-curve">
+  return <div className={props.secondary ? "single-curve linked-curves" : "single-curve"}>
     <header className="figure-head curve-head">
       <h1>{variableLabel(props.variable)}</h1>
       {windEligible
@@ -201,17 +235,33 @@ export function CurveView(props: Props) {
     {loaded?.key === loadKey && loaded.errors.length > 0 && <div className="comparison-warning" role="status">{loaded.errors.join(" · ")}</div>}
     <InteractiveCurvePlot series={displayed} legend={legend} variableName={props.variable.name}
       dimension={props.variable.dimensions[props.curveDimension]?.name ?? "index"}
-      valueLabel={`${unitLabel ? convertedLabel(props.variable, unitLabel) : quantityLabel(props.variable)}${hasOffset ? "; display offsets" : ""}`}
+      valueLabel={`${props.secondary ? `${props.variable.name} (${unitLabel ?? units ?? ""})` :
+        unitLabel ? convertedLabel(props.variable, unitLabel) : quantityLabel(props.variable)}${hasOffset && !props.secondary ? "; display offsets" : ""}`}
       wind={currentWind} windEnabled={Boolean(windEligible)} windKnots={windKnots}
       step={props.targetUnit === "Bft"}
       timeZone={props.timeZone} log={props.scale === "log"} yRange={props.rangeLocked ? props.range : undefined}
-      xRange={props.presentation.xRange}
-      onXRange={xRange => props.onPresentation(current => ({ ...current, xRange }))} />
+      onDisplayRange={props.rangeLocked ? undefined : props.onRange}
+      {...interaction} />
     <div className="curve-legend">{displayed.map(item => <span key={item.id}>
       <svg className="series-key" viewBox="0 0 18 4" aria-hidden="true">
         <line x1="0" y1="2" x2="18" y2="2" style={{ stroke: item.color, strokeDasharray: item.dash }} />
       </svg>{item.label}
     </span>)}</div>
+    {props.secondary && <>
+      <header className="figure-head curve-head secondary-curve-head"><h1>{props.secondary.label}</h1></header>
+      {props.secondary.error && <div className="comparison-warning" role="status">{props.secondary.error}</div>}
+      <InteractiveCurvePlot series={lower} legend={lower.map(item => ({
+        description: item.label, color: item.color, dash: item.dash,
+      }))} variableName={props.secondary.label} dimension={props.variable.dimensions[props.curveDimension]?.name ?? "time"}
+        valueLabel={`${props.secondary.label} (${lower[0]?.units ?? units ?? ""})`}
+        timeZone={props.timeZone} log={props.scale === "log" && lowerRange.minimum > 0}
+        yRange={lowerRange} zeroLine={props.secondary.difference} {...interaction} />
+      <div className="curve-legend">{lower.map(item => <span key={item.id}>
+        <svg className="series-key" viewBox="0 0 18 4" aria-hidden="true">
+          <line x1="0" y1="2" x2="18" y2="2" style={{ stroke: item.color, strokeDasharray: item.dash }} />
+        </svg>{item.label}
+      </span>)}</div>
+    </>}
     {loaded?.key !== loadKey && <span className="plot-loading">reading curves…</span>}
   </div>;
 }

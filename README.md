@@ -81,7 +81,7 @@ The resulting binary is located at `target/release/ncx`.
 
 ### URL Parameters
 
-- **Clean Embeds**: Append `chrome=none` to the viewer URL to hide the header, status bar, dataset switcher, and source controls. The host owns source order; variable navigation stays available.
+- **Clean Embeds**: Append `chrome=none` to the viewer URL to hide the header, status bar, Settings button, dataset switcher, and source controls. The host owns source order; variable navigation stays available.
 - **Embedded Mode**: Use `embedded=1` for clean iframe integrations.
 
 ### Sources and embedded API
@@ -163,9 +163,18 @@ Controls wrap when needed; there is no Display menu. The Time control and its
 zone-switching state are removed. The validated `display_zone` URL value fixes
 the display zone for the viewer; without it, the viewer uses UTC.
 
-The icon-only dataset-browser hamburger is in the topbar. When `chrome=none`
-hides the topbar, the same hamburger is in the toolbar. There is no separate
-text-labelled Variables button.
+The gear button opens Settings. Field view settings select arrows or wind barbs,
+U/V components, the pressure component, the base contour interval, and the view
+width × height in pixels. Defaults
+are wind barbs, the current group's ECMWF `u10`/`v10` pair and `msl` pressure, 2 mb, and the current
+view size. Auto restores sizing with the window. Variable axes stay in the toolbar. Apply commits changes; Cancel or Escape discards them. Settings last
+for the viewer session. Component choices belong to each dataset.
+
+The dataset sidebar stays open. Drag its boundary or focus the boundary and use
+arrow keys to resize it. Home/End select the width limits. Its default width is
+256 px, with a 192 px minimum and a 480 px maximum, while reserving 320 px for
+the plot. Small screens scroll horizontally. With `chrome=none`, the settings
+button is in the toolbar.
 
 Standalone dataset navigation and source participation stay available.
 `sessionStorage` keeps dataset/path/view by dataset ID and restores them before
@@ -211,20 +220,28 @@ without changing locked physical offsets and starts an automatic linear range.
 Area probes use paired vector means before calculating wind speed and direction.
 
 **Wind vector** in the field plot legend, or **Wind → On** in the Curve
-toolbar, adds equal-length direction arrows to Field and a wind-barb row
-to time curves. The annotation strip is always reserved in field and curve
-layout, including when Wind is off or unavailable. Field arrows point toward
-motion. Curve barbs use the Style convention: half/full/pennant increments of
+toolbar, adds wind glyphs to Field and a wind-barb row
+to time curves. Field layout always reserves its annotation strip, including when Wind is off
+or unavailable. Curve layout reserves only a compact row above the frame for
+the hover readout; wind barbs sit inside the frame. Field arrows point toward
+motion; field barbs point toward the wind source and encode speed in m/s. Curve barbs use the Style convention: half/full/pennant increments of
 2.5/5/25 m/s, or 5/10/50 knots when the curve unit is `kt`. Hover over the curve or focus a barb
 for the shared tooltip with time, speed, and direction of origin. This tooltip
 follows the data track. It shows one timestamp, then aligned variable and wind
 rows with three decimal places. The increment key is in the curve header and
 uses the barb colour. PNG output includes the marks and their unit key. No weather font is required.
 
-Field arrow spacing is a screen distance, between 34 and 56 px, so a small pane
-thins the arrows out instead of stacking them. Arrow length follows that
-spacing. The field legend names the layer. Field exports contain direction
-arrows without a speed key; Curve exports retain the barb increment key.
+Wind marks stay at their native coordinates. A rectilinear source is thinned in
+grid-index space, so the same grid points are drawn at every plot size. A
+curvilinear or mesh source has no such regularity, so screen bins limit its
+density without moving a mark away from its grid cell.
+
+Glyph spacing is a screen distance, so a small pane thins the field out instead
+of stacking it. Arrow length follows that spacing and the local speed. A barb
+keeps one fixed size at every plot size. The wind lattice holds its positions
+and pressure labels are placed around it. The field legend names the layer.
+Field exports contain the selected wind glyphs; Curve exports retain the barb
+increment key.
 
 Unavailable Wind controls are grey. Hover over the control for the reason.
 Wind component units in metadata, or selected in Metadata, take precedence.
@@ -240,9 +257,12 @@ rectilinear, curvilinear, and node/face mesh fields are supported; projected
 vector rotation and native edge wind positions are not. Added Field component
 reads contain at most 1,000 values each. Mesh anchors use sampled native nodes
 or a representative triangle centre for each sampled face. Small faces can be
-omitted at this display density. Calm and missing vectors have no Field arrow.
+omitted at this display density. Calm wind uses a circle in barb mode and no mark in arrow mode. Missing vectors
+have no mark.
 
-Wind uses the primary source for Curve and each pane's source for Field.
+Wind uses the primary source for Curve and each pane's source for Field. Field
+component choices pass the same unit, coordinate, and dimension checks as the
+automatic pair. A missing explicit choice is not replaced by an automatic pair.
 Model display offsets do not change the physical wind components. Wind off
 makes no additional wind reads. Export
 requires the selected wind data to be ready, or Wind to be off.
@@ -254,6 +274,10 @@ active control is pressed down. At the first frame, First sample and Play
 backward are disabled, grey, and pressed down. At the last frame, Play forward
 and Last sample have the same disabled state. Playback stops at either end;
 it does not wrap around.
+
+During sample changes, pressure contours and wind marks stay visible until their
+replacement data arrives. This avoids blank overlay frames. Export still waits
+for the requested sample; a source or viewport change does not reuse old marks.
 
 ### Field Overlay Legend
 
@@ -275,14 +299,13 @@ Python figures, corrected mismatches, and the update procedure.
 
 ### Field Pressure Contours
 
-**Pressure** in the field plot legend draws isobars every **4 hPa** in the Met
-Office manner: one uniform line weight at every level, with no level made
+**Pressure** in the field plot legend draws isobars at a base interval of **2 mb** by default: one uniform line weight at every level, with no level made
 heavier than another. Visible lines are sampled at 3 px spacing. Two short averaging passes remove
 small wiggles, with displacement limited to 2 px, then two corner-cutting
 passes round the lines. A shared point budget increases that spacing for very dense plots;
 smoothing does not turn off. Small eyes keep their native shape during
 smoothing, and source values do not change. While the estimated visible gap between isobars is under
-13 px the drawn interval doubles, 4 → 8 → 16 → 32 hPa, so a small pane shows
+13 px the drawn interval doubles, 2 → 4 → 8 → 16 hPa, so a small pane shows
 fewer lines instead of a solid block.
 
 Every drawn contour line must have a label, repeated about every 260 px along
@@ -296,7 +319,7 @@ labels, and the frame. Negative levels are dashed.
 Pressure basins must have at least 2 hPa of prominence relative to their spill
 saddle. Each basin retains its strongest native extremum; a flat extremum has
 one stable anchor. A closed isobar at least 2 hPa outward from that value must
-surround the centre. Detection uses all 4 hPa isobars, before display thinning
+surround the centre. Detection uses all base-interval isobars, before display thinning
 or smoothing. Vertices on a data boundary or missing-data edge cannot become
 centres. Stronger prominence wins when marks would be within 64 px. Marks
 show **L** or **H** and the native central value; lines are masked behind them.
@@ -462,3 +485,23 @@ styles are unchanged. Wichary describes the font's history in
 [the hardest working font in Manhattan](https://aresluna.org/the-hardest-working-font-in-manhattan/).
 
 
+
+
+### Generic secondary curve panel
+
+The source API retains version 1 and adds capabilities.secondaryCurve=true.
+setSources accepts optional secondary={label, sources, error?, difference?}. Its sources
+are ordinary supplied series with optional color/dash copied from existing
+source styles; no calculation or provider policy enters ncx. Secondary input
+is bound to the same selection revision and total sample limit as other input.
+Omitting secondary clears it. An empty sources list may retain a labelled
+loading/unavailable panel. The primary and secondary sources replace atomically.
+
+The two curve panels share horizontal range, cursor time, drag selection, unit
+changes, and presentation. They use the same renderer, typography, and aligned
+margins. Secondary Y range is automatic and independent. An explicit difference=true
+marks delta values for unit conversion and includes a zero reference. Ordinary
+secondary series use ordinary unit conversion. Each panel requires matching
+quantity, units, and location across its sources; signed ranges use linear scale. Primary display offsets never change
+secondary samples. Both panels appear in Save PNG. getState remains metadata
+only and reports the feature capability; ncx does not request data from its host.

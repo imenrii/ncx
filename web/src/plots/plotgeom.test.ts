@@ -1,5 +1,6 @@
 import { PLOT_STYLE, plotStyleCss, plotFontSize } from "./plotStyle.ts";
 import { readFileSync } from "node:fs";
+import { curveMargin } from "./curve.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -117,10 +118,13 @@ test("every axis offset scales with the type size", () => {
   assert.equal(tickLength(large), 2 * tickLength(small));
 });
 
-test("the annotation strip is reserved globally, including explicit curve top padding", () => {
+test("curves reserve one readout row while fields retain the annotation strip", () => {
   for (const type of TYPES) {
-    assert.equal(plotMargin(type, { top: 0 }).top, annotationStrip(type));
-    assert.equal(plotMargin(type, { top: 20 }).top, annotationStrip(type) + 20);
+    assert.equal(plotMargin(type, { top: 0 }).top, 0);
+    assert.equal(plotMargin(type, { top: 20 }).top, 20);
+    const top = curveMargin(type).top;
+    assert.ok(top >= type.tick * 1.45, "readout and its gap must fit above the frame");
+    assert.ok(top < type.axis * 2, "curve must not retain the old multi-row barb strip");
     assert.ok(fieldMargin(type).top > annotationStrip(type));
     assert.ok(fieldMargin(type, 144).top >= 144 + type.tick);
     assert.equal(fieldMargin(type, 144).left, fieldMargin(type).left);

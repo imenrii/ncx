@@ -116,23 +116,27 @@ export const PLOT_STYLE = {
   },
 
   wind: {
-    colour: SERIES_PALETTE.green, // Curve barbs; field arrows use ink and a white casing.
-    width: 1.1, // Field arrow stroke, px.
-    casing: 2.4, // Field arrow casing stroke, px.
-    casingOpacity: 0.6,
-    barbWidth: 1.2, // Curve barb stroke, px.
+    colour: SERIES_PALETTE.green, // Curve barbs; field glyphs use ink and a transparent halo.
+    width: 1.3, // Field arrow stroke, px.
+    // A transparent halo: it paints nothing and only holds other line work off
+    // the glyph. A painted casing erases the isobar it crosses, and a
+    // translucent one reads as a grey fringe around every glyph.
+    halo: 4, // Clearance around a field glyph, px.
+    barbWidth: 1.4, // Barb stroke, px.
+    barbLength: 22, // Barb shaft length, px. Fixed at every plot size, like a station plot.
 
-    minSpacing: 26, // Minimum field arrow spacing, px.
-    maxSpacing: 44, // Maximum field arrow spacing, px.
-    cells: 14, // Target number of arrow slots along the shorter plot dimension.
-    lengthRatio: 0.66, // Length of a saturated arrow / lattice spacing; keeps neighbours clear.
+    minSpacing: 26, // Minimum field glyph spacing, px.
+    maxSpacing: 44, // Maximum field glyph spacing, px.
+    cells: 10, // Target number of glyph slots along the shorter plot dimension.
+    lengthRatio: 0.66, // Arrow style only: saturated arrow length / lattice spacing.
     speedQuantile: 0.9, // Speed that saturates the arrow length, as a quantile of drawn speeds.
     minLength: 3, // Shortest drawn arrow, px; slower samples are left blank.
     headLength: 4, // Arrowhead barb length, px.
     headRatio: 0.45, // Arrowhead barb length / arrow length, for short arrows.
     headSpread: 1, // Barb half-width / barb length: about 27 degrees.
+    labelClearance: 0.2, // Gap kept around overlay labels, in label font sizes.
     barbSpacing: 42, // Curve barb spacing, px.
-    barbOffset: 5, // Upward offset from the annotation strip centre, px.
+    barbInset: 18, // Barb row centre below the plot top edge, px.
   },
 
   legend: {

@@ -1,3 +1,4 @@
+import type { FieldSettings } from "../data/fieldSettings";
 import type { Unit } from "../data/units";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -44,6 +45,7 @@ export function ComparisonFieldView({
   targetUnit,
   mapSource,
   wind,
+  fieldSettings,
   overlays,
   probe,
   timeZone,
@@ -67,6 +69,7 @@ export function ComparisonFieldView({
   targetUnit?: Unit;
   mapSource: "none" | "coastline";
   wind?: boolean;
+  fieldSettings: FieldSettings;
   overlays?: OverlayToggles;
   probe: Probe | undefined;
   timeZone: DisplayTimeZone;
@@ -164,7 +167,7 @@ export function ComparisonFieldView({
     .map(derivedValueLabel)
     .find(Boolean);
   return (
-    <section className="figure comparison-field-figure">
+    <section className="figure comparison-field-figure" style={fieldSettings.dimensions}>
       <header className="figure-head">
         <h1>{variableLabel(variable)} fields</h1>
         <span>{[
@@ -194,6 +197,7 @@ export function ComparisonFieldView({
             targetUnit={targetUnit}
             mapSource={mapSource}
             wind={wind}
+            fieldSettings={fieldSettings}
             pressure={pressure}
             overlays={pane === legendPane ? overlays : undefined}
             probe={pane.id === primaryMetadata.dataset_id ? probe : undefined}
@@ -228,6 +232,7 @@ function ComparisonPane({
   targetUnit,
   mapSource,
   wind,
+  fieldSettings,
   overlays,
   probe,
   controlledView,
@@ -247,6 +252,7 @@ function ComparisonPane({
   targetUnit?: Unit;
   mapSource: "none" | "coastline";
   wind?: boolean;
+  fieldSettings: FieldSettings;
   overlays?: OverlayToggles;
   probe: Probe | undefined;
   controlledView?: ViewBounds;
@@ -274,6 +280,7 @@ function ComparisonPane({
     sharedRange: true,
     mapSource,
     wind,
+    fieldSettings,
     overlays,
     pressure,
     probe,

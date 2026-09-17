@@ -395,6 +395,7 @@ export function FieldView(props: FieldViewProps) {
           <svg className="plot-svg" width={frameSize.width} height={frameSize.height} aria-hidden="true">
             {(props.wind || props.pressure || props.mapSource === "coastline") && layout && <FieldOverlays
               metadata={props.metadata} variable={props.variable} wind={props.wind} pressure={props.pressure}
+          settings={props.fieldSettings}
               indices={props.indices} bounds={{ minimumX: xDomain[0], maximumX: xDomain[1], minimumY: yDomain[0], maximumY: yDomain[1] }}
               plot={plot} labelSize={type.tick} reserve={reserve}
               onStatus={props.onStatus}>

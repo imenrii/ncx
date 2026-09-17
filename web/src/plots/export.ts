@@ -293,7 +293,9 @@ export async function exportPlotPng(name: string, options?: ExportOptions): Prom
     else clone(source);
     for (const probe of furniture.querySelectorAll(".probe-mark, .curve-tracker, .curve-zoom-box")) probe.remove();
     retitleAxis(furniture, 0, settings.xTitle);
-    retitleAxis(furniture, 1, settings.yTitle);
+    if (!figure.querySelector(".linked-curves") || frame === frames[0]) {
+      retitleAxis(furniture, 1, settings.yTitle);
+    }
     if (!settings.grid) for (const line of furniture.querySelectorAll(".gridline")) line.remove();
     const planned = layout.frames[index];
     const group = svgElement("g");

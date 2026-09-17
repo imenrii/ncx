@@ -1,3 +1,5 @@
+import type { FieldSettings } from "../data/fieldSettings";
+import type { WindComponents } from "../data/wind";
 import { PLOT_STYLE, centreMarkSize } from "./plotStyle";
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { fetchCoordinate, fetchSlice } from "../data/api";
@@ -7,7 +9,7 @@ import { pressureVariable } from "../data/pressure";
 import type { MeshGeometry } from "./mesh";
 import type { ViewBounds } from "./view";
 import { meshWindAnchors, type FieldVector } from "./windGeometry";
-import { fieldVectorMarks } from "./fieldVectors";
+import { fieldVectorMarks, gridStride, latticeSpacing } from "./fieldVectors";
 import { loadPressureContours } from "./pressureLoad";
 import {
   projectContours, smoothVisibleContours, contourLabels, contourInterval, projectCentres, centreBox,
@@ -16,10 +18,10 @@ import {
 
 type Arrow = FieldVector;
 interface Plot { left: number; top: number; width: number; height: number }
-interface Loaded { key: string; arrows?: Arrow[]; error?: string }
+interface Loaded { key: string; scope: string; arrows?: Arrow[]; thinned?: boolean; error?: string }
 
-export function FieldOverlays({ metadata, variable, wind = false, pressure, indices, bounds, plot, labelSize, geometry, spatialDimension, reserve, onStatus, children }: {
-  metadata: Metadata; variable: Variable; wind?: boolean; pressure?: Variable;
+export function FieldOverlays({ metadata, variable, wind = false, pressure, settings, indices, bounds, plot, labelSize, geometry, spatialDimension, reserve, onStatus, children }: {
+  metadata: Metadata; variable: Variable; wind?: boolean; pressure?: Variable; settings: FieldSettings;
   indices: Record<string, number>; bounds: ViewBounds; plot: Plot; labelSize: number;
   geometry?: MeshGeometry; spatialDimension?: string; reserve?: ContourBox;
   onStatus: (message: string) => void;
@@ -33,59 +35,83 @@ export function FieldOverlays({ metadata, variable, wind = false, pressure, indi
   const maskId = `contour-mask-${id}`;
   const [loadedWind, setLoadedWind] = useState<Loaded>();
   const [loadedPressure, setLoadedPressure] = useState<{
-    key: string; contours?: PressureContour[]; extrema?: PressureCentre[]; error?: string;
+    key: string; scope: string; contours?: PressureContour[]; extrema?: PressureCentre[]; error?: string;
   }>();
-  const key = JSON.stringify([metadata.dataset_id, variable.path, variable.view_hint, indices, bounds, spatialDimension]);
+  const scope = JSON.stringify([metadata.dataset_id, variable.path, variable.view_hint, bounds, spatialDimension]);
   const source = useMemo(() => pressure && pressureVariable(metadata, pressure), [metadata, pressure]);
-  const pressureKey = `${key}:${source?.path}:${JSON.stringify(source?.attributes)}`;
+  const components = settings.components[metadata.dataset_id!];
+  const pair = windPair(metadata, variable, undefined, components).pair;
+  const windScope = JSON.stringify([scope, components, pair?.u.path, pair?.v.path, pair?.uUnit, pair?.vUnit]);
+  const pressureScope = `${scope}:${source?.path}:${JSON.stringify(source?.attributes)}:${settings.pressureInterval}`;
+  // A resize changes the index stride but not the source, so it refetches
+  // without clearing the drawn lattice.
+  const slots = windSlots(plot);
+  const windKey = `${windScope}:${JSON.stringify(indices)}:${slots.x}x${slots.y}`;
+  const pressureKey = `${pressureScope}:${JSON.stringify(indices)}`;
   useEffect(() => {
     if (!wind) return;
     const controller = new AbortController();
-    void loadArrows(metadata, variable, indices, bounds, geometry, spatialDimension, controller.signal)
-      .then(arrows => { if (!controller.signal.aborted) setLoadedWind({ key, arrows }); })
+    void loadArrows(metadata, variable, indices, bounds, plot, geometry, spatialDimension, controller.signal, components)
+      .then(field => { if (!controller.signal.aborted) setLoadedWind({ key: windKey, scope: windScope, ...field }); })
       .catch(cause => {
         if (controller.signal.aborted) return;
         const error = cause instanceof Error ? cause.message : String(cause);
-        setLoadedWind({ key, error }); onStatus(`Wind: ${error}. Turn Wind off and on to retry.`);
+        setLoadedWind({ key: windKey, scope: windScope, error }); onStatus(`Wind: ${error}. Turn Wind off and on to retry.`);
       });
     return () => controller.abort();
-  }, [wind, key, geometry, metadata, variable, onStatus]);
+  }, [wind, windKey, geometry, metadata, variable, onStatus]);
   useEffect(() => {
     if (!pressure) return;
     const controller = new AbortController();
-    const load = source ? loadPressureContours(metadata, variable, source, indices, bounds, geometry, controller.signal)
+    const load = source ? loadPressureContours(metadata, variable, source, indices, bounds, geometry, controller.signal, settings.pressureInterval)
       : Promise.reject(new Error("No matching pressure field in this source"));
-    void load.then(field => { if (!controller.signal.aborted) setLoadedPressure({ key: pressureKey, ...field }); })
+    void load.then(field => { if (!controller.signal.aborted) setLoadedPressure({ key: pressureKey, scope: pressureScope, ...field }); })
       .catch(cause => {
         if (controller.signal.aborted) return;
         const error = cause instanceof Error ? cause.message : String(cause);
-        setLoadedPressure({ key: pressureKey, error }); onStatus(`Pressure contours: ${error}. Turn the layer off and on to retry.`);
+        setLoadedPressure({ key: pressureKey, scope: pressureScope, error }); onStatus(`Pressure contours: ${error}. Turn the layer off and on to retry.`);
       });
     return () => controller.abort();
   }, [Boolean(pressure), pressureKey, source, geometry, metadata, variable, onStatus]);
-  const currentWind = wind && loadedWind?.key === key ? loadedWind : undefined;
+  const currentWind = wind && loadedWind?.key === windKey ? loadedWind : undefined;
   const currentPressure = pressure && loadedPressure?.key === pressureKey ? loadedPressure : undefined;
+  // Retain marks during a sample change, but never reuse them for another
+  // source or viewport. Readiness still requires the requested sample for export.
+  const visibleWind = wind && loadedWind?.scope === windScope ? loadedWind : undefined;
+  const visiblePressure = pressure && loadedPressure?.scope === pressureScope ? loadedPressure : undefined;
   const view = [bounds.minimumX, bounds.maximumX, bounds.minimumY, bounds.maximumY,
     plot.left, plot.top, plot.width, plot.height];
   const { contours: candidates, centres } = useMemo(() => {
-    const all = projectContours(currentPressure?.contours ?? [], bounds, plot);
-    const centres = projectCentres(currentPressure?.extrema ?? [], all, bounds, plot, textSize, markSize);
-    const interval = contourInterval(all, plot);
-    const drawn = smoothVisibleContours(all.filter(contour => contour.level % interval === 0), plot);
+    const all = projectContours(visiblePressure?.contours ?? [], bounds, plot);
+    const centres = projectCentres(visiblePressure?.extrema ?? [], all, bounds, plot, textSize, markSize);
+    const interval = contourInterval(all, plot, settings.pressureInterval);
+    const drawn = smoothVisibleContours(all.filter(contour => Math.abs(contour.level / interval - Math.round(contour.level / interval)) < 1e-7), plot);
     return { contours: drawn, centres };
-  }, [currentPressure, textSize, markSize, ...view]);
+  }, [visiblePressure, settings.pressureInterval, textSize, markSize, ...view]);
   const centreBoxes = useMemo(() => centres.map(centre => centreBox(centre, textSize, markSize)),
     [centres, textSize, markSize]);
   const reserved = useMemo(() => [...centreBoxes, ...(reserve ? [reserve] : [])],
     [centreBoxes, reserve?.left, reserve?.right, reserve?.top, reserve?.bottom]);
-  const labels = useMemo(() => contourLabels(candidates, plot, textSize, reserved),
-    [candidates, reserved, textSize, ...view]);
+  // The wind lattice is the fixed scaffold, as on a station plot: a label can
+  // slide along its own line, a glyph cannot move, and a hole punched in a
+  // regular lattice is more visible than the collision it avoids.
+  const marks = useMemo(() => fieldVectorMarks(visibleWind?.arrows ?? [], bounds, plot,
+    reserved, settings.windStyle, textSize * PLOT_STYLE.wind.labelClearance, visibleWind?.thinned),
+    [visibleWind, reserved, settings.windStyle, textSize, ...view]);
+  // Clearance around a label is a property of the type, not of the pane: at one
+  // label font size it stays legible in a small plot without opening a hole.
+  // The lattice is only preferred clear: a line that finds no slot beside it
+  // still takes its label, because an unlabelled line is not drawn at all.
+  const labels = useMemo(() => contourLabels(candidates, plot, textSize, reserved,
+    marks.map(mark => mark.box)),
+    [candidates, reserved, marks, textSize, ...view]);
   // Each visible run must earn its own label, including disconnected runs at the same level.
   const contours = useMemo(() => [...new Set(labels.map(label => label.contour))], [labels]);
-  // Labels name specific lines; arrows yield any slot that overlaps a label.
-  const marks = useMemo(() => fieldVectorMarks(currentWind?.arrows ?? [], bounds, plot,
-    [...reserved, ...labels.map(label => label.box)]),
-    [currentWind, reserved, labels, ...view]);
+  // Only the few glyphs a label had to land on give way.
+  const glyphs = useMemo(() => marks.filter(mark => !labels.some(label =>
+    mark.box.left < label.box.right && mark.box.right > label.box.left &&
+    mark.box.top < label.box.bottom && mark.box.bottom > label.box.top)),
+    [marks, labels]);
   const contourPaths = useMemo(() => {
     const levels = new Map<number, string[]>();
     for (const contour of contours) {
@@ -95,7 +121,11 @@ export function FieldOverlays({ metadata, variable, wind = false, pressure, indi
     }
     return [...levels].map(([level, paths]) => ({ level, path: paths.join("") }));
   }, [contours]);
-  const windPath = marks.map(mark => mark.path).join("");
+  const barbs = settings.windStyle === "barb";
+  // Calm rings carry no fill; every other glyph does, so a pennant knocks the
+  // field out along with its outline.
+  const windPath = glyphs.filter(mark => !mark.calm).map(mark => mark.path).join("");
+  const calmPath = glyphs.filter(mark => mark.calm).map(mark => mark.path).join("");
   return <g className="field-overlays" pointerEvents="none">
     <defs>
       <clipPath id={id}><rect x={plot.left} y={plot.top} width={plot.width} height={plot.height} /></clipPath>
@@ -123,10 +153,15 @@ export function FieldOverlays({ metadata, variable, wind = false, pressure, indi
     {children}
     {wind && <g className="wind-field" data-wind={currentWind?.error ? "error" : currentWind?.arrows ? "ready" : "loading"}>
       {currentWind?.error && <text className="wind-key" x={8} y={plot.top - 20}>Wind unavailable</text>}
-      <g clipPath={`url(#${id})`} strokeLinecap="round" strokeLinejoin="round">
-        {/* A wider casing makes the arrow read white on a dark colour map. */}
-        <path d={windPath} fill="none" stroke={PLOT_STYLE.paper} strokeWidth={PLOT_STYLE.wind.casing} opacity={PLOT_STYLE.wind.casingOpacity} />
-        <path className="wind-arrows" d={windPath} fill="none" stroke={PLOT_STYLE.ink} strokeWidth={PLOT_STYLE.wind.width} />
+      {/* The glyph carries a transparent halo, not a painted casing: the halo
+          keeps labels and centre marks off the glyph, and leaves the isobar it
+          crosses whole. One pass per fill keeps a dense field to two paths. */}
+      <g className={barbs ? "wind-field-barbs" : undefined} clipPath={`url(#${id})`}
+        strokeLinecap="round" strokeLinejoin="round">
+        <path className={barbs ? undefined : "wind-arrows"} d={windPath}
+          fill={barbs ? PLOT_STYLE.ink : "none"} stroke={PLOT_STYLE.ink}
+          strokeWidth={barbs ? PLOT_STYLE.wind.barbWidth : PLOT_STYLE.wind.width} />
+        <path d={calmPath} fill="none" stroke={PLOT_STYLE.ink} strokeWidth={PLOT_STYLE.wind.barbWidth} />
       </g>
     </g>}
     <g className="pressure-contour-labels" clipPath={`url(#${id})`}>
@@ -143,10 +178,19 @@ export function FieldOverlays({ metadata, variable, wind = false, pressure, indi
   </g>;
 }
 
-async function loadArrows(metadata: Metadata, variable: Variable, indices: Record<string, number>, bounds: ViewBounds, geometry: MeshGeometry | undefined, spatialDimension: string | undefined, signal: AbortSignal): Promise<Arrow[]> {
-  const reason = fieldWindReason(metadata, variable);
+/** Glyph slots across and down the pane, and so the number of grid points a
+    regular source is thinned to. */
+function windSlots(plot: Plot) {
+  const spacing = latticeSpacing(plot);
+  return { x: Math.max(1, Math.round(plot.width / spacing)), y: Math.max(1, Math.round(plot.height / spacing)) };
+}
+
+const MAX_WIND_SAMPLES = 31;
+
+async function loadArrows(metadata: Metadata, variable: Variable, indices: Record<string, number>, bounds: ViewBounds, plot: Plot, geometry: MeshGeometry | undefined, spatialDimension: string | undefined, signal: AbortSignal, components?: WindComponents): Promise<{ arrows: Arrow[]; thinned: boolean }> {
+  const reason = fieldWindReason(metadata, variable, components);
   if (reason) throw new Error(reason);
-  const match = windPair(metadata, variable);
+  const match = windPair(metadata, variable, undefined, components);
   if (!match.pair) throw new Error(match.reason);
   const pair = match.pair, hint = pair.u.view_hint;
   if (hint.kind === "plain") throw new Error("Wind requires geographic coordinates");
@@ -180,10 +224,20 @@ async function loadArrows(metadata: Metadata, variable: Variable, indices: Recor
       record(xVariable.dimensions[0].path, Math.floor(i / columns)); record(xVariable.dimensions[1].path, i % columns);
     }
   } else if (mesh?.range) visible.set(spatial[0], mesh.range);
-  if (spatial.some(path => !visible.has(path))) return [];
+  if (spatial.some(path => !visible.has(path))) return { arrows: [], thinned: false };
+  // A rectilinear source is a regular lattice already. Thinning it by index
+  // keeps the drawn field regular and keeps a grid point in place across zoom
+  // and resize; a curvilinear or mesh source has no such regularity and is
+  // fetched densely, then thinned by screen bins where it is drawn.
+  const thinned = hint.kind === "rectilinear";
+  const slots = windSlots(plot);
   for (const path of spatial) {
     const range = visible.get(path)!;
-    ranges.set(path, { start: range.min, stop: range.max + 1, stride: Math.max(1, Math.ceil((range.max - range.min + 1) / (spatial.length === 2 ? 31 : 1000))) });
+    if (thinned) {
+      ranges.set(path, gridStride(range, path === xVariable.dimensions[0].path ? slots.x : slots.y, MAX_WIND_SAMPLES));
+      continue;
+    }
+    ranges.set(path, { start: range.min, stop: range.max + 1, stride: Math.max(1, Math.ceil((range.max - range.min + 1) / (spatial.length === 2 ? MAX_WIND_SAMPLES : 1000))) });
   }
   const { request, shape } = windSampleRequest(pair.u, ranges, indices, metadata.limits.max_response_bytes);
   const u = await fetchSlice(request, signal);
@@ -191,7 +245,7 @@ async function loadArrows(metadata: Metadata, variable: Variable, indices: Recor
   if (u.shape.join() !== shape.join() || v.shape.join() !== shape.join()) throw new Error("Wind response differs from its sample plan");
   const values = windValues(u.values, v.values, pair);
   const ordered = pair.u.dimensions.filter(dim => ranges.has(dim.path));
-  return Array.from(values.u, (east, slot) => {
+  const arrows = Array.from(values.u, (east, slot) => {
     const native: Record<string, number> = {};
     let remaining = slot;
     for (let axis = ordered.length - 1; axis >= 0; axis -= 1) {
@@ -207,4 +261,6 @@ async function loadArrows(metadata: Metadata, variable: Variable, indices: Recor
     } else position = mesh?.anchors.get(native[spatial[0]]);
     return { longitude: position?.[0] ?? NaN, latitude: position?.[1] ?? NaN, u: east, v: values.v[slot] };
   });
+
+  return { arrows, thinned };
 }

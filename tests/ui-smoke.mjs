@@ -60,6 +60,7 @@ window.fetch = async (...arguments) => {
   if (window.__ncxFailPressure && target.includes('/api/data?') && decodeURIComponent(target).includes('path=/msl')) {
     return new Response('pressure unavailable', { status: 503 });
   }
+  if (window.__ncxHoldFrame && target.includes('/api/data?')) await window.__ncxHoldFrame;
   const scalar = target.includes("/api/data?") && decodeURIComponent(target).includes("path=/temperature");
   if (scalar) {
     window.__ncxScalarReads += 1;
@@ -391,24 +392,9 @@ try {
     if (Math.abs(main.top - bounds.top) > 1 || Math.abs(main.bottom - bounds.bottom) > 1) {
       failures.push("hidden chrome reserves vertical space");
     }
-    const toggle = shell.querySelector(".embedded-navigation .menu-button");
-    if (!toggle) throw new Error("embedded browser toggle missing");
-    toggle.focus();
-    if (document.activeElement !== toggle) failures.push("embedded toggle cannot take keyboard focus");
-    toggle.click();
-    await waitFor(() => shell.dataset.sidebar === "closed", "embedded sidebar did not close");
-    toggle.click();
-    await waitFor(() => shell.dataset.sidebar === "open", "embedded sidebar did not reopen");
-    const box = toggle.getBoundingClientRect();
-    const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
-    if (!toggle.contains(hit)) failures.push("sidebar overlay covers embedded toggle");
-    if (innerWidth <= 760) {
-      toggle.click();
-      await waitFor(() => shell.dataset.sidebar === "closed", "narrow sidebar did not close");
-    }
   } else {
     const topbarBounds = topbar.getBoundingClientRect();
-    if (Math.abs(topbarBounds.height - 32) > 0.1 || Math.abs(topbarBounds.width - document.documentElement.clientWidth) > 0.1) {
+    if (Math.abs(topbarBounds.height - 32) > 0.1 || Math.abs(topbarBounds.width - shell.clientWidth) > 0.1) {
       failures.push("topbar is not full-width by 32 px");
     }
     if (!shell.querySelector(".statusbar")) failures.push("standalone statusbar missing");
@@ -417,9 +403,10 @@ try {
     const brandBounds = brand.getBoundingClientRect();
     const pathBounds = path.getBoundingClientRect();
     const centerOffset = (brandBounds.top + brandBounds.bottom - pathBounds.top - pathBounds.bottom) / 2;
-    if (Math.abs(centerOffset + 3) > 0.5 || getComputedStyle(brand).fontSize !== "18px" ||
+    if (Math.abs(centerOffset) > 0.5 || Math.abs(brandBounds.height - 20.5) > 0.1 ||
+        getComputedStyle(brand).fontSize !== "18px" ||
         getComputedStyle(brand).fontWeight !== "600") {
-      failures.push("topbar wordmark lost its independent optical alignment or original size/weight");
+      failures.push("topbar wordmark lost its centered box, 20.5px height, or original size/weight");
     }
     if (getComputedStyle(path).fontSize !== "14px" || getComputedStyle(path).fontWeight !== "450") {
       failures.push("topbar path lost its original 14px/450 setting");
@@ -434,25 +421,95 @@ try {
     });
     if (Math.max(...baselines) - Math.min(...baselines) > 0.5) failures.push("path text baselines differ: " + baselines);
   }
-  const browserMenu = shell.querySelector(chromeHidden ? ".toolbar .menu-button" : ".topbar .menu-button");
-  if (!browserMenu || browserMenu.textContent.trim() ||
-      browserMenu.getAttribute("aria-label") !== "Toggle dataset browser" ||
-      shell.querySelectorAll(".menu-button").length !== 1) {
-    failures.push("legacy icon-only browser menu is missing or duplicated");
+  const settingsButton = shell.querySelector(chromeHidden ? ".toolbar .settings-button" : ".topbar .settings-button");
+  if (!settingsButton?.querySelector('svg') || settingsButton.getAttribute('aria-label') !== 'Settings' ||
+      shell.querySelectorAll('.settings-button').length !== 1 || shell.querySelector('.menu-button')) {
+    failures.push('settings SVG button is missing or duplicated');
   }
-  if (browserMenu) {
-    const icon = getComputedStyle(browserMenu, "::before");
-    if (icon.width !== "14px" || icon.boxShadow === "none") failures.push("hamburger geometry is missing");
-    const bounds = browserMenu.getBoundingClientRect();
-    if (!browserMenu.contains(document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2))) {
-      failures.push("variable browser covers its hamburger");
+  settingsButton.focus();
+  if (!matchMedia('(pointer: coarse)').matches) {
+    const box = settingsButton.getBoundingClientRect();
+    const icon = settingsButton.querySelector('svg').getBoundingClientRect();
+    if (box.width !== 33 || box.height !== 33 || icon.width !== 22 || icon.height !== 22 ||
+        getComputedStyle(settingsButton).borderStyle !== 'none') failures.push('settings button dimensions or border differ');
+    const separator = getComputedStyle(settingsButton, '::after');
+    if (separator.width !== '1px' || separator.right !== '0px') failures.push('settings right separator is missing');
+  }
+  settingsButton.click();
+  const settings = await waitFor(() => document.querySelector('.settings-dialog[open]'), 'settings did not open');
+  if (!settings.contains(document.activeElement)) failures.push('settings did not receive focus');
+  for (const box of settings.querySelectorAll('select, button, .chip.custom')) {
+    if (Math.abs(box.getBoundingClientRect().height - 24) > 0.1) failures.push('settings box is not 24px high: ' + box.outerHTML);
+  }
+  const dimensionChips = settings.querySelectorAll('.settings-dimensions .chip.custom');
+  const numericWidth = dimensionChips[0].getBoundingClientRect().width;
+  if ([...settings.querySelectorAll('.chip.custom')].some(chip =>
+    Math.abs(chip.getBoundingClientRect().width - numericWidth) > 0.1)) failures.push('settings numeric chips have different outer widths');
+  const autoBox = settings.querySelector('.settings-dimensions button').getBoundingClientRect();
+  const lastDimensionBox = dimensionChips[1].getBoundingClientRect();
+  if (autoBox.left < lastDimensionBox.right || Math.abs(autoBox.top - lastDimensionBox.top) > 2.1) failures.push('Auto is not beside dimensions');
+  if (!settings.querySelector('[aria-label="Wind barb"] path').getAttribute('transform').includes('rotate(30)')) failures.push('wind barb is not N30E');
+  if (settings.querySelector('[aria-label="Wind barb"]').getAttribute('aria-pressed') !== 'true' ||
+      settings.querySelector('[aria-label="Pressure contour interval in mb"]').value !== '2') failures.push('field settings defaults differ');
+  const intervalInput = settings.querySelector('[aria-label="Pressure contour interval in mb"]');
+  const setSetting = (value) => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(intervalInput, value);
+    intervalInput.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  setSetting('0');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  settings.querySelector('button.primary').click();
+  await waitFor(() => settings.querySelector('[role="alert"]'), 'invalid interval was accepted');
+  settings.querySelector('[aria-label="Wind arrow"]').click();
+  settings.close();
+  await waitFor(() => !document.querySelector('.settings-dialog'), 'settings did not cancel');
+  settingsButton.click();
+  const reopened = await waitFor(() => document.querySelector('.settings-dialog[open]'), 'settings did not reopen');
+  if (reopened.querySelector('[aria-label="Wind barb"]').getAttribute('aria-pressed') !== 'true' ||
+      reopened.querySelector('[aria-label="Pressure contour interval in mb"]').value !== '2') failures.push('cancel committed settings');
+  reopened.querySelector('button.primary').click();
+  await waitFor(() => !document.querySelector('.settings-dialog'), 'settings did not apply');
+  if (document.activeElement !== settingsButton) failures.push('settings did not restore button focus');
+  if (browserMode === 'rectilinear') {
+    const figure = document.querySelector('.stage > .figure');
+    const axes = [...document.querySelectorAll('.axis-control select')].map(select => select.value);
+    settingsButton.click();
+    const sizeDialog = await waitFor(() => document.querySelector('.settings-dialog[open]'), 'view dimensions missing');
+    const before = figure.getBoundingClientRect();
+    if (Number(sizeDialog.querySelector('[aria-label="Field view width in pixels"]').value) !== Math.round(before.width) ||
+        Number(sizeDialog.querySelector('[aria-label="Field view height in pixels"]').value) !== Math.round(before.height)) failures.push('dimensions did not default to the current view');
+    if (sizeDialog.querySelector('[aria-labelledby$="-dimensions"] select')) failures.push('dimensions still select variables');
+    for (const [axis, value] of [['width', '640'], ['height', '480']]) {
+      const input = sizeDialog.querySelector('[aria-label="Field view ' + axis + ' in pixels"]');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
     }
-    const before = shell.dataset.sidebar;
-    browserMenu.click();
-    await waitFor(() => shell.dataset.sidebar !== before, "hamburger did not toggle the sidebar");
-    browserMenu.click();
-    await waitFor(() => shell.dataset.sidebar === before, "hamburger did not restore the sidebar");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    sizeDialog.querySelector('button.primary').click();
+    await waitFor(() => figure.getBoundingClientRect().width === 640 && figure.getBoundingClientRect().height === 480,
+      'pixel dimensions did not resize the field view');
+    if (JSON.stringify(axes) !== JSON.stringify([...document.querySelectorAll('.axis-control select')].map(select => select.value))) failures.push('view dimensions changed variable axes');
+    settingsButton.click();
+    const autoDialog = await waitFor(() => document.querySelector('.settings-dialog[open]'), 'view dimensions did not reopen');
+    if (autoDialog.querySelector('[aria-label="Field view width in pixels"]').value !== '640') failures.push('view dimensions were not retained');
+    [...autoDialog.querySelectorAll('button')].find(button => button.textContent === 'Auto').click();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    autoDialog.querySelector('button.primary').click();
+    await waitFor(() => !figure.style.width && !document.querySelector('.settings-dialog'), 'Auto did not restore fluid dimensions');
   }
+  const divider = shell.querySelector('[role="separator"][aria-label="Sidebar width"]');
+  if (!divider) throw new Error('sidebar divider missing');
+  const initialWidth = Number(divider.getAttribute('aria-valuenow'));
+  for (const [key, attribute] of [['End', 'aria-valuemax'], ['Home', 'aria-valuemin']]) {
+    divider.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+    await waitFor(() => divider.getAttribute('aria-valuenow') === divider.getAttribute(attribute), 'sidebar did not clamp at ' + key);
+    if (shell.querySelector('.sidebar').getBoundingClientRect().width < 192) failures.push('sidebar collapsed');
+  }
+  while (Number(divider.getAttribute('aria-valuenow')) < initialWidth) {
+    divider.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+  if (shell.hasAttribute('data-sidebar')) failures.push('sidebar collapse state remains');
   if (shell.querySelector('.sidebar-toggle,.plot-settings,[aria-label="Displayed time zone"]')) {
     failures.push("removed Variables, Display, or Time controls remain");
   }
@@ -528,6 +585,35 @@ try {
     };
     const windReads = () => window.__ncxFetches.filter(url => ['path=/u10', 'path=/v10'].some(path => decodeURIComponent(url).includes(path))).length;
     const fieldCanvas = () => document.querySelector('.field-canvas, .mesh-canvas');
+    await layer('Wind vector', true);
+    await waitFor(() => document.querySelector('.wind-field[data-wind="ready"] .wind-field-barbs path'), 'default field barbs did not render');
+    window.__ncxExpectedWind = '.wind-field-barbs';
+    document.querySelector('.screenshot-button').click();
+    await saveOpenDialog(await waitFor(() => document.querySelector('.save-dialog[open]'), 'barb export missing'));
+    window.__ncxExpectedWind = undefined;
+    settingsButton.click();
+    const pairSettings = await waitFor(() => document.querySelector('.settings-dialog[open]'), 'component settings missing');
+    const uComponent = pairSettings.querySelector('[aria-label="Eastward wind component"]');
+    const vComponent = pairSettings.querySelector('[aria-label="Northward wind component"]');
+    if (!uComponent.value.endsWith('/u10') || !vComponent.value.endsWith('/v10')) failures.push('ECMWF defaults missing');
+    if (!pairSettings.querySelector('[aria-label="Pressure component"]').value.endsWith('/msl')) failures.push('ECMWF pressure default missing');
+    uComponent.value = vComponent.value;
+    uComponent.dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    pairSettings.querySelector('button.primary').click();
+    await waitFor(() => pairSettings.querySelector('[role="alert"]'), 'duplicate wind component was accepted');
+    pairSettings.close();
+    await waitFor(() => !document.querySelector('.settings-dialog'), 'component cancel did not close');
+    const beforeStyleReads = windReads();
+    settingsButton.click();
+    const windSettings = await waitFor(() => document.querySelector('.settings-dialog[open]'), 'wind settings missing');
+    windSettings.querySelector('[aria-label="Wind arrow"]').click();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    windSettings.querySelector('button.primary').click();
+    await waitFor(() => document.querySelector('.wind-arrows')?.getAttribute('d'), 'arrow setting did not apply');
+    if (windReads() !== beforeStyleReads) failures.push('wind style refetched components');
+    await layer('Wind vector', false);
+    const initialWindReads = windReads();
     if (${JSON.stringify(assignUnits)}) {
       window.__ncxStep = 'session unit assignments';
       if (overlay('Wind vector')?.disabled) failures.push('ECMWF defaults did not enable Wind');
@@ -610,12 +696,26 @@ try {
       await waitFor(() => document.querySelector('[data-pressure="ready"] .pressure-contour')?.getAttribute('d'), 'pressure contours did not render');
       const addedReads = pressureReads() - startReads;
       if (addedReads !== 1) failures.push('pressure contours did not use one bounded grid read');
+      for (const value of ['0.5', '2']) {
+        settingsButton.click();
+        const intervalDialog = await waitFor(() => document.querySelector('.settings-dialog[open]'), 'contour settings missing');
+        const input = intervalDialog.querySelector('[aria-label="Pressure contour interval in mb"]');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        await new Promise(resolve => setTimeout(resolve, 0));
+        intervalDialog.querySelector('button.primary').click();
+        await waitFor(() => !document.querySelector('.settings-dialog'), 'contour interval did not apply');
+        await waitFor(() => {
+          const levels = [...document.querySelectorAll('[data-pressure="ready"] .pressure-contour')].map(line => Number(line.dataset.level));
+          return levels.length && (value === '0.5' ? levels.some(level => level % 1 !== 0) : levels.every(level => level % 2 === 0));
+        }, 'custom contour interval did not update generated levels');
+      }
       const pressureBeforeWind = pressureReads();
       await layer('Wind vector', true);
       await waitFor(() => document.querySelector('[data-wind="ready"] .wind-arrows')?.getAttribute('d'), 'wind did not render with contours');
       if (pressureReads() !== pressureBeforeWind) failures.push('Wind toggle refetched pressure');
       const contours = [...document.querySelectorAll('.pressure-contour')];
-      if (document.querySelector('.pressure-arrows') || !contours.length || contours.some(path => Number(path.dataset.level) % 4 !== 0)) failures.push('pressure is not drawn as 4 hPa contours');
+      if (document.querySelector('.pressure-arrows') || !contours.length || contours.some(path => Number(path.dataset.level) % 2 !== 0)) failures.push('pressure is not drawn as 2 mb contours');
       if (contours.some(path => Number(path.getAttribute('stroke-width')) !== ${JSON.stringify(PLOT_STYLE.pressure.width)})) failures.push('pressure contours do not use one uniform weight');
       if (document.querySelector('.pressure-key')) failures.push('unexpected contour interval key on the plot');
       const labels = [...document.querySelectorAll('.pressure-contour-label')];
@@ -627,7 +727,28 @@ try {
       const drawn = new Set(contours.map(path => Number(path.dataset.level)));
       if (!labels.length || labels.some(label => !drawn.has(Number(label.textContent)))) failures.push('contour labels do not name drawn levels');
       if (labels.some(label => label.getAttribute('stroke'))) failures.push('contour labels use a halo instead of a break in the line');
-      // Arrows yield their slot to a label, so only the untouched ones must match.
+      const playback = document.querySelector('[aria-label="Play forward"]');
+      if (playback && !playback.disabled) {
+        const previousContours = document.querySelector('.pressure-contours').innerHTML;
+        const previousWind = document.querySelector('.wind-arrows').getAttribute('d');
+        let releaseFrame;
+        window.__ncxHoldFrame = new Promise(resolve => { releaseFrame = resolve; });
+        playback.click();
+        await waitFor(() => document.querySelector('[data-pressure="loading"]') &&
+          document.querySelector('[data-wind="loading"]'), 'playback did not request the next overlays');
+        document.querySelector('[aria-label="Stop"]').click();
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        if (document.querySelector('.pressure-contours').innerHTML !== previousContours ||
+            document.querySelector('.wind-arrows')?.getAttribute('d') !== previousWind) {
+          failures.push('playback cleared overlays while the next frame was pending');
+        }
+        window.__ncxHoldFrame = undefined;
+        releaseFrame();
+        await waitFor(() => document.querySelector('[data-pressure="ready"]') &&
+          document.querySelector('[data-wind="ready"]'), 'playback overlays did not finish');
+      }
+      // Arrows hold the lattice against labels, and yield only to a centre mark,
+      // so every arrow drawn with contours on must survive with them off.
       const windSamples = document.querySelector('.wind-arrows').getAttribute('d').split('M').filter(Boolean);
       const canvas = fieldCanvas(), bounds = canvas.getBoundingClientRect();
       canvas.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: bounds.left + bounds.width / 2, clientY: bounds.top + bounds.height / 2 }));
@@ -644,7 +765,7 @@ try {
       await waitFor(() => !document.querySelector('[data-pressure]'), 'contours did not turn off');
       if (windReads() !== windBeforeOff) failures.push('contour toggle refetched wind');
       const windWithoutContours = new Set(document.querySelector('.wind-arrows').getAttribute('d').split('M').filter(Boolean));
-      if (!windSamples.length || windSamples.some(path => !windWithoutContours.has(path))) failures.push('contours moved the arrows that did not meet a label');
+      if (!windSamples.length || windSamples.some(path => !windWithoutContours.has(path))) failures.push('contours moved the arrows that did not meet a centre mark');
       window.__ncxFailPressure = true;
       await layer('Pressure', true);
       await waitFor(() => document.querySelector('[data-pressure="error"]'), 'pressure read error was not reported');
@@ -661,7 +782,7 @@ try {
       await layer('Wind vector', false);
       await waitFor(() => !document.querySelector('[data-wind], [data-pressure]'), 'vector layers did not close');
     }
-    if (!${JSON.stringify(assignUnits || pressureMode)} && windReads() !== 0) failures.push('Wind Off read component data');
+    if (!${JSON.stringify(assignUnits || pressureMode)} && windReads() !== initialWindReads) failures.push('Wind Off read component data');
     await layer('Wind vector', true);
     await waitFor(() => document.querySelector('.wind-field[data-wind="ready"] .wind-arrows')?.getAttribute('d'), 'wind arrows did not load');
     if (fieldCanvas().style.top !== fieldTop) failures.push('Wind changed the reserved field strip');
@@ -679,7 +800,10 @@ try {
     if (marks.length !== 2 || marks.some(box => Math.abs(box.height - 14) > 0.5 || box.width / box.height > 4 ||
         Math.abs(box.width - marks[0].width) > 0.5)) failures.push('overlay marks are not one equal, bounded column');
     const words = [...legend.querySelectorAll('.overlay-toggle span')].map(span => span.getBoundingClientRect());
-    if (Math.abs(words[0].left - words[1].left) > 0.5) failures.push('overlay labels do not align');
+    const reset = stack.querySelector('[title="Reset view"]');
+    const resetCss = getComputedStyle(reset);
+    const resetTextLeft = reset.getBoundingClientRect().left + parseFloat(resetCss.borderLeftWidth) + parseFloat(resetCss.paddingLeft);
+    if (words.some((word, index) => Math.abs(word.left + parseFloat(getComputedStyle(legend.querySelectorAll('.overlay-toggle span')[index]).paddingLeft) - resetTextLeft) > 0.5)) failures.push('overlay labels do not align with Reset text');
     if (getComputedStyle(legend.querySelector('.overlay-toggle')).borderStyle !== 'none') failures.push('the overlay legend draws a boundary');
     const hitHeight = matchMedia('(pointer: coarse)').matches ? 44 : 24;
     if ([...legend.querySelectorAll('button')].some(button => button.getBoundingClientRect().height < hitHeight)) {
@@ -698,7 +822,7 @@ try {
     document.querySelector('.screenshot-button').click();
     await saveOpenDialog(await waitFor(() => document.querySelector('.save-dialog[open]'), 'wind save dialog missing'));
     tab('Curve');
-    await waitFor(() => document.querySelector('.wind-barb'), 'barbs did not appear above pressure curve');
+    await waitFor(() => document.querySelector('.wind-barb'), 'barbs did not appear inside pressure curve');
     const curveTop = document.querySelector('.curve-axis > rect').getAttribute('y');
     const axis = () => document.querySelector('.curve-axis')?.dataset.yDomain;
     const nativeRange = axis().split(',').map(Number);
@@ -729,8 +853,30 @@ try {
     if (rows[0]?.querySelector('.curve-tooltip-label')?.textContent.trim() !== 'msl:' ||
         rows[1]?.querySelector('.curve-tooltip-label')?.textContent.trim() !== '10m wind:') failures.push('tooltip row names do not match the requested format');
     const values = rows.map(row => row.querySelector('.curve-tooltip-value'));
-    if (values.some(value => !/^-?\\d+\\.\\d{3}$/.test(value.textContent.trim())) ||
-        Math.abs(values[0].getBoundingClientRect().right - values[1].getBoundingClientRect().right) > 1) failures.push('tooltip values do not have aligned three-decimal precision');
+    if (values.some(value => !/^-?\\d+\\.\\d{3}$/.test(value.textContent.trim()))) failures.push('tooltip values lost their three-decimal precision');
+    const strong = Number.parseInt(getComputedStyle(values[0]).fontWeight, 10);
+    const unit = rows[0].querySelector('span:last-child');
+    if (strong < 600 || Number.parseInt(getComputedStyle(unit).fontWeight, 10) !== strong ||
+        Number.parseInt(getComputedStyle(rows[0].querySelector('.curve-tooltip-label')).fontWeight, 10) >= strong) {
+      failures.push('rail readings and units are not the only bold text');
+    }
+    const plotRect = document.querySelector('.curve-axis > rect');
+    const railBox = tooltip.getBoundingClientRect(), svgBox = document.querySelector('.curve-svg').getBoundingClientRect();
+    if (Math.abs(railBox.left - svgBox.left - Number(plotRect.getAttribute('x'))) > 1 ||
+        railBox.top < svgBox.top ||
+        railBox.bottom > svgBox.top + Number(plotRect.getAttribute('y')) + 1) {
+      failures.push('the rail is not anchored in the strip above the plot');
+    }
+    if (Number(plotRect.getAttribute('y')) > railBox.height * 2) {
+      failures.push('curve retained excess space above the one-line readout');
+    }
+    const barbClip = document.querySelector('.wind-barbs clipPath rect');
+    if (!barbClip || ['x', 'y', 'width', 'height'].some(name => barbClip.getAttribute(name) !== plotRect.getAttribute(name))) {
+      failures.push('wind barbs are not held inside the axis boundary');
+    }
+    if (Number(document.querySelector('.wind-barb').getAttribute('transform').match(/translate\\([^ ]+ ([^)]+)\\)/)[1]) <= Number(plotRect.getAttribute('y'))) {
+      failures.push('wind barbs still sit above the plot frame');
+    }
     const key = document.querySelector('.curve-head .wind-key');
     if (!key || document.querySelector('.wind-barbs .wind-key') || getComputedStyle(key).color !== getComputedStyle(barb.querySelector('path')).stroke) failures.push('wind key is not in the header with the barb colour');
     const curveSvg = document.querySelector('.curve-svg');
@@ -746,13 +892,11 @@ try {
       const marker = document.querySelector('.hover-dot');
       if (!tooltip?.querySelector('[data-wind-time]') || document.querySelectorAll('.plot-tooltip').length !== 1) throw new Error('track tooltip omitted wind or duplicated the readout');
       if (Number.parseFloat(getComputedStyle(tooltip.querySelector('span')).fontSize) < 12) failures.push('curve tooltip text is below the Style minimum');
-      const top = Number.parseFloat(tooltip.style.top);
-      const expected = Math.max(8, Math.min(bounds.height - tooltip.offsetHeight - 8, Number(marker.getAttribute('cy')) - 48));
-      if (Math.abs(top - expected) > 1) failures.push('curve tooltip does not follow the data track');
-      return top;
+      if (!marker) failures.push('curve hover lost its data marker');
+      return tooltip.getBoundingClientRect().top;
     };
     const firstTop = await moveTrack(0.3), lastTop = await moveTrack(0.7);
-    if (Math.abs(firstTop - lastTop) < 10) failures.push('curve tooltip is pinned instead of following the track');
+    if (Math.abs(firstTop - lastTop) > 1) failures.push('the curve rail moves with the pointer instead of staying anchored');
     curveSvg.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }));
     await waitFor(() => !document.querySelector('.curve-tooltip'), 'Escape did not dismiss the shared tooltip');
     barb.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch' }));
@@ -777,13 +921,25 @@ try {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(sharedOffset, '3');
     sharedOffset.dispatchEvent(new Event('input', { bubbles: true }));
     await waitFor(() => Math.abs(Number(axis()?.split(',')[0]) - nativeWindMinimum - 3) < 0.001, 'wind component offset did not apply');
+    const hoverMove = () => {
+      const svg = document.querySelector('.curve-svg'), box = svg.getBoundingClientRect();
+      svg.dispatchEvent(new PointerEvent('pointermove', { bubbles: true,
+        clientX: box.left + box.width * 0.5, clientY: box.top + box.height * 0.5 }));
+    };
+    const readValue = () => Number(document.querySelector('.curve-tooltip [data-series]')?.dataset.value);
+    hoverMove();
+    const offsetValue = (await waitFor(() => Number.isFinite(readValue()) ? { value: readValue() } : undefined,
+      'curve hover did not report a sample')).value;
     const windState = window.ncx.getState();
     window.ncx.setSources({ revision: windState.revision, sources: [
       { id: windState.sources[0].id, dataset: windState.selection.dataset, attributes: { locked: true } },
     ] });
     if ([...control('Unit').options].some(option => option.value === 'Bft')) failures.push('signed component offered Beaufort');
     change('Unit', 'kt'); change('Wind', 'on');
-    await waitFor(() => Math.abs(Number(axis()?.split(',')[0]) - (nativeWindMinimum + 3) * 3600 / 1852) < 0.001,
+    // The reserved tick quantity is chosen per unit, so compare the plotted
+    // samples rather than the padded axis limits.
+    hoverMove();
+    await waitFor(() => Math.abs(readValue() - offsetValue * 3600 / 1852) < 0.01,
       'display-unit conversion corrupted the locked physical offset');
     if (window.ncx.getState().selection.units !== windState.selection.units) failures.push('display units changed source metadata');
     await waitFor(() => document.querySelector('.curve-head .wind-key')?.textContent.includes('5 / 10 / 50 kt'), 'knot barb convention did not update');
@@ -818,12 +974,13 @@ try {
     ])) failures.push("offset changed the scientific revision or raw extent");
     const curve = document.querySelector(".curve-svg");
     const bounds = curve.getBoundingClientRect();
-    curve.dispatchEvent(new PointerEvent("pointermove", {
-      bubbles: true,
-      clientX: bounds.left + bounds.width * 0.55,
-      clientY: bounds.top + bounds.height * 0.5,
-    }));
-    await waitFor(() => document.querySelector(".hover-crosshair"), "station crosshair did not render");
+    await waitFor(() => {
+      const area = curve.querySelector('.curve-axis > rect').getBoundingClientRect();
+      curve.dispatchEvent(new PointerEvent("pointermove", {
+        bubbles: true, clientX: area.left + area.width * 0.55, clientY: area.top + area.height * 0.5,
+      }));
+      return document.querySelector(".hover-crosshair");
+    }, "station crosshair did not render");
     if (document.querySelectorAll(".hover-dot").length !== 2) {
       failures.push("station crosshair did not mark both series");
     }
@@ -1285,8 +1442,12 @@ try {
       }
       await waitFor(() => document.querySelector(".probe-mark"), "UGRID edge probe did not appear");
       [...document.querySelectorAll(".view-tabs button")].find((button) => button.textContent === "Curve").click();
+      // The averaged values are 4.25 and 6.25; the axis adds one reserved tick step.
       await waitFor(
-        () => document.querySelector(".curve-axis")?.dataset.yDomain === "4.25,6.25",
+        () => {
+          const [low, high] = (document.querySelector(".curve-axis")?.dataset.yDomain ?? "").split(",").map(Number);
+          return 4.25 - low > 0 && 4.25 - low <= 1 && high - 6.25 > 0 && high - 6.25 <= 1;
+        },
         "UGRID edge probe curve did not average the face's adjacent edges",
       );
       const edgeCurveSubtitle = document.querySelector(".figure-head span")?.textContent ?? "";
@@ -1611,10 +1772,11 @@ try {
   if (!document.querySelector(".curve-tooltip")) failures.push("curve tooltip did not appear");
 
   window.__ncxStep = "curve X range";
+  const curveArea = curve.querySelector('.curve-axis > rect').getBoundingClientRect();
   const curvePointer = (type, x, options = {}) => curve.dispatchEvent(new PointerEvent(type, {
     bubbles: true,
-    clientX: curveBounds.left + curveBounds.width * x,
-    clientY: curveBounds.top + curveBounds.height * 0.45,
+    clientX: curveArea.left + curveArea.width * x,
+    clientY: curveArea.top + curveArea.height * 0.5,
     button: 0,
     buttons: options.buttons ?? 0,
   }));

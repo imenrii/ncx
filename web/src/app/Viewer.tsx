@@ -6,13 +6,16 @@ import { fetchCoordinate } from "../data/api";
 import { convert, displayValue, unitChoice } from "../data/units";
 import { unitAssignments } from "../data/unitAssignments";
 import { windPair, fieldWindReason } from "../data/wind";
-import { pressureVariables, pressureReason } from "../data/pressure";
+import { selectedPressureVariable, pressureReason } from "../data/pressure";
 import { CollectionBrowser, DatasetBrowser } from "./DatasetBrowser";
 import type { CurvePresentation } from "../plots/curveSeries";
 import { sourceFeed } from "../data/sourceFeed";
 import { locationIdentity, primaryFirst } from "../data/comparison";
 import { ComparisonFieldView } from "../plots/ComparisonFieldView";
 import { CurveView } from "../plots/CurveView";
+import { SettingsDialog } from "./SettingsDialog";
+import { SidebarResize } from "./SidebarResize";
+import { DEFAULT_FIELD_SETTINGS, type FieldDimensions } from "../data/fieldSettings";
 import { SaveDialog } from "./SaveDialog";
 import { SpatialField } from "../plots/SpatialField";
 import { MetadataPanel } from "./MetadataPanel";
@@ -84,13 +87,14 @@ export function Viewer({
   const [settled, setSettled] = useState(false);
   const [scale, setScale] = useState<ColorScale>("linear");
   const [search, setSearch] = useState("");
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState<FieldDimensions>();
+  const shell = useRef<HTMLDivElement>(null);
+  const [fieldSettings, setFieldSettings] = useState(DEFAULT_FIELD_SETTINGS);
   const [timelineValues, setTimelineValues] = useState<Float64Array>();
   const [mapSource, setMapSource] = useState<"none" | "coastline">("none");
   const [saving, setSaving] = useState(false);
   const [wind, setWind] = useState(false);
   const [pressureContours, setPressureContours] = useState(false);
-  const [pressurePath, setPressurePath] = useState("");
   const [unitId, setUnitId] = useState("");
   const [curveRange, setCurveRange] = useState<ColorRange>({ minimum: 0, maximum: 1 });
   const [beaufortRange, setBeaufortRange] = useState<ColorRange>({ minimum: 0, maximum: 12 });
@@ -129,9 +133,8 @@ export function Viewer({
     sourceFeed.resetUnitOffsets();
   }, [unitRevision]);
   const variable = metadata?.variables.find((candidate) => candidate.path === selectedPath);
-  const pressureChoices = useMemo(() => metadata ? pressureVariables(metadata) : [], [metadata]);
-  const pressureSource = pressureChoices.find(item => item.path === pressurePath) ??
-    pressureChoices.find(item => item.path === variable?.path) ?? (pressureChoices.length === 1 ? pressureChoices[0] : undefined);
+  const pressureSource = metadata && variable
+    ? selectedPressureVariable(metadata, variable, fieldSettings.pressureComponents[metadata.dataset_id!]) : undefined;
   const view = requestedView;
   const units = useMemo(() => variable ? unitChoice(variable) : undefined, [variable]);
   const sourceUnit = units?.source;
@@ -328,11 +331,11 @@ export function Viewer({
 
   const pressureUnavailable = pressureReason(metadata, fieldVariable, pressureSource);
   const pressureOverlay = pressureContours && !pressureUnavailable ? pressureSource : undefined;
-  const windUnavailable = view === "field" ? fieldWindReason(metadata, fieldVariable)
+  const windUnavailable = view === "field" ? fieldWindReason(metadata, fieldVariable, fieldSettings.components[metadata.dataset_id!])
     : !windMatch.pair ? windMatch.reason
       : !isTimeDimension(variable.dimensions[curveDimension]?.path ?? "") ? "Wind barbs require a time axis" : undefined;
   const overlays = {
-    pressure: Boolean(pressureOverlay), wind: wind && !windUnavailable,
+    pressure: Boolean(pressureOverlay), wind: wind && !windUnavailable, windStyle: fieldSettings.windStyle,
     pressureReason: pressureUnavailable, windReason: windUnavailable,
     onPressure: setPressureContours, onWind: setWind,
   };
@@ -375,13 +378,30 @@ export function Viewer({
   const xCoordinates = compatibleCoordinates(metadata, variable, display, "x");
   const yCoordinates = compatibleCoordinates(metadata, variable, display, "y");
   const geographicField = hasGeographicCoordinates(metadata, fieldVariable);
-  const browserMenu = (
+  const changeDimensions = (next: DisplayDimensions) => {
+    const coordinates = Object.fromEntries((["x", "y"] as const).map(axis => {
+      const candidates = compatibleCoordinates(metadata, variable, next, axis);
+      return [axis, candidates.length === 1 ? candidates[0].path : undefined];
+    }));
+    updateSelection({ display: next, coordinatePaths: coordinates, probe: undefined, playDirection: 0 });
+  };
+  const settingsButton = (
     <button
-      className="menu-button"
-      aria-label="Toggle dataset browser"
-      aria-expanded={sidebarOpen}
-      onClick={() => setSidebarOpen((open) => !open)}
-    />
+      className="settings-button"
+      aria-label="Settings"
+      title="Settings"
+      aria-haspopup="dialog"
+      onClick={() => {
+        const view = shell.current!.querySelector(".stage > .figure")?.getBoundingClientRect()
+          ?? shell.current!.querySelector(".stage")!.getBoundingClientRect();
+        setSettingsOpen({ width: Math.round(view.width), height: Math.round(view.height) });
+      }}
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M19.39 8.94L19.81 10.25L22.25 9.71L22.25 14.29L19.81 13.75L19.39 15.06L19.39 15.06L18.75 16.29L20.87 17.63L17.63 20.87L16.29 18.75L15.06 19.39L15.06 19.39L13.75 19.81L14.29 22.25L9.71 22.25L10.25 19.81L8.94 19.39L8.94 19.39L7.71 18.75L6.37 20.87L3.13 17.63L5.25 16.29L4.61 15.06L4.61 15.06L4.19 13.75L1.75 14.29L1.75 9.71L4.19 10.25L4.61 8.94L4.61 8.94L5.25 7.71L3.13 6.37L6.37 3.13L7.71 5.25L8.94 4.61L8.94 4.61L10.25 4.19L9.71 1.75L14.29 1.75L13.75 4.19L15.06 4.61L15.06 4.61L16.29 5.25L17.63 3.13L20.87 6.37L18.75 7.71L19.39 8.94Z" />
+        <circle cx="12" cy="12" r="3" />
+      </svg>
+    </button>
   );
   const datasetSwitcher = !chromeHidden && datasets.length > 1 && !collection && (
     <label className="dataset-switcher">
@@ -397,14 +417,14 @@ export function Viewer({
   return (
     <div
       className="shell"
+      ref={shell}
       data-embedded={embedded}
       data-chrome={chromeHidden ? "none" : "full"}
       data-dataset={metadata.dataset_id}
-      data-sidebar={sidebarOpen ? "open" : "closed"}
     >
       {!chromeHidden && (
         <header className="topbar">
-          {browserMenu}
+          {settingsButton}
           <div className="topbar-identity">
             <strong className="brand">ncx</strong>
             <span className="path">
@@ -426,10 +446,7 @@ export function Viewer({
           onSearch={setSearch}
           onReady={onDatasetReady}
           onUnavailable={onDatasetUnavailable}
-          onSelect={(dataset, path) => {
-            onSelectVariable(dataset, path);
-            setSidebarOpen(window.innerWidth > 760);
-          }}
+          onSelect={onSelectVariable}
         />
       ) : (
         <DatasetBrowser
@@ -438,16 +455,17 @@ export function Viewer({
           selectedPath={selectedPath}
           search={search}
           onSearch={setSearch}
-          onSelect={(path) => {
-            onSelectVariable(selectedDataset, path);
-            setSidebarOpen(window.innerWidth > 760);
-          }}
+          onSelect={path => onSelectVariable(selectedDataset, path)}
         />
       )}
 
+      <SidebarResize />
+      {settingsOpen && <SettingsDialog key={`${metadata.dataset_id}:${variable.path}`}
+        metadata={metadata} variable={fieldVariable} currentSize={settingsOpen} settings={fieldSettings}
+        onClose={() => setSettingsOpen(undefined)} onApply={setFieldSettings} />}
+
       <main className="main" data-timeline={timeline ? "shown" : "hidden"}>
         <div className="toolbar">
-          {chromeHidden && <div className="embedded-navigation">{browserMenu}</div>}
           <nav className="view-tabs" aria-label="Variable views">
             {(["field", "curve", "metadata"] as const).map((name) => (
               <button
@@ -506,8 +524,7 @@ export function Viewer({
                     select only repeats it. */}
                 <div className="axis-control">
                   <label>Y <DimensionSelect variable={variable} value={display.y} onChange={(y) => {
-                    updateSelection((current) => ({ coordinatePaths: {}, probe: undefined,
-                      display: changeDisplayDimension(current.display, "y", y) }));
+                    changeDimensions(changeDisplayDimension(display, "y", y));
                   }} /></label>
                   {yCoordinates.length > 1 && (
                     <CoordinateSelect
@@ -524,8 +541,7 @@ export function Viewer({
                 </div>
                 <div className="axis-control">
                   <label>X <DimensionSelect variable={variable} value={display.x} onChange={(x) => {
-                    updateSelection((current) => ({ coordinatePaths: {}, probe: undefined,
-                      display: changeDisplayDimension(current.display, "x", x) }));
+                    changeDimensions(changeDisplayDimension(display, "x", x));
                   }} /></label>
                   {xCoordinates.length > 1 && (
                     <CoordinateSelect
@@ -594,14 +610,6 @@ export function Viewer({
                   ? convert(value, targetUnit, sourceUnit, true) : value)} /></label>
             </div>}
             {/* The field view carries both overlay toggles in its plot corner. */}
-            {view === "field" && pressureChoices.length > 1 &&
-              <div className="control-group" role="group" aria-label="Pressure contour source">
-                <label>Pressure field<select
-                  value={pressureSource?.path ?? ""} onChange={event => setPressurePath(event.currentTarget.value)}>
-                  <option value="" disabled>Select pressure</option>
-                  {pressureChoices.map(item => <option key={item.path} value={item.path}>{item.name}</option>)}
-                </select></label>
-              </div>}
             {view !== "metadata" && (
               <>
                 {view === "curve" && <div className="control-group" role="group" aria-label="Wind overlay">
@@ -722,7 +730,7 @@ export function Viewer({
           )}
         </div>
 
-        <section className="stage">
+        <section className="stage" data-fixed-size={view === "field" && Boolean(fieldSettings.dimensions)}>
           <PlotBoundary key={`${metadata.dataset_id}:${variable.path}:${view}`}>
           {view === "metadata" ? (
             <MetadataPanel metadata={metadata} variable={variable} />
@@ -745,6 +753,7 @@ export function Viewer({
               wind={wind && !windUnavailable}
               probe={probe}
               pressure={pressureOverlay}
+              fieldSettings={fieldSettings}
               overlays={overlays}
               timeZone={displayTimeZone}
               onProbe={setProbe}
@@ -754,7 +763,8 @@ export function Viewer({
               onStatus={updateStatus}
             />
           ) : (
-            <section className={`figure${view === "curve" ? " curve-figure" : ""}`}>
+            <section className={`figure${view === "curve" ? " curve-figure" : ""}`}
+              style={view === "field" ? fieldSettings.dimensions : undefined}>
               {view === "field" && (
                 <header className="figure-head">
                   <h1>{figureTitle}</h1>
@@ -779,6 +789,7 @@ export function Viewer({
                   wind={wind && !windUnavailable}
                   probe={probe}
                   pressure={pressureOverlay}
+                  fieldSettings={fieldSettings}
                   overlays={overlays}
                   initialView={fieldViews.current.get(fieldViewKey)}
                   onViewChange={rememberFieldView}
@@ -810,6 +821,7 @@ export function Viewer({
                   resolvedSources={resolvedSources}
                   offsets={sourceFeed.offsets}
                   inlineAvailable={sourceFeed.inlineAvailable}
+                  secondary={sourceFeed.secondary}
                   onExtent={reportExtent}
                   onFrameLoaded={markFrameLoaded}
                   onStatus={updateStatus}
@@ -839,24 +851,6 @@ export function Viewer({
         </footer>
       )}
     </div>
-  );
-}
-
-function DimensionSelect({
-  variable,
-  value,
-  onChange,
-}: {
-  variable: Variable;
-  value: number | undefined;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <select value={value ?? 0} onChange={(event) => onChange(Number(event.target.value))}>
-      {variable.dimensions.map((dimension, index) => (
-        <option key={dimension.path} value={index}>{dimension.name} ({dimension.length})</option>
-      ))}
-    </select>
   );
 }
 
@@ -970,17 +964,6 @@ function timelineTickIndices(length: number): number[] {
   return ticks;
 }
 
-function changeDisplayDimension(
-  current: DisplayDimensions,
-  axis: "x" | "y",
-  next: number,
-): DisplayDimensions {
-  if (axis === "x") {
-    return next === current.y ? { x: next, y: current.x } : { ...current, x: next };
-  }
-  return next === current.x ? { x: current.y, y: next } : { ...current, y: next };
-}
-
 function shapeText(variable: Variable, display: DisplayDimensions): string {
   const parts = variable.dimensions.map((dimension, index) =>
     index === display.x ? `x=${dimension.length}` : index === display.y ? `y=${dimension.length}` : String(dimension.length),
@@ -1077,4 +1060,33 @@ function OffsetInput({ value, onChange }: { value: number; onChange: (value: num
         setInvalid(false);
       } catch { setInvalid(true); }
     }} onBlur={() => { if (invalid) { setText(String(value)); setInvalid(false); } }} />;
+}
+
+function DimensionSelect({
+  variable,
+  value,
+  onChange,
+}: {
+  variable: Variable;
+  value: number | undefined;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <select value={value ?? 0} onChange={(event) => onChange(Number(event.target.value))}>
+      {variable.dimensions.map((dimension, index) => (
+        <option key={dimension.path} value={index}>{dimension.name} ({dimension.length})</option>
+      ))}
+    </select>
+  );
+}
+
+function changeDisplayDimension(
+  current: DisplayDimensions,
+  axis: "x" | "y",
+  next: number,
+): DisplayDimensions {
+  if (axis === "x") {
+    return next === current.y ? { x: next, y: current.x } : { ...current, x: next };
+  }
+  return next === current.x ? { x: current.y, y: next } : { ...current, y: next };
 }
