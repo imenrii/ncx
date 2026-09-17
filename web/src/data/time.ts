@@ -1,5 +1,4 @@
 import type { Variable } from "./model";
-import { attributeText } from "./model.ts";
 
 export interface TimeDescription {
   multiplierMs: number;
@@ -24,7 +23,6 @@ export const UTC_TIME_ZONE: DisplayTimeZone = Object.freeze({
   offsetMinutes: 0,
 });
 
-const UTC_CALENDARS = new Set(["standard", "gregorian", "proleptic_gregorian"]);
 
 export function timeInZone(
   time: TimeDescription | undefined,
@@ -51,46 +49,13 @@ export function parseDisplayTimeZone(value: string | null): DisplayTimeZone | un
 }
 
 export function describeTime(variable: Variable | undefined): TimeDescription | undefined {
-  if (!variable) return undefined;
-  const calendar = (attributeText(variable, "calendar") ?? "standard").trim().toLowerCase();
-  // Non-Gregorian model calendars do not identify real UTC instants. Treating
-  // them as JavaScript dates would silently align unrelated field frames.
-  if (!UTC_CALENDARS.has(calendar)) return undefined;
-  const units = attributeText(variable, "units");
-  if (!units) return undefined;
-  const match = /^(seconds?|minutes?|hours?|days?) since (.+)$/i.exec(units.trim());
-  if (!match) return undefined;
-  const multipliers: Record<string, number> = {
-    second: 1000,
-    seconds: 1000,
-    minute: 60_000,
-    minutes: 60_000,
-    hour: 3_600_000,
-    hours: 3_600_000,
-    day: 86_400_000,
-    days: 86_400_000,
-  };
-  const originText = match[2].trim();
-  const offsetMatch = /([+-])(\d{2}):?(\d{2})$/.exec(originText);
-  const offsetMinutes = offsetMatch
-    ? (offsetMatch[1] === "+" ? 1 : -1) *
-      (Number(offsetMatch[2]) * 60 + Number(offsetMatch[3]))
-    : 0;
-  const explicitUtc = originText.replace(/\s+(UTC|GMT)$/i, "Z");
-  const normalized = (explicitUtc.includes("T")
-    ? explicitUtc
-    : explicitUtc.replace(" ", "T"))
-    .replace(/\s+([+-]\d{2}:?\d{2}|Z)$/i, "$1");
-  const withZone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(normalized)
-    ? normalized
-    : `${normalized}Z`;
-  const originMs = Date.parse(withZone);
-  if (!Number.isFinite(originMs)) return undefined;
+  const time = variable?.capabilities.time;
+  if (!time) return undefined;
   return {
-    multiplierMs: multipliers[match[1].toLowerCase()],
-    originMs,
-    offsetMinutes,
-    zoneLabel: offsetMinutes === 0 ? "UTC" : `UTC${formatOffset(offsetMinutes)}`,
+    multiplierMs: time.multiplier_ms,
+    originMs: time.origin_ms,
+    offsetMinutes: time.offset_minutes,
+    zoneLabel: time.offset_minutes === 0 ? "UTC" : `UTC${formatOffset(time.offset_minutes)}`,
   };
 }
 

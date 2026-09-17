@@ -22,6 +22,7 @@ chmod 600 .env
 | `NCX_BIND_ADDRESS` | Host IPv4 interface (`0.0.0.0` for all interfaces) | `127.0.0.1` |
 | `NCX_PORT` | Published host port | `8765` |
 | `NCX_DATA_ROOT` | Absolute path on host containing NetCDF files | `/path/to/data` |
+| `NCX_KNOWN_HOSTS` | Readable host SSH known-hosts file, mounted read-only | `/path/to/known_hosts` |
 | `NCX_DNS_NDOTS` | DNS search threshold (set to `1` for single-label SSH hostnames) | `1` |
 
 > **Permissions & Secrets**:
@@ -58,7 +59,38 @@ sh deploy/compose.sh down
 - **Read-Only Data Mount**: Datasets in `NCX_DATA_ROOT` are mounted read-only at `/data`.
 - **Session Lifecycle**: The hub limits concurrency to 10 simultaneous sessions and reaps idle sessions after 90 seconds.
 - **Credential Handling**: Successful cluster addresses are remembered locally in the browser; passwords are never persisted.
-- **Network Boundaries**: In-page SSH passwords transit from browser to hub unencrypted unless placed behind an external TLS reverse proxy (e.g. Nginx/Caddy). The hub skips SSH host-key verification by design to facilitate dynamic cluster nodes. Only host this on trusted internal networks.
+- **Compose mode**: This configuration explicitly selects `HTTP` and password authentication. Browser passwords travel in plaintext. Use it only on a trusted network. SSH host-key checking remains strict; provision verified host keys in `NCX_KNOWN_HOSTS` before connecting.
+- **Default mode**: `ncx hub` uses `local`, listens on loopback, and accepts only configured local files. Remote hub sessions require `--mode HTTP` or `--mode HTTPS`. Key authentication is the default; HTTP password entry requires `--ssh-auth password`.
+- **Host keys**: `--known-hosts FILE` selects the file. `--host-key-policy accept-new` is an explicit first-contact policy and rejects changed keys. `insecure` is an explicit HTTP override. HTTPS rejects both non-strict policies.
+
+### HTTPS behind an authentication proxy
+
+Run the backend with a private listener reachable only by the proxy:
+
+```bash
+ncx hub --mode HTTPS --listen 127.0.0.1:8765 \
+  --trusted-proxy 127.0.0.1 --public-origin https://viewer.example \
+  --known-hosts /path/to/known_hosts --local-root /path/to/data
+```
+
+Configure the external proxy to terminate TLS and authenticate every request.
+Remove incoming forwarding headers, then set `X-Forwarded-Proto: https`,
+`X-Ncx-Authenticated: 1`, and `Host: viewer.example`. Preserve the browser's
+`Origin`; mutations must match the configured public origin exactly. Proxy the
+whole `/ncx/` subtree, including worker assets, API responses, and heartbeats.
+Only the configured socket peer can attest authentication; client-supplied
+`X-Forwarded-For` is not trusted. Restrict local access on a shared proxy host.
+
+HTTPS requires key/agent/certificate authentication and strict known hosts.
+Configure those through OpenSSH for the hub process. No browser password UI is
+available. ncx supplies no TLS endpoint or user account service. For containers,
+replace the Compose HTTP command with these HTTPS options, use the proxy's
+actual backend IPv4 address, mount the key/agent resources, and isolate the
+backend network. `/healthz` stays available for the local container probe.
+
+See [hub contracts](../docs/hub.md) for ownership and failure rules. Existing
+HTTP installations must set the mode and authentication options explicitly;
+insecure host-key defaults are not retained.
 
 ---
 

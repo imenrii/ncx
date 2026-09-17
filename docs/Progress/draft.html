@@ -1,0 +1,361 @@
+<!doctype html>
+<!-- Steering UI draft: one requested layout, synthetic data, no Python execution.
+     From workspace root: python -m http.server 8765 --bind 127.0.0.1
+     Open /ncx/docs/Progress/draft.html. ?context=standalone omits hub actions. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ncx — Steering draft</title>
+  <link rel="stylesheet" href="../../../Style/Web/example.css">
+  <style>
+    [hidden] { display: none !important; }
+    .draft-shell { --sidebar-width: 256px; --terminal-height: 288px; height: 100dvh; min-height: 480px; display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto; }
+    .masthead { display: flex; align-items: center; gap: 16px; padding: 6px 12px; background: var(--amber); border-bottom: 1px solid var(--ink); }
+    .masthead h1 { margin: 0; font-size: var(--size-figure); }
+    .masthead .path { flex: 1; }
+    .top-actions { margin-left: auto; display: flex; gap: 8px; flex-shrink: 0; }
+    button { min-height: 28px; cursor: pointer; }
+    button:disabled { cursor: default; }
+    #steering-toggle { box-shadow: 0 2px 0 var(--ink); }
+    #steering-toggle[aria-pressed="true"] { box-shadow: none; background: var(--dither-strong), var(--paper); border-color: var(--accent); color: var(--accent); transform: translateY(2px); }
+    .workbench, .steering { display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); min-height: 0; }
+    .navigator, .variables { min-width: 0; overflow: auto; background: var(--stock); border-right: 1px solid var(--stock-edge); }
+    .side-heading { margin: 0; padding: 10px 12px; border-bottom: 1px solid var(--stock-edge); font: var(--size-micro)/1.5 var(--label-face); letter-spacing: var(--track-caps); text-transform: uppercase; }
+    .file-label { padding: 12px; margin: 0; color: var(--ink-medium); overflow-wrap: anywhere; }
+    .nav-variable { display: block; width: 100%; border: 0; border-bottom: 1px solid var(--stock-edge); text-align: left; padding: 10px 16px; background: transparent; white-space: normal; overflow-wrap: anywhere; }
+    .nav-variable small { display: block; color: var(--ink-quiet); margin-top: 4px; }
+    .nav-variable[aria-current="true"] { box-shadow: inset 3px 0 var(--ink); background: var(--dither), transparent; }
+    .metadata { margin: 24px 12px; color: var(--ink-medium); font-size: var(--size-micro); line-height: 1.65; }
+    .metadata dt { margin-top: 12px; color: var(--ink-quiet); }
+    .metadata dd { margin: 0; }
+    .viewer { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+    .viewer-toolbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 8px 16px; border-bottom: 1px solid var(--line); }
+    .viewer-toolbar label { display: flex; align-items: center; gap: 8px; font-size: var(--size-micro); }
+    .viewer-toolbar .tabs { display: flex; gap: 4px; }
+    .view-tab { border: 0; background: transparent; padding: 4px 8px; }
+    .view-tab[aria-pressed="true"] { color: var(--accent); border-bottom: 2px solid currentColor; }
+    .stage-area { min-height: 0; overflow: auto; padding: 20px 24px; display: flex; flex-direction: column; }
+    .plot-heading { display: flex; gap: 12px; align-items: baseline; justify-content: space-between; }
+    .plot-heading h2 { margin: 0; font: 1.25rem/1.4 var(--plot-face); }
+    .plot-heading span { color: var(--ink-quiet); font-size: var(--size-micro); }
+    .plot-readout { margin: 6px 0 0; font: var(--size-tick)/1.5 var(--plot-face); color: var(--ink-medium); }
+    .plot { width: 100%; flex: 1; min-height: 200px; display: block; }
+    .plot text { font: var(--size-tick)/1.5 var(--plot-face); fill: var(--ink-medium); }
+    .plot path, .plot line { vector-effect: non-scaling-stroke; }
+    .legend { display: flex; justify-content: center; align-items: center; gap: 8px; font: var(--size-tick)/1.5 var(--plot-face); }
+    .legend::before { content: ''; width: 24px; border-top: 2px solid var(--accent); }
+    .steering { height: var(--terminal-height); grid-template-rows: 5px minmax(0, 1fr); }
+    .resize-terminal { grid-column: 1 / -1; background: var(--panel); border-top: 1px solid var(--ink-medium); border-bottom: 1px solid var(--line); cursor: ns-resize; touch-action: none; }
+    .resize-terminal:hover, .resize-terminal:focus-visible { background: var(--accent-pale); }
+    .variables, .terminal { font-family: "Commit Mono Web", ui-monospace, monospace; font-size: var(--size-tick); font-weight: 400; font-variant-ligatures: none; font-feature-settings: var(--mono-literal-features); font-synthesis: none; letter-spacing: normal; word-spacing: normal; line-height: 1.5; }
+    .variables button, .terminal button, .terminal textarea, .terminal pre, .terminal code { font: inherit; font-feature-settings: inherit; font-variant-ligatures: none; letter-spacing: normal; word-spacing: normal; }
+    .variables .side-heading { min-height: 25px; padding-block: 3px; }
+    .variable-group { padding: 2px 0; border-bottom: 1px solid var(--stock-edge); }
+    .variable-group summary { cursor: pointer; min-height: 24px; padding: 2px 12px; }
+    .variable-ref { display: flex; align-items: baseline; gap: 8px; min-height: 24px; padding: 2px 12px 2px 28px; border: 0; width: 100%; text-align: left; background: transparent; overflow-wrap: anywhere; }
+    .variable-ref::before { content: '>'; color: var(--ink-quiet); }
+    .variable-ref:hover { background: var(--dither), transparent; }
+    .variable-ref:focus-visible { outline-offset: -2px; }
+    .terminal { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: var(--paper); }
+    .terminal-head { display: flex; align-items: center; gap: 12px; min-height: 25px; padding: 0 12px; border-bottom: 1px solid var(--line); background: var(--panel); }
+    .terminal-menu { position: relative; margin-left: auto; }
+    .terminal-menu summary { cursor: pointer; list-style: none; min-width: 24px; min-height: 24px; display: grid; place-items: center; }
+    .terminal-menu summary::marker { content: ''; }
+    .terminal-menu[open] summary { background: var(--dither), transparent; }
+    .menu-items { position: absolute; top: 100%; right: 0; z-index: 2; width: max-content; padding: 4px; border: 1px solid var(--line); background: var(--paper); box-shadow: 0 2px 6px var(--shadow); }
+    .menu-items button { display: block; width: 100%; min-height: 24px; border: 0; text-align: left; padding: 2px 8px; }
+    .terminal-log { overflow: auto; padding: 4px 0; }
+    .log-entry { display: grid; grid-template-columns: 36px minmax(0, 1fr); padding: 1px 12px 1px 0; }
+    .log-entry .prompt { text-align: center; color: var(--accent); user-select: none; }
+    .log-entry pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .log-entry.output { color: var(--ink-medium); }
+    .log-entry.notice { color: var(--ink-quiet); }
+    .command-line { display: grid; grid-template-columns: 36px minmax(0, 1fr); align-items: start; border-top: 1px solid var(--line); padding: 3px 12px 3px 0; max-height: 120px; overflow: auto; }
+    .command-line > label { color: var(--accent); text-align: center; padding-top: 2px; }
+    .input-stack { display: grid; min-width: 0; }
+    .input-stack pre, .input-stack textarea { grid-area: 1 / 1; margin: 0; padding: 2px 0; border: 0; border-radius: 0; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; min-height: 24px; }
+    .input-stack pre { pointer-events: none; }
+    .input-stack textarea { width: 100%; resize: none; background: transparent; outline-offset: 3px; overflow: hidden; caret-color: var(--ink); }
+    .input-stack.highlighted textarea { color: transparent; }
+    .input-stack textarea::selection { background: #bcd8ed; color: var(--ink); }
+    .input-stack textarea::placeholder { color: var(--ink-quiet); }
+    .shj-syn-str { color: #28633d; }
+    .shj-syn-kwd, .shj-syn-bool { color: #75449a; }
+    .shj-syn-num { color: #925216; }
+    .shj-syn-func, .shj-syn-class { color: #175e8c; }
+    .shj-syn-oper { color: #555f68; }
+    .shj-syn-cmnt { color: var(--ink-quiet); }
+    .statusbar { display: flex; justify-content: space-between; gap: 16px; padding: 4px 12px; font-size: var(--size-micro); }
+    @media (max-width: 900px) { .draft-shell { --sidebar-width: 192px; } .masthead { flex-wrap: wrap; gap: 8px; } .top-actions { flex-wrap: wrap; justify-content: flex-end; } .stage-area { padding: 12px; } }
+    @media (max-width: 600px) { .draft-shell { --sidebar-width: 144px; } .masthead .path { font-size: var(--size-micro); } .top-actions { width: 100%; gap: 4px; } .top-actions button { padding-inline: 6px; font-size: var(--size-micro); } .plot-heading { flex-wrap: wrap; } .statusbar > :last-child { display: none; } .variable-ref { padding-left: 12px; } .viewer-toolbar { gap: 8px; padding: 8px; } }
+    @media (pointer: coarse) { button, select, summary, .steering button, .steering summary { min-height: 44px; } .resize-terminal { border-block-width: 2px; } }
+    @media (forced-colors: active) { .input-stack.highlighted textarea { color: CanvasText; } .input-stack pre { visibility: hidden; } #steering-toggle[aria-pressed="true"] { outline: 2px solid Highlight; } }
+  </style>
+</head>
+<body>
+  <div class="draft-shell">
+    <header class="masthead">
+      <h1>ncx</h1><span class="path">coastal-run / atmosphere.nc</span>
+      <nav class="top-actions" aria-label="Session actions">
+        <button id="steering-toggle" aria-controls="steering" aria-expanded="false" aria-pressed="false">Steering</button>
+        <button id="save-png">Save PNG</button>
+        <button class="hub-action" id="open-address">Open another address</button>
+        <button class="hub-action" id="close-session">Close Session</button>
+      </nav>
+    </header>
+    <div class="workbench">
+      <aside class="navigator" aria-label="Dataset variables">
+        <h2 class="side-heading">Variables</h2>
+        <p class="file-label mono">atmosphere.nc</p>
+        <button class="nav-variable" data-variable="temperature" aria-current="true">/temperature<small>Air temperature · K</small></button>
+        <button class="nav-variable" data-variable="wind" aria-current="false">/wind<small>Wind speed · m/s</small></button>
+        <dl class="metadata"><dt>Dimensions</dt><dd>time · latitude · longitude</dd><dt>Shape</dt><dd>24 × 180 × 360</dd><dt>Source</dt><dd>Sources1 · s1</dd></dl>
+      </aside>
+      <main class="viewer">
+        <div class="viewer-toolbar">
+          <div class="tabs" aria-label="Plot view"><button class="view-tab" data-view="field" aria-pressed="false">Field</button><button class="view-tab" data-view="curve" aria-pressed="true">Curve</button></div>
+          <label>Unit <select id="unit" aria-label="Display unit"><option>K</option><option>°C</option></select></label>
+          <span class="grow"></span><button id="full-period">Full period</button>
+        </div>
+        <div class="stage-area">
+          <div class="plot-heading"><h2 id="plot-title">Air temperature</h2><span>22.5°N · 114.0°E</span></div>
+          <p class="plot-readout" id="plot-readout">20 September 2025 · UTC</p>
+          <svg id="plot" class="plot" role="img" aria-label="Sample temperature time curve"></svg>
+          <div class="legend" id="legend">Sources1 · atmosphere.nc</div>
+        </div>
+      </main>
+    </div>
+    <section class="steering" id="steering" aria-label="Steering terminal" hidden>
+      <div class="resize-terminal" role="separator" tabindex="0" aria-label="Resize Steering panel" aria-orientation="horizontal" aria-valuemin="160" aria-valuemax="500" aria-valuenow="288"></div>
+      <aside class="variables" aria-label="Outline">
+        <h2 class="side-heading">Outline</h2>
+        <details class="variable-group" open><summary>Sources1</summary>
+          <button class="variable-ref" data-reference='sources.s1["/temperature"]'>/temperature</button>
+          <button class="variable-ref" data-reference='sources.s1["/wind"]'>/wind</button>
+        </details>
+        <details class="variable-group" open><summary>Workspace</summary>
+          <button class="variable-ref" data-reference="t" title="Sample variable: source reference, 24 × 180 × 360, K">t</button>
+        </details>
+      </aside>
+      <div class="terminal">
+        <div class="terminal-head"><span>Python</span>
+          <details class="terminal-menu"><summary aria-label="Terminal options" title="Terminal options">···</summary><div class="menu-items"><button id="clear-log">Clear log</button><button disabled title="Available when the Python runtime is connected">Reset workspace</button></div></details>
+        </div>
+        <div class="terminal-log" id="terminal-log" role="log" aria-label="Python command log" aria-live="polite" aria-relevant="additions">
+          <div class="log-entry notice"><span></span><pre>Sample session · Python execution is not connected in this UI draft.</pre></div>
+          <div class="log-entry command"><span class="prompt">&gt;&gt;</span><pre><code>t = sources.s1["/temperature"]</code></pre></div>
+          <div class="log-entry command"><span class="prompt">&gt;&gt;</span><pre><code>t</code></pre></div>
+          <div class="log-entry output"><span></span><pre>VariableRef /temperature
+shape=(24, 180, 360)  dtype=float64  unit=K</pre></div>
+        </div>
+        <div class="command-line"><label for="command-input" aria-label="Python command">&gt;&gt;</label><div class="input-stack"><pre aria-hidden="true" id="input-highlight"></pre><textarea id="command-input" rows="1" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Python command" placeholder="Type a Python command"></textarea></div></div>
+      </div>
+    </section>
+    <footer class="statusbar"><span id="status" role="status">UI draft · sample data</span><span>Read-only · no file is opened</span></footer>
+  </div>
+  <script type="module">
+    const $ = id => document.getElementById(id);
+    const shell = document.querySelector('.draft-shell');
+    const input = $('command-input');
+    const log = $('terminal-log');
+    const history = [];
+    let historyIndex = 0;
+    let unsent = '';
+    let highlightHTML;
+    let highlightRevision = 0;
+    let selectedVariable = 'temperature';
+    let selectedView = 'curve';
+    const hours = Array.from({ length: 97 }, (_, i) => i / 4);
+    const samples = {
+      temperature: hours.map(h => 288 + 3.2 * Math.sin((h - 6) * Math.PI / 12) + .35 * Math.sin(h * 1.3)),
+      wind: hours.map(h => 7 + 2 * Math.sin((h - 4) * Math.PI / 12) + .7 * Math.cos(h * .9)),
+    };
+    if (new URLSearchParams(location.search).get('context') === 'standalone') {
+      document.querySelectorAll('.hub-action').forEach(button => { button.hidden = true; });
+    }
+
+    async function highlightInput() {
+      const revision = ++highlightRevision;
+      const code = input.value;
+      $('input-highlight').textContent = code + '\n';
+      input.style.height = 'auto';
+      input.style.height = `${input.scrollHeight}px`;
+      if (!highlightHTML) return;
+      const html = await highlightHTML(code, 'py', { block: false });
+      if (revision !== highlightRevision) return;
+      $('input-highlight').innerHTML = html + '\n';
+      document.querySelector('.input-stack').classList.add('highlighted');
+    }
+    async function highlightLog() {
+      if (!highlightHTML) return;
+      for (const code of log.querySelectorAll('code')) {
+        code.innerHTML = await highlightHTML(code.textContent, 'py', { block: false });
+      }
+    }
+    // The requested highlighter is local; the draft never needs a runtime CDN.
+    import('./draft-assets/speed-highlight/index.js').then(async module => {
+      highlightHTML = module.highlightHTML;
+      await highlightLog();
+      await highlightInput();
+    }).catch(() => { $('status').textContent = 'Serve this draft over HTTP to enable syntax highlighting.'; });
+
+    $('steering-toggle').onclick = () => {
+      const opened = $('steering').hidden;
+      $('steering').hidden = !opened;
+      $('steering-toggle').setAttribute('aria-pressed', String(opened));
+      $('steering-toggle').setAttribute('aria-expanded', String(opened));
+      if (opened) { resizeTerminal(terminalHeight); input.focus(); highlightInput(); }
+    };
+    document.querySelectorAll('[data-reference]').forEach(button => {
+      button.onclick = () => {
+        input.setRangeText(button.dataset.reference, input.selectionStart, input.selectionEnd, 'end');
+        input.focus();
+        highlightInput();
+      };
+    });
+    input.oninput = highlightInput;
+    input.onkeydown = event => {
+      if (event.isComposing) return;
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        const code = input.value.trim();
+        if (!code) return;
+        history.push(code);
+        if (history.length > 100) history.shift();
+        historyIndex = history.length;
+        unsent = '';
+        appendLog(code, true);
+        appendLog('Python execution is not connected in this UI draft.');
+        input.value = '';
+        highlightInput();
+      } else if (['ArrowUp', 'ArrowDown'].includes(event.key) && !input.value.includes('\n')) {
+        event.preventDefault();
+        if (historyIndex === history.length) unsent = input.value;
+        historyIndex = Math.max(0, Math.min(history.length, historyIndex + (event.key === 'ArrowUp' ? -1 : 1)));
+        input.value = history[historyIndex] ?? unsent;
+        input.setSelectionRange(input.value.length, input.value.length);
+        highlightInput();
+      }
+    };
+    function appendLog(text, command = false) {
+      const row = document.createElement('div');
+      row.className = `log-entry ${command ? 'command' : 'notice'}`;
+      const prompt = document.createElement('span');
+      prompt.className = 'prompt';
+      prompt.textContent = command ? '>>' : '';
+      const pre = document.createElement('pre');
+      const content = command ? pre.appendChild(document.createElement('code')) : pre;
+      content.textContent = text;
+      row.append(prompt, pre);
+      log.append(row);
+      while (log.children.length > 200) log.firstElementChild.remove();
+      if (command && highlightHTML) {
+        highlightHTML(text, 'py', { block: false }).then(html => { content.innerHTML = html; });
+      }
+      log.scrollTop = log.scrollHeight;
+    }
+    $('clear-log').onclick = () => {
+      log.replaceChildren();
+      document.querySelector('.terminal-menu').open = false;
+      input.focus();
+    };
+    for (const id of ['open-address', 'close-session']) {
+      $(id).onclick = () => { $('status').textContent = `${$(id).textContent}: no live hub session in this draft.`; };
+    }
+
+    let terminalHeight = 288;
+    const separator = document.querySelector('.resize-terminal');
+    function resizeTerminal(height) {
+      const maximum = Math.max(160, Math.floor(shell.clientHeight * .65));
+      terminalHeight = Math.max(160, Math.min(maximum, height));
+      shell.style.setProperty('--terminal-height', `${terminalHeight}px`);
+      separator.setAttribute('aria-valuemax', maximum);
+      separator.setAttribute('aria-valuenow', terminalHeight);
+    }
+    separator.onkeydown = event => {
+      if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      resizeTerminal(event.key === 'Home' ? 160 : event.key === 'End' ? shell.clientHeight : terminalHeight + (event.key === 'ArrowUp' ? 16 : -16));
+    };
+    separator.onpointerdown = event => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      separator.setPointerCapture(event.pointerId);
+      const startY = event.clientY;
+      const startHeight = terminalHeight;
+      separator.onpointermove = move => resizeTerminal(startHeight + startY - move.clientY);
+    };
+    separator.onpointerup = separator.onpointercancel = () => { separator.onpointermove = null; };
+    window.addEventListener('resize', () => resizeTerminal(terminalHeight));
+
+    document.querySelectorAll('[data-variable]').forEach(button => {
+      button.onclick = () => {
+        selectedVariable = button.dataset.variable;
+        document.querySelectorAll('[data-variable]').forEach(item => item.setAttribute('aria-current', String(item === button)));
+        $('unit').replaceChildren(...(selectedVariable === 'temperature' ? ['K', '°C'] : ['m/s']).map(unit => new Option(unit)));
+        drawPlot();
+      };
+    });
+    document.querySelectorAll('[data-view]').forEach(button => {
+      button.onclick = () => {
+        selectedView = button.dataset.view;
+        document.querySelectorAll('[data-view]').forEach(item => item.setAttribute('aria-pressed', String(item === button)));
+        $('full-period').disabled = selectedView === 'field';
+        drawPlot();
+      };
+    });
+    $('unit').onchange = drawPlot;
+    $('full-period').onclick = () => { $('plot-readout').textContent = '20 September 2025 · UTC'; drawPlot(); };
+    function drawPlot() {
+      const svg = $('plot');
+      const width = Math.max(180, svg.clientWidth), height = Math.max(200, svg.clientHeight);
+      const x0 = 52, x1 = width - 20, y0 = 28, y1 = height - 40;
+      const unit = $('unit').value;
+      const values = samples[selectedVariable].map(value => unit === '°C' ? value - 273.15 : value);
+      const low = Math.floor(Math.min(...values)), high = Math.ceil(Math.max(...values));
+      const x = hour => x0 + hour / 24 * (x1 - x0);
+      const y = value => y1 - (value - low) / (high - low) * (y1 - y0);
+      $('plot-title').textContent = selectedVariable === 'temperature' ? 'Air temperature' : 'Wind speed';
+      svg.setAttribute('aria-label', `Sample ${selectedVariable} ${selectedView}`);
+      svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      let drawing = '';
+      if (selectedView === 'curve') {
+        for (let i = 0; i <= 4; i++) {
+          const value = low + (high - low) * i / 4;
+          drawing += `<line x1="${x0}" x2="${x1}" y1="${y(value)}" y2="${y(value)}" stroke="#e4e7ea"/><text x="${x0 - 8}" y="${y(value) + 4}" text-anchor="end">${value.toFixed(1)}</text>`;
+          const hour = i * 6;
+          drawing += `<text x="${x(hour)}" y="${y1 + 24}" text-anchor="middle">${String(hour).padStart(2, '0')}:00</text>`;
+        }
+        drawing += `<path d="${values.map((value, i) => `${i ? 'L' : 'M'}${x(hours[i])},${y(value)}`).join(' ')}" fill="none" stroke="#114160" stroke-width="1.75"/><text x="${x0}" y="16">${unit}</text>`;
+      } else {
+        for (let row = 0; row < 24; row++) for (let column = 0; column < 40; column++) {
+          const amount = (Math.sin(column / 9 + row / 7) + Math.cos(column / 5 - row / 8) + 2) / 4;
+          drawing += `<rect x="${x0 + column * (x1 - x0) / 40}" y="${y0 + row * (y1 - y0) / 24}" width="${(x1 - x0) / 40 + .1}" height="${(y1 - y0) / 24 + .1}" fill="hsl(${210 - amount * 160} 40% ${88 - amount * 50}%)"/>`;
+        }
+        drawing += `<text x="${x0}" y="16">${unit} · sample field</text><text x="${(x0 + x1) / 2}" y="${y1 + 24}" text-anchor="middle">Longitude</text>`;
+      }
+      svg.innerHTML = drawing + `<rect x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" fill="none" stroke="#4a5058"/>`;
+    }
+    new ResizeObserver(drawPlot).observe($('plot'));
+    $('save-png').onclick = async () => {
+      const svg = $('plot').cloneNode(true);
+      svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      svg.setAttribute('width', $('plot').clientWidth);
+      svg.setAttribute('height', $('plot').clientHeight);
+      svg.querySelectorAll('text').forEach(text => { text.style.cssText = 'font: 13px monospace; fill: #4a5058'; });
+      const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(svg)], { type: 'image/svg+xml' }));
+      try {
+        const image = new Image(); image.src = url; await image.decode();
+        const canvas = document.createElement('canvas'); canvas.width = image.width; canvas.height = image.height;
+        const context = canvas.getContext('2d'); context.fillStyle = '#fff'; context.fillRect(0, 0, canvas.width, canvas.height); context.drawImage(image, 0, 0);
+        const blob = await new Promise(resolve => canvas.toBlob(resolve));
+        const download = URL.createObjectURL(blob);
+        const link = document.createElement('a'); link.href = download; link.download = 'ncx-draft.png'; link.click();
+        setTimeout(() => URL.revokeObjectURL(download), 1000);
+      } finally { URL.revokeObjectURL(url); }
+    };
+    drawPlot();
+  </script>
+</body>
+</html>

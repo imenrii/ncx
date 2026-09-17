@@ -1,4 +1,4 @@
-import { attributeText, hasGeographicCoordinates, isNumeric, type Metadata, type Variable, type SliceRequest } from "./model.ts";
+import { attributeText, hasGeographicCoordinates, isNumeric, type Metadata, type Variable, type DimensionSelection, type SliceRequest } from "./model.ts";
 import { findUnit, type Unit } from "./units.ts";
 
 export interface WindComponents { u: string; v: string }
@@ -33,7 +33,12 @@ export function windPair(metadata: Metadata, variable: Variable, fallbackUnit = 
   if (JSON.stringify(u.view_hint) !== JSON.stringify(v.view_hint)) {
     return { reason: "Wind components must share coordinates and sample locations" };
   }
-  for (const key of ["coordinates", "location_id", "station_id", "site_id", "grid_mapping"]) {
+  for (const key of ["coordinates", "grid_mapping"]) {
+    if (JSON.stringify(u.capabilities.references[key] ?? []) !== JSON.stringify(v.capabilities.references[key] ?? [])) {
+      return { reason: `Wind component ${key} metadata differ` };
+    }
+  }
+  for (const key of ["location_id", "station_id", "site_id"]) {
     const values = [u, v].map(item => attributeText(item, key)?.trim() ?? "");
     if (new Set(values).size > 1) return { reason: `Wind component ${key} metadata differ` };
   }
@@ -62,7 +67,7 @@ export interface WindRange { start: number; stop: number; stride: number }
 /** Bound new component reads separately from the much larger scalar raster. */
 export function windSampleRequest(variable: Variable, ranges: Map<string, WindRange>, indices: Record<string, number>, maxBytes: number): { request: SliceRequest; shape: number[] } {
   if (ranges.size < 1 || ranges.size > 2 || [...ranges.keys()].some(path => !variable.dimensions.some(dim => dim.path === path))) throw new Error("Invalid wind spatial dimensions");
-  const selection: string[] = [], strides: string[] = [], shape: number[] = [];
+  const selection: DimensionSelection[] = [], shape: number[] = [];
   let samples = 1;
   for (const dim of variable.dimensions) {
     const range = ranges.get(dim.path);
@@ -71,15 +76,15 @@ export function windSampleRequest(variable: Variable, ranges: Map<string, WindRa
       const count = Math.ceil((range.stop - range.start) / range.stride);
       if (samples > 1000 / count) throw new Error("Wind sample plan exceeds 1000 values");
       samples *= count; shape.push(count);
-      selection.push(`${range.start}:${range.stop}`); strides.push(String(range.stride));
+      selection.push({ ...range });
     } else {
       const index = indices[dim.path] ?? (dim.length === 1 ? 0 : NaN);
       if (!Number.isSafeInteger(index) || index < 0 || index >= dim.length) throw new Error(`Wind needs a valid ${dim.name} index`);
-      selection.push(String(index)); strides.push("1");
+      selection.push(index);
     }
   }
   if (!(samples * 4 <= maxBytes)) throw new Error("Wind sample plan exceeds the response limit");
-  return { request: { dataset: variable.dataset_id, path: variable.path, selection: selection.join(","), stride: strides.join(",") }, shape };
+  return { request: { dataset: variable.dataset_id, path: variable.path, selection }, shape };
 }
 
 export function windValues(u: ArrayLike<number>, v: ArrayLike<number>, pair: WindPair) {

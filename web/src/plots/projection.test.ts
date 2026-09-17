@@ -1,10 +1,12 @@
+import { capabilities, metadataFixture } from "../../tests/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { Metadata, Variable } from "../data/model.ts";
-import { formatPosition, geographicPosition } from "./projection.ts";
+import { formatPosition, geographicPosition, geographicCoordinateVariables } from "./projection.ts";
 
 const projected: Variable = {
+  capabilities: capabilities(),
   path: "/water_level",
   name: "water_level",
   dtype: "f32",
@@ -35,8 +37,8 @@ const metadata: Metadata = {
   dimensions: [],
   variables: [
     projected,
-    { path: "/Mesh2D_node_x", name: "Mesh2D_node_x", dtype: "f64", dimensions: projected.dimensions, attributes: [{ name: "units", dtype: "string", value: "m" }], view_hint: { kind: "plain" } },
-    { path: "/Mesh2D_node_y", name: "Mesh2D_node_y", dtype: "f64", dimensions: projected.dimensions, attributes: [{ name: "units", dtype: "string", value: "m" }], view_hint: { kind: "plain" } },
+    { capabilities: capabilities(), path: "/Mesh2D_node_x", name: "Mesh2D_node_x", dtype: "f64", dimensions: projected.dimensions, attributes: [{ name: "units", dtype: "string", value: "m" }], view_hint: { kind: "plain" } },
+    { capabilities: capabilities(), path: "/Mesh2D_node_y", name: "Mesh2D_node_y", dtype: "f64", dimensions: projected.dimensions, attributes: [{ name: "units", dtype: "string", value: "m" }], view_hint: { kind: "plain" } },
   ],
   warnings: [],
 };
@@ -58,16 +60,31 @@ test("converts the dataset's WGS84 azimuthal-equidistant coordinates", () => {
 test("formats geographic fields as latitude then longitude", () => {
   const geographic = {
     ...projected,
+    capabilities: capabilities({ geographic: true }),
     view_hint: { ...projected.view_hint, x: "/lon", y: "/lat" },
   } satisfies Variable;
   const direct = {
     ...metadata,
     variables: [
       geographic,
-      { path: "/lon", name: "lon", dtype: "f32", dimensions: projected.dimensions, attributes: [{ name: "units", dtype: "string", value: "degrees_east" }], view_hint: { kind: "plain" } },
-      { path: "/lat", name: "lat", dtype: "f32", dimensions: projected.dimensions, attributes: [{ name: "units", dtype: "string", value: "degrees_north" }], view_hint: { kind: "plain" } },
+      { capabilities: capabilities({ geographic_axis: "longitude" }), path: "/lon", name: "lon", dtype: "f32", dimensions: projected.dimensions, attributes: [{ name: "units", dtype: "string", value: "degrees_east" }], view_hint: { kind: "plain" } },
+      { capabilities: capabilities({ geographic_axis: "latitude" }), path: "/lat", name: "lat", dtype: "f32", dimensions: projected.dimensions, attributes: [{ name: "units", dtype: "string", value: "degrees_north" }], view_hint: { kind: "plain" } },
     ],
   } satisfies Metadata;
   assert.equal(formatPosition(direct, geographic, 110, 23), "23°N · 110°E");
   assert.equal(formatPosition(direct, geographic, 114.75, 33), "33°N · 114.75°E");
+});
+
+test("canonical auxiliary pairs follow the active plane after an axis change", () => {
+  const xy = [{ path: "/y", name: "y", length: 2 }, { path: "/x", name: "x", length: 3 }];
+  const zy = [{ path: "/z", name: "z", length: 4 }, xy[0]];
+  const variable = { ...projected, capabilities: capabilities({ geographic_coordinates: [
+    { dimensions: ["/y", "/x"], longitude: "/xy_lon", latitude: "/xy_lat" },
+    { dimensions: ["/z", "/y"], longitude: "/zy_lon", latitude: "/zy_lat" },
+  ] }) };
+  const vars = ["/xy_lon", "/xy_lat", "/zy_lon", "/zy_lat"].map((path, i) => ({ ...projected, path, dimensions: i < 2 ? xy : zy }));
+  const data = { ...metadata, variables: [variable, ...vars] };
+  assert.equal(geographicCoordinateVariables(data,variable,zy)?.longitude.path,"/zy_lon");
+  assert.equal(geographicCoordinateVariables(data,variable,xy)?.latitude.path,"/xy_lat");
+  assert.equal(geographicCoordinateVariables(data,variable,[]),undefined);
 });

@@ -1,6 +1,6 @@
 import { formatNumber } from "./color.ts";
 import type { Metadata, Probe, Variable, VariableDimension } from "../data/model.ts";
-import { attributeText, resolveVariableReference } from "../data/model.ts";
+import { hasGeographicCoordinates } from "../data/model.ts";
 
 export interface GeographicPosition {
   latitude: number;
@@ -12,22 +12,11 @@ export function geographicCoordinateVariables(
   variable: Variable,
   dimensions: readonly VariableDimension[],
 ): { longitude: Variable; latitude: Variable } | undefined {
-  const referencedPaths = (attributeText(variable, "coordinates") ?? "")
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((reference) => resolveVariableReference(variable.path, reference));
-  const referenced = referencedPaths
-    .map((path) => metadata.variables.find((candidate) => candidate.path === path))
-    .filter((candidate): candidate is Variable => candidate !== undefined);
-  const candidates = [
-    ...referenced,
-    ...metadata.variables.filter((candidate) => !referencedPaths.includes(candidate.path)),
-  ];
-  const sameDimensions = (candidate: Variable) =>
-    candidate.dimensions.length === dimensions.length &&
-    candidate.dimensions.every((dimension, index) => dimension.path === dimensions[index]?.path);
-  const longitude = candidates.find((candidate) => sameDimensions(candidate) && isLongitude(candidate));
-  const latitude = candidates.find((candidate) => sameDimensions(candidate) && isLatitude(candidate));
+  const coordinates = variable.capabilities.geographic_coordinates.find(pair =>
+    pair.dimensions.length === dimensions.length && pair.dimensions.every((path,index) => path === dimensions[index].path));
+  if (!coordinates) return undefined;
+  const longitude = metadata.variables.find(candidate => candidate.path === coordinates.longitude);
+  const latitude = metadata.variables.find(candidate => candidate.path === coordinates.latitude);
   return longitude && latitude ? { longitude, latitude } : undefined;
 }
 
@@ -41,7 +30,7 @@ export function geographicPosition(
   if (hint.kind === "rectilinear" || hint.kind === "curvilinear" || hint.kind === "ugrid2d") {
     const xCoordinate = metadata.variables.find((candidate) => candidate.path === hint.x);
     const yCoordinate = metadata.variables.find((candidate) => candidate.path === hint.y);
-    if (xCoordinate && yCoordinate && isLongitude(xCoordinate) && isLatitude(yCoordinate)) {
+    if (xCoordinate && yCoordinate && hasGeographicCoordinates(metadata, variable)) {
       return { latitude: y, longitude: x };
     }
   }
@@ -109,16 +98,6 @@ export function formatProbePosition(
     ? undefined
     : { latitude: probe.latitude, longitude: probe.longitude };
   return formatPosition(metadata, variable, probe.x, probe.y, known);
-}
-
-function isLongitude(variable: Variable): boolean {
-  return attributeText(variable, "standard_name") === "longitude" ||
-    (attributeText(variable, "units") ?? "").startsWith("degrees_east");
-}
-
-function isLatitude(variable: Variable): boolean {
-  return attributeText(variable, "standard_name") === "latitude" ||
-    (attributeText(variable, "units") ?? "").startsWith("degrees_north");
 }
 
 function projectionParameters(projection: string): Record<string, string> {

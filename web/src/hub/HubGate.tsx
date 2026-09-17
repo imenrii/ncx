@@ -16,6 +16,7 @@ import {
   savedAddresses,
   sessionTransition,
   splitHubAddress,
+  type HubStatus,
 } from "./hub.ts";
 
 type GateState = "checking" | "viewer" | "open" | "prompt" | "retargeting" | "closing" | "active";
@@ -35,6 +36,8 @@ export function HubGate() {
     }
   });
   const hub = hubBasePath() !== undefined;
+  const [policy, setPolicy] = useState<HubStatus>();
+  const passwordAuth = policy?.password === true;
   const [state, setState] = useState<GateState>("checking");
   const [target, setTarget] = useState(() => splitHubAddress(deepLink.address ?? ""));
   const address = target.credential.trim()
@@ -55,14 +58,22 @@ export function HubGate() {
     void inspectHub()
       .then((status) => {
         if (!live) return;
+        setPolicy(status);
         if (!status.hub) {
           setState("viewer");
           return;
         }
         const target = deepLink.address;
+        if (status.mode === "local" && target) {
+          setTarget({ credential: "", path: "" });
+          setError("Remote sessions are disabled");
+          setState("open");
+          return;
+        }
         const current = currentHubSessionRecord();
         if (!status.active || !current) {
-          setState(target ? "prompt" : "open");
+          if (target && status.password === false) startKeySession(target);
+          else setState(target ? "prompt" : "open");
           return;
         }
         const transition = sessionTransition(current, target ?? current.address);
@@ -90,7 +101,8 @@ export function HubGate() {
         }
         setPassword("");
         setAddress(target ?? "");
-        setState("prompt");
+        if (status.password === false) startKeySession(target ?? current.address);
+        else setState("prompt");
       })
       .catch((cause: unknown) => {
         if (!live) return;
@@ -139,6 +151,16 @@ export function HubGate() {
     setState("active");
   };
 
+  const startKeySession = (candidate: string) => {
+    setOpening(true);
+    setState("retargeting");
+    const current = currentHubSessionRecord();
+    const next = current ? replaceHubSession(candidate, { save: true })
+      : createHubSession(candidate, { save: true }).then(record => ({ record, cleanupWarning: undefined }));
+    void next.then(result => acceptReplacement(result.cleanupWarning)).catch(restoreActive).finally(() => setOpening(false));
+  };
+  const modeLabel = policy?.mode === "http" ? <span className="hub-mode" title="Unencrypted HTTP">HTTP</span> : null;
+
   const submitAddress = (event: FormEvent) => {
     event.preventDefault();
     const candidate = address.trim();
@@ -167,7 +189,7 @@ export function HubGate() {
         .catch(restoreActive);
       return;
     }
-    if (isRemoteAddress(candidate)) {
+    if (isRemoteAddress(candidate) && passwordAuth) {
       setAddress(candidate);
       setPassword("");
       setState("prompt");
@@ -249,6 +271,7 @@ export function HubGate() {
             Open another address
           </button>
           <button className="hub-close" onClick={close}>Close session</button>
+          {modeLabel}
         </div>
         {activeError && <p className="hub-error hub-active-error" role="alert">{activeError}</p>}
         <App allowComparison={false} />
@@ -272,12 +295,14 @@ export function HubGate() {
         <section className="hub-workspace" aria-label="Open NetCDF">
           <header className="hub-heading">
             <strong className="brand">ncx<span aria-hidden="true">/</span></strong>
+            {modeLabel}
           </header>
           <div className="hub-grid">
             <form className="hub-open-panel" onSubmit={submitAddress}>
               <label className="hub-label" htmlFor="Credential">Credential</label>
               <input
                 id="Credential"
+                disabled={policy?.mode === "local"}
                 list="hub-saved-credentials"
                 value={target.credential}
                 onChange={(event) => setTarget({ ...target, credential: event.currentTarget.value })}
@@ -319,7 +344,7 @@ export function HubGate() {
           </div>
         </section>
       </main>
-      {hub && (
+      {hub && passwordAuth && (
         <dialog
           ref={dialog}
           className="hub-password-dialog"

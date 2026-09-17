@@ -20,7 +20,7 @@ import {
   NCVIEW_LEGACY_NAMES,
 } from "../generated/ncview_legacy.ts";
 import { SCM, SCM_CLASS, type ScmClass } from "../generated/scm.ts";
-import type { ColorScale } from "../data/model.ts";
+export type ColorScale = "linear" | "log" | "symlog";
 
 type Rgb = readonly [number, number, number];
 

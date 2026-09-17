@@ -11,6 +11,7 @@ export interface CurveSeries {
   y: Float32Array;
   absoluteTime: boolean;
   xUnit: string;
+  calendar?: string;
   units: string;
   quantity: string;
   datum?: string;
@@ -26,6 +27,14 @@ export interface CurvePresentation {
 
 export const SERIES_COLORS = PLOT_STYLE.series.colours;
 export const SERIES_DASHES = PLOT_STYLE.series.dashes;
+
+export function compatibleCurveAxis(
+  first: Pick<CurveSeries, "absoluteTime" | "xUnit" | "calendar">,
+  second: Pick<CurveSeries, "absoluteTime" | "xUnit" | "calendar">,
+): boolean {
+  return first.absoluteTime === second.absoluteTime && first.xUnit === second.xUnit &&
+    (first.absoluteTime || first.calendar === second.calendar);
+}
 
 export function displaySeries(series: CurveSeries, offset = 0): CurveSeries {
   if (!validCurveOffset(series, offset)) throw new Error("Invalid Y display offset");

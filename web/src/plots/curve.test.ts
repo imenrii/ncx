@@ -3,12 +3,26 @@ import test from "node:test";
 
 import {
   curveGeometry,
+  curveEnvelope,
   curveYScale,
   sharedCurveDomain,
 } from "./curve.ts";
 import type { PlotType } from "./plotgeom.ts";
 
 const TYPE: PlotType = { tick: 14, axis: 16 };
+
+test("pixel envelopes retain narrow peaks, sample order and missing-data breaks", () => {
+  const x = Float64Array.from({ length: 10000 }, (_, i) => i);
+  const y = new Float32Array(x.length);
+  y[3333] = 90; y[3334] = -60; y[5500] = NaN;
+  const selected = [...curveEnvelope(y, x, 0, 9999, 100)];
+  assert.ok(selected.length <= 4 * 103 + 1);
+  assert.ok(selected.includes(3333) && selected.includes(3334) && selected.includes(5500));
+  assert.deepEqual(selected, [...selected].sort((a, b) => a - b));
+  const geometry = curveGeometry(y, x, 200, 300)!;
+  assert.equal(geometry.sampling, "min-max-envelope");
+  assert.equal((geometry.path.match(/M/g) ?? []).length, 2);
+});
 
 test("curve geometry preserves finite domains and breaks paths at NaN values", () => {
   const geometry = curveGeometry(

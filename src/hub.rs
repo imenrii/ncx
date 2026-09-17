@@ -28,6 +28,7 @@ use tokio::time::{Instant, sleep, sleep_until, timeout_at};
 
 use crate::NcxResult;
 use crate::dataset::Dataset;
+use crate::policy::{HostKeys, HubPolicy, Mode, SshAuth};
 use crate::server::{self, Limits};
 
 pub(crate) const MAX_HUB_SESSIONS: usize = 10;
@@ -117,13 +118,17 @@ fn resolve_target(address: &str, roots: &[PathBuf]) -> Result<Target, HubError> 
 
 #[cfg(target_os = "linux")]
 fn resolve_local_target(path: &Path, roots: &[PathBuf]) -> Result<LocalTarget, HubError> {
-    use std::os::unix::fs::FileExt;
+    use std::os::unix::fs::{FileExt, OpenOptionsExt};
 
-    let file = File::open(path).map_err(|error| HubError {
-        status: 404,
-        code: "target_not_found",
-        message: format!("cannot open {}: {error}", path.display()),
-    })?;
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(path)
+        .map_err(|error| HubError {
+            status: 404,
+            code: "target_not_found",
+            message: format!("cannot open {}: {error}", path.display()),
+        })?;
     if !file.metadata().is_ok_and(|metadata| metadata.is_file()) {
         return Err(HubError {
             status: 422,
@@ -589,6 +594,7 @@ async fn launch_local_viewer(
 
 #[derive(Clone)]
 struct RemoteRuntime {
+    policy: Arc<HubPolicy>,
     binary: PathBuf,
     cache_key: String,
     ssh_program: PathBuf,
@@ -622,12 +628,21 @@ impl Drop for SecretString {
     }
 }
 
-fn validate_password(target: &Target, password: &Option<SecretString>) -> Result<(), HubError> {
+fn validate_password(
+    target: &Target,
+    password: &Option<SecretString>,
+    auth: SshAuth,
+) -> Result<(), HubError> {
     match (target, password) {
-        (Target::Remote(_), None) => Err(HubError {
+        (Target::Remote(_), None) if auth == SshAuth::Password => Err(HubError {
             status: 401,
             code: "ssh_password_required",
             message: "an SSH password is required".to_owned(),
+        }),
+        (Target::Remote(_), Some(_)) if auth == SshAuth::Key => Err(HubError {
+            status: 400,
+            code: "ssh_password_disabled",
+            message: "Password authentication is disabled".to_owned(),
         }),
         (Target::Local(_), Some(_)) => Err(HubError {
             status: 400,
@@ -640,7 +655,7 @@ fn validate_password(target: &Target, password: &Option<SecretString>) -> Result
 
 struct PasswordChild {
     child: Child,
-    _reader: File,
+    _reader: Option<File>,
 }
 
 #[cfg(target_os = "linux")]
@@ -693,7 +708,7 @@ fn spawn_ssh_with_password(
         })?;
     Ok(PasswordChild {
         child,
-        _reader: reader,
+        _reader: Some(reader),
     })
 }
 
@@ -748,18 +763,13 @@ impl SessionLauncher for ProcessLauncher {
                         code: "remote_sessions_disabled",
                         message: "this hub has no remote ncx executable".to_owned(),
                     })?;
-                    let password = password.ok_or_else(|| HubError {
-                        status: 401,
-                        code: "ssh_password_required",
-                        message: "an SSH password is required".to_owned(),
-                    })?;
                     launch_remote_session(
                         id,
                         &executable,
                         limits,
                         remote,
                         target,
-                        &password,
+                        password.as_ref(),
                         deadline,
                     )
                     .await
@@ -836,7 +846,7 @@ async fn launch_remote_session(
     limits: Limits,
     remote: RemoteRuntime,
     target: RemoteTarget,
-    password: &SecretString,
+    password: Option<&SecretString>,
     deadline: Instant,
 ) -> Result<LaunchedSession, HubError> {
     let control_path = std::env::temp_dir().join(format!("ncx-{}.sock", id.0));
@@ -854,7 +864,24 @@ async fn launch_remote_session(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::inherit());
-    let mut authenticated = spawn_ssh_with_password(command, askpass_executable, password)?;
+    let mut authenticated = match password {
+        Some(password) => spawn_ssh_with_password(command, askpass_executable, password)?,
+        None => PasswordChild {
+            child: command
+                .env_remove("SSH_ASKPASS")
+                .env_remove("SSH_ASKPASS_REQUIRE")
+                .env_remove("NCX_ASKPASS_PIPE")
+                .env_remove("NCX_SSH_PASSWORD")
+                .kill_on_drop(true)
+                .spawn()
+                .map_err(|error| HubError {
+                    status: 502,
+                    code: "ssh_start_failed",
+                    message: error.to_string(),
+                })?,
+            _reader: None,
+        },
+    };
     if let Err(error) =
         wait_for_control_master(&mut authenticated.child, &control_path, deadline).await
     {
@@ -1070,29 +1097,57 @@ async fn command_status_until(
 
 fn hub_ssh_command(remote: &RemoteRuntime) -> Command {
     let mut command = Command::new(&remote.ssh_program);
-    // This intranet deployment explicitly trusts all SSH hosts. Ignore both
-    // known-hosts files so changed keys cannot disable password authentication.
+    let checking = match remote.policy.host_keys {
+        HostKeys::Strict => "yes",
+        HostKeys::AcceptNew => "accept-new",
+        HostKeys::Insecure => "no",
+    };
     command
         .arg("-o")
-        .arg("StrictHostKeyChecking=no")
-        .arg("-o")
-        .arg("UserKnownHostsFile=/dev/null")
-        .arg("-o")
-        .arg("GlobalKnownHostsFile=/dev/null");
+        .arg(format!("StrictHostKeyChecking={checking}"));
+    if remote.policy.host_keys == HostKeys::Insecure {
+        command
+            .arg("-o")
+            .arg("UserKnownHostsFile=/dev/null")
+            .arg("-o")
+            .arg("GlobalKnownHostsFile=/dev/null");
+    } else if let Some(path) = &remote.policy.known_hosts {
+        let path = path
+            .to_string_lossy()
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"");
+        command
+            .arg("-o")
+            .arg(format!("UserKnownHostsFile=\"{path}\""));
+    }
     command
 }
 
 fn authenticated_ssh_command(remote: &RemoteRuntime) -> Command {
     let mut command = hub_ssh_command(remote);
-    command
-        .arg("-o")
-        .arg("BatchMode=no")
-        .arg("-o")
-        .arg("NumberOfPasswordPrompts=1")
-        .arg("-o")
-        .arg("PreferredAuthentications=password,keyboard-interactive")
-        .arg("-o")
-        .arg("PubkeyAuthentication=no");
+    if remote.policy.auth == SshAuth::Password {
+        command
+            .arg("-o")
+            .arg("BatchMode=no")
+            .arg("-o")
+            .arg("NumberOfPasswordPrompts=1")
+            .arg("-o")
+            .arg("PreferredAuthentications=password,keyboard-interactive")
+            .arg("-o")
+            .arg("PubkeyAuthentication=no");
+    } else {
+        command
+            .arg("-o")
+            .arg("BatchMode=yes")
+            .arg("-o")
+            .arg("PreferredAuthentications=publickey")
+            .arg("-o")
+            .arg("PubkeyAuthentication=yes")
+            .arg("-o")
+            .arg("PasswordAuthentication=no")
+            .arg("-o")
+            .arg("KbdInteractiveAuthentication=no");
+    }
     command
 }
 
@@ -1214,6 +1269,7 @@ async fn wait_for_server(child: &mut Child, port: u16, deadline: Instant) -> Res
 }
 
 pub(crate) struct HubConfig {
+    pub policy: HubPolicy,
     pub base_path: String,
     pub local_roots: Vec<PathBuf>,
     pub session_limit: usize,
@@ -1225,6 +1281,9 @@ pub(crate) struct HubConfig {
 
 impl HubConfig {
     pub fn validate(mut self) -> NcxResult<Self> {
+        if self.policy.mode == Mode::Local && self.remote_ncx.is_some() {
+            return Err("remote sessions require HTTP or HTTPS hub mode".to_owned());
+        }
         if self.base_path.is_empty()
             || !self.base_path.starts_with('/')
             || self.base_path.ends_with('/')
@@ -1271,6 +1330,8 @@ impl HubConfig {
 }
 
 struct HubState {
+    policy: Arc<HubPolicy>,
+    reads: crate::reading::ReadAdmission,
     manager: Arc<SessionManager>,
     local_roots: Vec<PathBuf>,
 }
@@ -1290,6 +1351,8 @@ struct CreatedSession {
 struct HubStatus {
     hub: bool,
     active: bool,
+    mode: Mode,
+    password: bool,
 }
 
 pub(crate) async fn serve<F>(listener: TcpListener, config: HubConfig, shutdown: F) -> NcxResult<()>
@@ -1298,12 +1361,14 @@ where
 {
     let executable = std::env::current_exe()
         .map_err(|error| format!("cannot find the ncx executable: {error}"))?;
+    let policy = Arc::new(config.policy.clone());
     let manager = Arc::new(SessionManager::new(
         Arc::new(ProcessLauncher {
             executable: executable.clone(),
             limits: config.limits,
             remote: match config.remote_ncx {
                 Some(binary) => Some(RemoteRuntime {
+                    policy: policy.clone(),
                     cache_key: binary_fingerprint(&binary).map_err(|error| error.message)?,
                     binary,
                     ssh_program: PathBuf::from("ssh"),
@@ -1316,6 +1381,8 @@ where
         config.idle_ttl,
     ));
     let state = Arc::new(HubState {
+        policy,
+        reads: crate::reading::ReadAdmission::default(),
         manager: manager.clone(),
         local_roots: config.local_roots,
     });
@@ -1328,10 +1395,13 @@ where
             cleanup_manager.expire_idle().await;
         }
     });
-    let result = axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown)
-        .await
-        .map_err(|error| format!("HTTP hub failed: {error}"));
+    let result = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown)
+    .await
+    .map_err(|error| format!("HTTP hub failed: {error}"));
     cleanup.abort();
     manager.shutdown().await;
     result
@@ -1358,6 +1428,7 @@ fn hub_application(base_path: &str, state: Arc<HubState>) -> Result<Router, HubE
         .route("/data", get(relay_data))
         .fallback(hub_api_not_found)
         .layer(DefaultBodyLimit::max(8 * 1024));
+    let policy = state.policy.clone();
     let scoped = server::hub_viewer_routes()
         .route("/healthz", get(health))
         .nest("/api", api)
@@ -1371,7 +1442,17 @@ fn hub_application(base_path: &str, state: Arc<HubState>) -> Result<Router, HubE
         .layer(middleware::from_fn(move |request: Request, next: Next| {
             let base = base.clone();
             let redirect_to = redirect_to.clone();
+            let policy = policy.clone();
             async move {
+                let peer = request
+                    .extensions()
+                    .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+                    .map(|peer| peer.0);
+                if request.uri().path() != format!("{base}/healthz")
+                    && !policy.accepts_proxy(peer, request.method(), request.headers())
+                {
+                    return StatusCode::FORBIDDEN.into_response();
+                }
                 if request.uri().path() == base {
                     Redirect::permanent(&redirect_to).into_response()
                 } else {
@@ -1390,7 +1471,12 @@ async fn session_status(State(state): State<Arc<HubState>>, headers: HeaderMap) 
         Ok(id) => state.manager.heartbeat(&id).await.is_ok(),
         Err(_) => false,
     };
-    Json(HubStatus { hub: true, active })
+    Json(HubStatus {
+        hub: true,
+        active,
+        mode: state.policy.mode,
+        password: state.policy.mode == Mode::Http && state.policy.auth == SshAuth::Password,
+    })
 }
 
 async fn create_session(
@@ -1405,16 +1491,37 @@ async fn create_session(
             message: "the target address is too long".to_owned(),
         });
     }
+    if state.policy.mode == Mode::Local && request.address.contains(":/") {
+        return Err(HubError {
+            status: 403,
+            code: "remote_sessions_disabled",
+            message: "Remote sessions are disabled".to_owned(),
+        });
+    }
     let password = request.password.map(SecretString::new).transpose()?;
     let address = request.address;
     let roots = state.local_roots.clone();
-    let target = tokio::task::spawn_blocking(move || resolve_target(&address, &roots))
+    let as_hub_error = |error: crate::dataset::DataError| HubError {
+        status: error.status,
+        code: error.code,
+        message: error.message,
+    };
+    let _job = state.reads.admit().map_err(as_hub_error)?;
+    let memory = state
+        .reads
+        .reserve(2 * crate::dataset::MAX_METADATA_BYTES)
         .await
-        .map_err(|error| HubError {
-            status: 500,
-            code: "target_check_failed",
-            message: error.to_string(),
-        })??;
+        .map_err(as_hub_error)?;
+    let target = state
+        .reads
+        .blocking(move || {
+            let _memory = memory;
+            resolve_target(&address, &roots).map_err(|error| {
+                crate::dataset::DataError::new(error.status, error.code, error.message)
+            })
+        })
+        .await
+        .map_err(as_hub_error)?;
     if let Some(id) = optional_session_header(&headers)? {
         if state.manager.identity(&id).await? == target.identity() {
             if password.is_some() {
@@ -1427,10 +1534,18 @@ async fn create_session(
             state.manager.retarget(&id, target).await?;
             return Ok((StatusCode::OK, Json(CreatedSession { session: id.0 })));
         }
-        validate_password(&target, &password)?;
-        state.manager.close(&id).await?;
+        validate_password(&target, &password, state.policy.auth)?;
+        let replacement = state.manager.open(target, password).await?;
+        // Expiry can close the old session while its replacement authenticates.
+        let _ = state.manager.close(&id).await;
+        return Ok((
+            StatusCode::CREATED,
+            Json(CreatedSession {
+                session: replacement.0,
+            }),
+        ));
     } else {
-        validate_password(&target, &password)?;
+        validate_password(&target, &password, state.policy.auth)?;
     }
     let id = state.manager.open(target, password).await?;
     Ok((StatusCode::CREATED, Json(CreatedSession { session: id.0 })))
@@ -1592,6 +1707,14 @@ async fn hub_api_not_found() -> impl IntoResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_policy() -> Arc<HubPolicy> {
+        Arc::new(HubPolicy {
+            mode: Mode::Http,
+            auth: SshAuth::Password,
+            ..Default::default()
+        })
+    }
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
     use tokio::sync::Notify;
@@ -1890,6 +2013,8 @@ mod tests {
         let (manager, stopped) = fake_manager(1, Duration::from_secs(1), None, None);
         let id = manager.open(fake_target(), None).await.unwrap();
         let state = Arc::new(HubState {
+            policy: test_policy(),
+            reads: crate::reading::ReadAdmission::default(),
             manager,
             local_roots: Vec::new(),
         });
@@ -1980,6 +2105,8 @@ mod tests {
     async fn hub_http_requires_password_and_reuses_only_the_same_identity() {
         let (manager, stopped) = fake_manager(2, Duration::from_secs(1), None, None);
         let state = Arc::new(HubState {
+            policy: test_policy(),
+            reads: crate::reading::ReadAdmission::default(),
             manager,
             local_roots: Vec::new(),
         });
@@ -2085,6 +2212,8 @@ mod tests {
         let (manager, _) = fake_manager_at(upstream_address, 1, Duration::from_secs(1), None, None);
         let id = manager.open(fake_target(), None).await.unwrap();
         let state = Arc::new(HubState {
+            policy: test_policy(),
+            reads: crate::reading::ReadAdmission::default(),
             manager,
             local_roots: Vec::new(),
         });
@@ -2161,7 +2290,7 @@ mod tests {
         let pipe_path = format!(
             "/proc/{}/fd/{}",
             std::process::id(),
-            child._reader.as_raw_fd()
+            child._reader.as_ref().unwrap().as_raw_fd()
         );
         let mut second = Vec::new();
         File::open(&pipe_path)
@@ -2169,8 +2298,10 @@ mod tests {
             .read_to_end(&mut second)
             .unwrap();
         assert!(second.is_empty());
+        let identity = std::fs::read_link(&pipe_path).unwrap();
         drop(child);
-        assert!(!Path::new(&pipe_path).exists());
+        // Concurrent tests may reuse the descriptor number, but cannot retain this pipe.
+        assert_ne!(std::fs::read_link(&pipe_path).ok(), Some(identity));
     }
 
     #[cfg(target_os = "linux")]
@@ -2186,15 +2317,17 @@ mod tests {
         std::fs::write(
             &ssh,
             format!(
-                "#!/bin/sh\nprintf '%s\\n' \"$*\" >> {}\nenv | grep '^NCX_SSH_PASSWORD=' >> {} || true\nprintf '%s' \"$NCX_ASKPASS_PIPE\" > {}\nexit 1\n",
+                "#!/bin/sh\nprintf '%s\\n' \"$*\" >> {}\nenv | grep '^NCX_SSH_PASSWORD=' >> {} || true\nprintf '%s\\n' \"$NCX_ASKPASS_PIPE\" > {}\nreadlink \"$NCX_ASKPASS_PIPE\" >> {}\nexit 1\n",
                 shell_quote(log.to_str().unwrap()),
                 shell_quote(log.to_str().unwrap()),
+                shell_quote(pipe_log.to_str().unwrap()),
                 shell_quote(pipe_log.to_str().unwrap()),
             ),
         )
         .unwrap();
         std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o700)).unwrap();
         let remote = RemoteRuntime {
+            policy: test_policy(),
             binary: binary.clone(),
             cache_key: binary_fingerprint(&binary).unwrap(),
             ssh_program: ssh,
@@ -2209,7 +2342,7 @@ mod tests {
                 destination: "test".to_owned(),
                 path: "/data.nc".to_owned(),
             },
-            &SecretString::new("wrong".to_owned()).unwrap(),
+            Some(&SecretString::new("wrong".to_owned()).unwrap()),
             Instant::now() + Duration::from_secs(1),
         )
         .await
@@ -2222,7 +2355,9 @@ mod tests {
         assert_eq!(command.lines().count(), 1);
         assert!(command.contains("-M -N -S"));
         assert!(!command.contains("wrong"));
-        assert!(!Path::new(&std::fs::read_to_string(pipe_log).unwrap()).exists());
+        let logged_pipe = std::fs::read_to_string(pipe_log).unwrap();
+        let (path, identity) = logged_pipe.trim().split_once('\n').unwrap();
+        assert_ne!(std::fs::read_link(path).ok(), Some(PathBuf::from(identity)));
         assert!(
             !std::env::temp_dir()
                 .join(format!("ncx-{}.sock", id.0))
@@ -2243,7 +2378,8 @@ mod tests {
         std::fs::write(
             &ssh,
             format!(
-                "#!/bin/sh\nprintf '%s' \"$NCX_ASKPASS_PIPE\" > {}\nprintf '%s' \"$$\" > {}\nexec sleep 30\n",
+                "#!/bin/sh\nprintf '%s\\n' \"$NCX_ASKPASS_PIPE\" > {}\nreadlink \"$NCX_ASKPASS_PIPE\" >> {}\nprintf '%s' \"$$\" > {}\nexec sleep 30\n",
+                shell_quote(pipe_log.to_str().unwrap()),
                 shell_quote(pipe_log.to_str().unwrap()),
                 shell_quote(pid_log.to_str().unwrap()),
             ),
@@ -2251,6 +2387,7 @@ mod tests {
         .unwrap();
         std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o700)).unwrap();
         let remote = RemoteRuntime {
+            policy: test_policy(),
             binary: binary.clone(),
             cache_key: binary_fingerprint(&binary).unwrap(),
             ssh_program: ssh,
@@ -2265,7 +2402,7 @@ mod tests {
                 destination: "test".to_owned(),
                 path: "/data.nc".to_owned(),
             },
-            &SecretString::new("secret".to_owned()).unwrap(),
+            Some(&SecretString::new("secret".to_owned()).unwrap()),
             Instant::now() + Duration::from_millis(50),
         )
         .await;
@@ -2274,7 +2411,9 @@ mod tests {
             Err(error) => error,
         };
         assert_eq!(error.status, 504);
-        assert!(!Path::new(&std::fs::read_to_string(pipe_log).unwrap()).exists());
+        let logged_pipe = std::fs::read_to_string(pipe_log).unwrap();
+        let (path, identity) = logged_pipe.trim().split_once('\n').unwrap();
+        assert_ne!(std::fs::read_link(path).ok(), Some(PathBuf::from(identity)));
         let pid = std::fs::read_to_string(pid_log).unwrap();
         assert!(!Path::new(&format!("/proc/{pid}")).exists());
     }
@@ -2295,6 +2434,7 @@ mod tests {
             destination: "test".to_owned(),
             control_path: control_path.clone(),
             remote: RemoteRuntime {
+                policy: test_policy(),
                 binary: PathBuf::from("/bin/false"),
                 cache_key: "test".to_owned(),
                 ssh_program: PathBuf::from("ssh"),
@@ -2330,6 +2470,7 @@ mod tests {
         .unwrap();
         std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o700)).unwrap();
         let remote = RemoteRuntime {
+            policy: test_policy(),
             binary: binary.clone(),
             cache_key: binary_fingerprint(&binary).unwrap(),
             ssh_program: ssh,
@@ -2381,6 +2522,7 @@ mod tests {
         .unwrap();
         std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o700)).unwrap();
         let remote = RemoteRuntime {
+            policy: test_policy(),
             binary: binary.clone(),
             cache_key: binary_fingerprint(&binary).unwrap(),
             ssh_program: ssh,
@@ -2401,30 +2543,153 @@ mod tests {
     }
 
     #[test]
-    fn hub_ssh_commands_skip_unknown_and_changed_host_key_checks() {
-        let remote = RemoteRuntime {
+    fn hub_ssh_commands_check_hosts_and_select_authentication_explicitly() {
+        let mut remote = RemoteRuntime {
+            policy: test_policy(),
             binary: PathBuf::from("/bin/false"),
             cache_key: "test".to_owned(),
             ssh_program: PathBuf::from("ssh"),
         };
-        for command in [
-            authenticated_ssh_command(&remote),
-            mux_ssh_command(&remote, Path::new("/tmp/control")),
-        ] {
-            let arguments = command.as_std().get_args().collect::<Vec<_>>();
-            for option in [
-                "StrictHostKeyChecking=no",
-                "UserKnownHostsFile=/dev/null",
-                "GlobalKnownHostsFile=/dev/null",
+        for checking in [HostKeys::Strict, HostKeys::AcceptNew, HostKeys::Insecure] {
+            remote.policy = Arc::new(HubPolicy {
+                host_keys: checking,
+                ..(*test_policy()).clone()
+            });
+            for command in [
+                authenticated_ssh_command(&remote),
+                mux_ssh_command(&remote, Path::new("/tmp/control")),
             ] {
-                assert!(arguments.windows(2).any(|pair| pair == ["-o", option]));
+                let args = command
+                    .as_std()
+                    .get_args()
+                    .map(|a| a.to_string_lossy().into_owned())
+                    .collect::<Vec<_>>();
+                let expected = match checking {
+                    HostKeys::Strict => "yes",
+                    HostKeys::AcceptNew => "accept-new",
+                    HostKeys::Insecure => "no",
+                };
+                assert!(args.contains(&format!("StrictHostKeyChecking={expected}")));
+                assert_eq!(
+                    args.iter().any(|a| a == "UserKnownHostsFile=/dev/null"),
+                    checking == HostKeys::Insecure
+                );
             }
         }
+        remote.policy = Arc::new(HubPolicy {
+            mode: Mode::Https,
+            ..Default::default()
+        });
+        let command = authenticated_ssh_command(&remote);
+        let args = command.as_std().get_args().collect::<Vec<_>>();
+        assert!(args.contains(&std::ffi::OsStr::new("BatchMode=yes")));
+        assert!(args.contains(&std::ffi::OsStr::new("PubkeyAuthentication=yes")));
+        assert!(args.contains(&std::ffi::OsStr::new("PasswordAuthentication=no")));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires OpenSSH server and loopback sockets"]
+    async fn real_ssh_rejects_unknown_and_changed_host_keys() {
+        let directory = TestDirectory::new();
+        for name in ["host", "other"] {
+            assert!(
+                Command::new("ssh-keygen")
+                    .args(["-q", "-t", "ed25519", "-N", "", "-f"])
+                    .arg(directory.0.join(name))
+                    .status()
+                    .await
+                    .unwrap()
+                    .success()
+            );
+        }
+        let reservation = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = reservation.local_addr().unwrap().port();
+        let config = directory.0.join("sshd.conf");
+        std::fs::write(&config, format!(
+            "ListenAddress 127.0.0.1\nPort {port}\nHostKey {}\nPidFile {}\nPasswordAuthentication no\nUsePAM no\n",
+            directory.0.join("host").display(), directory.0.join("pid").display()
+        )).unwrap();
+        drop(reservation);
+        let mut daemon = Command::new("/usr/sbin/sshd")
+            .args(["-D", "-e", "-f"])
+            .arg(config)
+            .kill_on_drop(true)
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        for attempt in 0..100 {
+            if tokio::net::TcpStream::connect(("127.0.0.1", port))
+                .await
+                .is_ok()
+            {
+                break;
+            }
+            assert!(
+                attempt < 99 && daemon.try_wait().unwrap().is_none(),
+                "sshd did not start"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let known = directory.0.join("known hosts");
+        std::fs::write(&known, "").unwrap();
+        for (policy, expected) in [
+            (HostKeys::Strict, "Host key verification failed"),
+            (HostKeys::AcceptNew, "Permission denied"),
+            (HostKeys::Strict, "Permission denied"),
+            (HostKeys::Strict, "REMOTE HOST IDENTIFICATION HAS CHANGED"),
+            (
+                HostKeys::AcceptNew,
+                "REMOTE HOST IDENTIFICATION HAS CHANGED",
+            ),
+        ] {
+            if expected.contains("CHANGED") {
+                let key = std::fs::read_to_string(directory.0.join("other.pub")).unwrap();
+                std::fs::write(&known, format!("[127.0.0.1]:{port} {key}")).unwrap();
+            }
+            let remote = RemoteRuntime {
+                policy: Arc::new(HubPolicy {
+                    mode: Mode::Http,
+                    host_keys: policy,
+                    known_hosts: Some(known.clone()),
+                    ..Default::default()
+                }),
+                binary: PathBuf::from("/bin/false"),
+                cache_key: "test".into(),
+                ssh_program: PathBuf::from("ssh"),
+            };
+            let output = authenticated_ssh_command(&remote)
+                .args([
+                    "-F",
+                    "/dev/null",
+                    "-o",
+                    "GlobalKnownHostsFile=/dev/null",
+                    "-o",
+                    "IdentityAgent=none",
+                    "-o",
+                    "IdentityFile=none",
+                    "-o",
+                    "ConnectTimeout=3",
+                    "-p",
+                    &port.to_string(),
+                    "ncx-no-such-user@127.0.0.1",
+                    "true",
+                ])
+                .output()
+                .await
+                .unwrap();
+            let error = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                !output.status.success() && error.contains(expected),
+                "{error}"
+            );
+        }
+        daemon.kill().await.unwrap();
     }
 
     #[test]
     fn mux_ssh_commands_use_the_control_path_without_password_environment() {
         let remote = RemoteRuntime {
+            policy: test_policy(),
             binary: PathBuf::from("/bin/false"),
             cache_key: "test".to_owned(),
             ssh_program: PathBuf::from("ssh"),
@@ -2484,6 +2749,7 @@ mod tests {
     fn hub_config_accepts_ten_sessions_and_rejects_eleven() {
         let directory = TestDirectory::new();
         let config = |session_limit| HubConfig {
+            policy: HubPolicy::default(),
             base_path: "/ncx".to_owned(),
             local_roots: vec![directory.0.clone()],
             session_limit,

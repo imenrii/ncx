@@ -1,6 +1,6 @@
 import { PLOT_STYLE } from "../web/src/plots/plotStyle.ts";
 import { createServer } from "node:http";
-import { copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,10 +15,11 @@ const assignUnits = process.env.NCX_ASSIGN_UNITS === "1";
 const pressureMode = process.env.NCX_PRESSURE === "1";
 const chrome = process.env.NCX_CHROME ?? "";
 const chromeQuery = chrome ? `&chrome=${encodeURIComponent(chrome)}` : "";
-if (!["rectilinear", "curvilinear", "ugrid", "ugrid_projected", "ugrid_helpers", "comparison", "collection", "station", "hub", "wind"].includes(browserMode)) {
+if (!["rectilinear", "curvilinear", "ugrid", "ugrid_projected", "ugrid_helpers", "grouped_ugrid", "comparison", "collection", "station", "hub", "wind"].includes(browserMode)) {
   throw new Error(`unknown browser fixture ${JSON.stringify(browserMode)}`);
 }
 const fixture = process.env.NCX_FIXTURE ?? join(ncx, `tests/data/${["comparison", "collection", "hub"].includes(browserMode) ? "rectilinear" : browserMode}.nc`);
+const meshWorkerAsset = (await readdir(join(ncx, "web/dist/assets"))).find(name => /^meshWorker-.*\.js$/.test(name));
 
 const injected = `<script>
 const collectPerformance = ${JSON.stringify(benchmark)};
@@ -538,12 +539,34 @@ try {
     const colour = legacy.closest("select");
     if (colour?.size > 1) failures.push("Colour control is expanded instead of collapsed");
     const originalColour = colour?.value;
+    const scalarUpload = performance.getEntriesByName('ncx.mesh.scalar-upload').at(-1)?.startTime;
     colour?.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: 100 }));
     await waitFor(() => colour?.value !== originalColour, "hover-scrolling Colour did not select the next map");
     colour?.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -100 }));
     await waitFor(() => colour?.value === originalColour, "reverse hover-scroll did not restore Colour");
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    if (browserMode === 'ugrid' && scalarUpload !== undefined &&
+        performance.getEntriesByName('ncx.mesh.scalar-upload').at(-1)?.startTime !== scalarUpload) {
+      failures.push('palette-only changes re-uploaded mesh scalars');
+    }
   }
   if (["curvilinear", "ugrid", "ugrid_projected"].includes(browserMode)) {
+    const workerAsset = ${JSON.stringify(meshWorkerAsset)};
+    if (!workerAsset) throw new Error('Missing mesh worker asset; rebuild the web bundle');
+    await new Promise((resolve, reject) => {
+      const worker = new Worker(new URL('assets/' + workerAsset, document.baseURI), { type: 'module' });
+      const timer = setTimeout(() => { worker.terminate(); reject(new Error('Mesh worker timed out')); }, 4000);
+      worker.onerror = event => { clearTimeout(timer); worker.terminate(); reject(new Error(event.message)); };
+      worker.onmessage = ({ data }) => {
+        clearTimeout(timer); worker.terminate();
+        if (data.error || data.geometry?.triangleSources.length !== 67712) reject(new Error(data.error || 'Incorrect worker geometry'));
+        else resolve();
+      };
+      const side = 185;
+      const x = Float64Array.from({ length: side * side }, (_, index) => index % side);
+      const y = Float64Array.from(x, (_, index) => Math.floor(index / side));
+      worker.postMessage({ kind: 'curvilinear', args: [x, y, side, side, side, side, 1, 1] });
+    });
     const map = [...document.querySelectorAll('.display-controls label')]
       .find(label => label.textContent.trim().startsWith("Map"))?.querySelector("select");
     if (map) {
@@ -1136,6 +1159,24 @@ try {
     for (const name of ['Mesh2D_node_depth', 'Mesh2D_face_mask']) {
       if (!projectedNames.includes(name)) failures.push('collection hid mesh data ' + name);
     }
+  } else if (browserMode === "grouped_ugrid") {
+    const select = async name => {
+      const row = await waitFor(() => [...document.querySelectorAll('.variable-row')]
+        .find(node => node.querySelector('span')?.textContent === name), 'missing grouped variable ' + name);
+      row.click();
+      await waitFor(() => window.ncx.getState().selection?.path === '/ocean/state/' + name &&
+        document.querySelector('.mesh-canvas[data-rendered="true"]') && !document.querySelector('.plot-loading'),
+        'grouped mesh did not render ' + name);
+    };
+    await select('temp');
+    const paths = () => window.__ncxFetches.filter(url => url.includes('/api/data?'))
+      .map(url => new URL(url, location.href).searchParams.get('path'));
+    for (const path of ['/ocean/lon', '/ocean/lat', '/ocean/face_nodes', '/ocean/state/temp']) {
+      if (!paths().includes(path)) failures.push('missing canonical grouped read ' + path);
+    }
+    await select('current');
+    if (!paths().includes('/ocean/edge_faces')) failures.push('missing canonical edge connectivity');
+    if (paths().some(path => path.includes('/../') || path.includes('/./'))) failures.push('unresolved CF path in HTTP request');
   } else if (browserMode === "ugrid_helpers") {
     await waitFor(() => document.querySelector('.mesh-canvas[data-rendered="true"]') &&
       !document.querySelector('.plot-loading'), 'mesh helper fixture did not render', 15000);
@@ -1911,7 +1952,7 @@ if (browserMode === "collection") {
 }
 
 const childArguments = browserMode === "hub"
-  ? ["hub", "--listen", "127.0.0.1:0", "--base-path", "/ncx", "--local-root", join(ncx, "tests/data")]
+  ? ["hub", "--mode", "HTTP", "--ssh-auth", "password", "--listen", "127.0.0.1:0", "--base-path", "/ncx", "--local-root", join(ncx, "tests/data")]
   : browserMode === "comparison"
   ? [
       "serve",

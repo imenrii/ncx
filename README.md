@@ -294,7 +294,7 @@ no border and no plate; arrows and contour labels keep out of its corner.
 
 [`web/src/plots/plotStyle.ts`](web/src/plots/plotStyle.ts) is the canonical browser
 plot profile. It supplies generated CSS, layout, and export. See
-[the style decision record](docs/plot-style.md) for intentional differences from
+[the style contract](docs/plot-style.md) for intentional differences from
 Python figures, corrected mismatches, and the update procedure.
 
 ### Field Pressure Contours
@@ -394,7 +394,7 @@ figures. Ensure hosting policies allow blob image rendering for composition.
 A lightweight Docker Compose setup is provided to host an `ncx hub` server for team access:
 
 ```bash
-cp deploy/.env.example deploy/.env
+cp .env.example .env
 sh deploy/compose.sh up -d --wait
 ```
 
@@ -403,6 +403,9 @@ For network configuration, data directory mounts, session policies, and update r
 ---
 
 ## Development & Verification
+
+See [module contracts](docs/README.md) for ownership and interfaces, and
+[executable gates](docs/checks.md) for browser, protocol, and performance checks.
 
 ### Dev Server
 

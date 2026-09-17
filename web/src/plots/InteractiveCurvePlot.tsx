@@ -59,7 +59,7 @@ export function InteractiveCurvePlot({
   useEffect(() => {
     const element = frame.current;
     if (!element || !geometry) return;
-    return registerCurveCapture(element, consume => {
+    return registerCurveCapture(element, (consume, samplingScale = 1) => {
       const context = document.createElement("canvas").getContext("2d");
       if (!context) throw new Error("The browser could not measure the series legend");
       const face = getComputedStyle(element).getPropertyValue("--plot-face");
@@ -68,7 +68,7 @@ export function InteractiveCurvePlot({
         text => context.measureText(text).width);
       const exported = series.map(item => ({ item, geometry: curveGeometry(
         item.y, item.x, size.width, size.height, domain, geometry.type,
-        { log, xRange: effectiveXRange, yRange, step, headroom: layout.height, reserveTop: windEnabled },
+        { log, xRange: effectiveXRange, yRange, step, headroom: layout.height, reserveTop: windEnabled, samplingScale },
       ) }));
       // Keep inherited plot styles available until export copies computed values.
       // This short-lived root must not change the interactive SVG or its range.
@@ -218,7 +218,7 @@ function CurveDrawing({ geometries, clip, dimension, valueLabel, time, step,
       x1={plot.left} x2={plot.left + plot.width} y1={geometry.yFor(0)} y2={geometry.yFor(0)} />}
     {windEnabled && <WindBarbs wind={wind} geometry={geometry} knots={windKnots} timeZone={timeZone} onTrack={onWindTrack} />}
     {geometries.map(({ item, geometry: line }) => line && <path
-      key={item.id} data-series={item.id}
+      key={item.id} data-series={item.id} data-sampling={line.sampling}
       className={`curve-line ${item.primary ? "total" : "comparison-line"}`}
       clipPath={`url(#${clip})`} style={{ stroke: item.color, strokeDasharray: item.dash }} d={line.path} />)}
     {legend && legend.items.length > 0 && <g className="export-series-legend"

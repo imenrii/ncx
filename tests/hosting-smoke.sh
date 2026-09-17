@@ -45,6 +45,8 @@ PY
 )
 export NCX_ENV_FILE="$work/settings.env"
 export NCX_BIND_ADDRESS=127.0.0.1 NCX_PORT="$port" NCX_DATA_ROOT="$work/data" NCX_DNS_NDOTS=1
+export NCX_KNOWN_HOSTS="$work/known_hosts"
+touch "$NCX_KNOWN_HOSTS"
 printf 'NCX_BIND_ADDRESS=127.0.0.1\nNCX_PORT=%s\nNCX_DATA_ROOT="%s/data"\n' "$port" "$work" > "$NCX_ENV_FILE"
 compose() {
     docker compose --env-file "$NCX_ENV_FILE" -f compose.yaml -f "$work/override.yaml" -p "$project" "$@"
@@ -68,6 +70,7 @@ services:
     volumes: !override
       - ncx-binary:/opt/ncx
       - "$work/data:/data:ro,Z"
+      - "$work/known_hosts:/etc/ncx/known_hosts:ro,Z"
 EOF
 compose config --quiet
 compose build

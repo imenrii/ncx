@@ -11,22 +11,30 @@ use crate::cf;
 
 const MAX_ATTRIBUTE_VALUES: usize = 256;
 const MAX_ATTRIBUTE_TEXT_BYTES: usize = 4096;
+pub const MAX_METADATA_BYTES: usize = 16 * 1024 * 1024;
+pub const PROTOCOL_VERSION: u32 = 1;
 
 #[derive(Clone, Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct DatasetMetadata {
+    pub protocol_version: u32,
     pub dataset: DatasetSummary,
     pub groups: Vec<GroupSummary>,
     pub dimensions: Vec<DimensionSummary>,
     pub variables: Vec<VariableSummary>,
     pub warnings: Vec<String>,
+    pub default_variable: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(rename = "DatasetName"))]
 pub struct DatasetSummary {
     pub name: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct GroupSummary {
     pub path: String,
     pub name: String,
@@ -34,6 +42,7 @@ pub struct GroupSummary {
 }
 
 #[derive(Clone, Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct DimensionSummary {
     pub path: String,
     pub name: String,
@@ -42,6 +51,7 @@ pub struct DimensionSummary {
 }
 
 #[derive(Clone, Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct VariableDimension {
     pub path: String,
     pub name: String,
@@ -49,6 +59,7 @@ pub struct VariableDimension {
 }
 
 #[derive(Clone, Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct VariableSummary {
     pub path: String,
     pub name: String,
@@ -58,9 +69,11 @@ pub struct VariableSummary {
     pub dimensions: Vec<VariableDimension>,
     pub attributes: Vec<AttributeSummary>,
     pub view_hint: ViewHint,
+    pub capabilities: cf::VariableCapabilities,
 }
 
 #[derive(Clone, Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ViewHint {
     Plain,
@@ -77,20 +90,23 @@ pub enum ViewHint {
         x: String,
         y: String,
         face_node_connectivity: String,
+        #[cfg_attr(test, ts(type = "\"node\" | \"edge\" | \"face\""))]
         location: String,
     },
 }
 
 #[derive(Clone, Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct AttributeSummary {
     pub name: String,
     pub dtype: String,
     pub value: AttributeData,
-    #[serde(skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub truncated: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(untagged)]
 pub enum AttributeData {
     Scalar(AttributeScalar),
@@ -98,6 +114,7 @@ pub enum AttributeData {
 }
 
 #[derive(Clone, Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(untagged)]
 pub enum AttributeScalar {
     Unsigned(u64),
@@ -159,6 +176,16 @@ pub struct Dataset {
     metadata: DatasetMetadata,
     connectivity_variables: HashSet<String>,
     file: Mutex<netcdf::File>,
+    pub read_slot: std::sync::Arc<tokio::sync::Semaphore>,
+}
+
+pub struct ReadPlan {
+    path: String,
+    selection: ReadSelection,
+    wire: WireType,
+    connectivity: bool,
+    response_bytes: usize,
+    pub peak_bytes: usize,
 }
 
 impl Dataset {
@@ -177,12 +204,15 @@ impl Dataset {
             .into_owned();
         let mut metadata = discover_metadata(&file, name)
             .map_err(|error| format!("cannot inspect {}: {error}", display_path.display()))?;
-        let connectivity_variables = cf::add_view_hints(&mut metadata);
+        let connectivity_variables = cf::add_view_hints(&mut metadata)?;
+        crate::reading::bounded_json(&metadata, MAX_METADATA_BYTES)
+            .map_err(|error| error.message)?;
 
         Ok(Self {
             metadata,
             connectivity_variables,
             file: Mutex::new(file),
+            read_slot: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
         })
     }
 
@@ -190,14 +220,14 @@ impl Dataset {
         &self.metadata
     }
 
-    pub fn read_data(
+    pub fn plan_read(
         &self,
         path: &str,
         selection: &str,
         stride: &str,
         wire: Option<WireType>,
         max_response_bytes: u64,
-    ) -> Result<DataResponse, DataError> {
+    ) -> Result<ReadPlan, DataError> {
         let summary = self
             .metadata
             .variables
@@ -227,6 +257,26 @@ impl Dataset {
             validate_decode_attributes(summary)?;
         }
 
+        Ok(ReadPlan {
+            path: path.to_owned(),
+            selection,
+            wire,
+            connectivity,
+            response_bytes: read_size.response_bytes,
+            peak_bytes: read_size.peak_bytes,
+        })
+    }
+
+    pub fn read(&self, plan: ReadPlan) -> Result<DataResponse, DataError> {
+        let ReadPlan {
+            path,
+            selection,
+            wire,
+            connectivity,
+            response_bytes,
+            ..
+        } = plan;
+
         let file = self.file.lock().map_err(|_| {
             DataError::new(500, "dataset_lock_failed", "the NetCDF reader lock failed")
         })?;
@@ -235,11 +285,11 @@ impl Dataset {
             .ok_or_else(|| DataError::new(404, "variable_not_found", "unknown variable path"))?;
 
         let (dtype, body) = if connectivity {
-            read_connectivity(&variable, &selection, read_size.response_bytes)?
+            read_connectivity(&variable, &selection, response_bytes)?
         } else {
             (
                 wire.dtype(),
-                read_display_values(&variable, &selection, wire, read_size.response_bytes)?,
+                read_display_values(&variable, &selection, wire, response_bytes)?,
             )
         };
 
@@ -248,6 +298,18 @@ impl Dataset {
             shape: selection.output_shape,
             body,
         })
+    }
+
+    #[cfg(test)]
+    fn read_data(
+        &self,
+        path: &str,
+        selection: &str,
+        stride: &str,
+        wire: Option<WireType>,
+        maximum: u64,
+    ) -> Result<DataResponse, DataError> {
+        self.read(self.plan_read(path, selection, stride, wire, maximum)?)
     }
 }
 
@@ -304,7 +366,7 @@ pub struct DataError {
 }
 
 impl DataError {
-    fn new(status: u16, code: &'static str, message: impl Into<String>) -> Self {
+    pub(crate) fn new(status: u16, code: &'static str, message: impl Into<String>) -> Self {
         Self {
             status,
             code,
@@ -323,20 +385,42 @@ impl DataError {
     }
 }
 
+struct MetadataBudget(usize);
+impl std::io::Write for MetadataBudget {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0 = self
+            .0
+            .checked_sub(bytes.len())
+            .ok_or_else(|| std::io::Error::other("metadata limit exceeded"))?;
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+impl MetadataBudget {
+    fn charge(&mut self, value: &impl Serialize) -> NcxResult<()> {
+        serde_json::to_writer(self, value).map_err(|_| "metadata exceeds the size limit".to_owned())
+    }
+}
+
 fn discover_metadata(file: &netcdf::File, name: String) -> NcxResult<DatasetMetadata> {
     let mut metadata = DatasetMetadata {
+        protocol_version: PROTOCOL_VERSION,
         dataset: DatasetSummary { name },
         groups: Vec::new(),
         dimensions: Vec::new(),
         variables: Vec::new(),
         warnings: Vec::new(),
+        default_variable: None,
     };
     let dimensions = HashMap::new();
+    let mut budget = MetadataBudget(MAX_METADATA_BYTES);
 
     if let Some(root) = file.root() {
-        visit_group(&root, "/", &dimensions, &mut metadata);
+        visit_group(&root, "/", &dimensions, &mut metadata, &mut budget)?;
     } else {
-        visit_classic_root(file, &dimensions, &mut metadata);
+        visit_classic_root(file, &dimensions, &mut metadata, &mut budget)?;
     }
     Ok(metadata)
 }
@@ -345,20 +429,26 @@ fn visit_classic_root(
     file: &netcdf::File,
     inherited_dimensions: &HashMap<String, String>,
     metadata: &mut DatasetMetadata,
-) {
+    budget: &mut MetadataBudget,
+) -> NcxResult<()> {
+    if metadata.groups.len() >= 2048 {
+        return Err("metadata group limit exceeded".to_owned());
+    }
     let mut dimensions = inherited_dimensions.clone();
     for dimension in file.dimensions() {
-        add_dimension("/", dimension, &mut dimensions, metadata);
+        add_dimension("/", dimension, &mut dimensions, metadata, budget)?;
     }
-    let attributes = collect_attributes(file.attributes(), "/", &mut metadata.warnings);
+    let attributes = collect_attributes(file.attributes(), "/", &mut metadata.warnings, budget)?;
+    budget.charge(&"group")?;
     metadata.groups.push(GroupSummary {
         path: "/".to_owned(),
         name: "/".to_owned(),
         attributes,
     });
     for variable in file.variables() {
-        add_variable("/", variable, &dimensions, metadata);
+        add_variable("/", variable, &dimensions, metadata, budget)?;
     }
+    Ok(())
 }
 
 fn visit_group(
@@ -366,12 +456,20 @@ fn visit_group(
     path: &str,
     inherited_dimensions: &HashMap<String, String>,
     metadata: &mut DatasetMetadata,
-) {
+    budget: &mut MetadataBudget,
+) -> NcxResult<()> {
+    if metadata.groups.len() >= 2048 {
+        return Err("metadata group limit exceeded".to_owned());
+    }
+    if path.bytes().filter(|byte| *byte == b'/').count() > 32 {
+        return Err("metadata nesting limit exceeded".to_owned());
+    }
     let mut dimensions = inherited_dimensions.clone();
     for dimension in group.dimensions() {
-        add_dimension(path, dimension, &mut dimensions, metadata);
+        add_dimension(path, dimension, &mut dimensions, metadata, budget)?;
     }
-    let attributes = collect_attributes(group.attributes(), path, &mut metadata.warnings);
+    let attributes = collect_attributes(group.attributes(), path, &mut metadata.warnings, budget)?;
+    budget.charge(&"group")?;
     metadata.groups.push(GroupSummary {
         path: path.to_owned(),
         name: if path == "/" {
@@ -382,12 +480,13 @@ fn visit_group(
         attributes,
     });
     for variable in group.variables() {
-        add_variable(path, variable, &dimensions, metadata);
+        add_variable(path, variable, &dimensions, metadata, budget)?;
     }
     for child in group.groups() {
         let child_path = join_path(path, &child.name());
-        visit_group(&child, &child_path, &dimensions, metadata);
+        visit_group(&child, &child_path, &dimensions, metadata, budget)?;
     }
+    Ok(())
 }
 
 fn add_dimension(
@@ -395,9 +494,14 @@ fn add_dimension(
     dimension: netcdf::Dimension<'_>,
     visible_dimensions: &mut HashMap<String, String>,
     metadata: &mut DatasetMetadata,
-) {
+    budget: &mut MetadataBudget,
+) -> NcxResult<()> {
+    if metadata.dimensions.len() >= 4096 {
+        return Err("metadata dimension limit exceeded".to_owned());
+    }
     let name = dimension.name();
     let path = join_path(group_path, &name);
+    budget.charge(&(name.as_str(), path.as_str()))?;
     visible_dimensions.insert(name.clone(), path.clone());
     metadata.dimensions.push(DimensionSummary {
         path,
@@ -405,6 +509,7 @@ fn add_dimension(
         length: dimension.len(),
         unlimited: dimension.is_unlimited(),
     });
+    Ok(())
 }
 
 fn add_variable(
@@ -412,9 +517,14 @@ fn add_variable(
     variable: netcdf::Variable<'_>,
     visible_dimensions: &HashMap<String, String>,
     metadata: &mut DatasetMetadata,
-) {
+    budget: &mut MetadataBudget,
+) -> NcxResult<()> {
+    if metadata.variables.len() >= 16384 {
+        return Err("metadata variable limit exceeded".to_owned());
+    }
     let name = variable.name();
     let path = join_path(group_path, &name);
+    budget.charge(&(name.as_str(), path.as_str()))?;
     let dimensions = variable
         .dimensions()
         .iter()
@@ -424,14 +534,16 @@ fn add_variable(
                 .get(&name)
                 .cloned()
                 .unwrap_or_else(|| join_path(group_path, &name));
-            VariableDimension {
+            budget.charge(&(name.as_str(), dimension_path.as_str(), dimension.len()))?;
+            Ok(VariableDimension {
                 path: dimension_path,
                 name,
                 length: dimension.len(),
-            }
+            })
         })
-        .collect();
-    let attributes = collect_attributes(variable.attributes(), &path, &mut metadata.warnings);
+        .collect::<NcxResult<Vec<_>>>()?;
+    let attributes =
+        collect_attributes(variable.attributes(), &path, &mut metadata.warnings, budget)?;
 
     let variable_type = variable.vartype();
     metadata.variables.push(VariableSummary {
@@ -442,26 +554,38 @@ fn add_variable(
         dimensions,
         attributes,
         view_hint: ViewHint::Plain,
+        capabilities: cf::VariableCapabilities::default(),
     });
+    Ok(())
 }
 
 fn collect_attributes<'a>(
     attributes: impl Iterator<Item = netcdf::Attribute<'a>>,
     owner: &str,
     warnings: &mut Vec<String>,
-) -> Vec<AttributeSummary> {
-    attributes
-        .filter_map(|attribute| match attribute_summary(&attribute) {
-            Ok(summary) => Some(summary),
+    budget: &mut MetadataBudget,
+) -> NcxResult<Vec<AttributeSummary>> {
+    let mut summaries = Vec::new();
+    for (index, attribute) in attributes.enumerate() {
+        if index >= 512 {
+            return Err("metadata attribute limit exceeded".to_owned());
+        }
+        match attribute_summary(&attribute) {
+            Ok(summary) => {
+                budget.charge(&summary)?;
+                summaries.push(summary);
+            }
             Err(error) => {
-                warnings.push(format!(
+                let warning = format!(
                     "could not read attribute {} on {owner}: {error}",
                     attribute.name()
-                ));
-                None
+                );
+                budget.charge(&warning)?;
+                warnings.push(warning);
             }
-        })
-        .collect()
+        }
+    }
+    Ok(summaries)
 }
 
 fn attribute_summary(attribute: &netcdf::Attribute<'_>) -> NcxResult<AttributeSummary> {
@@ -521,8 +645,7 @@ where
         dtype,
         values
             .into_iter()
-            .map(|value| AttributeScalar::Unsigned(value.into()))
-            .collect(),
+            .map(|value| AttributeScalar::Unsigned(value.into())),
     )
 }
 
@@ -534,8 +657,7 @@ where
         dtype,
         values
             .into_iter()
-            .map(|value| AttributeScalar::Signed(value.into()))
-            .collect(),
+            .map(|value| AttributeScalar::Signed(value.into())),
     )
 }
 
@@ -545,32 +667,35 @@ where
 {
     summarize_array(
         dtype,
-        values
-            .into_iter()
-            .map(|value| float_scalar(value.into()))
-            .collect(),
+        values.into_iter().map(|value| float_scalar(value.into())),
     )
 }
 
 fn string_array(values: Vec<String>) -> (String, AttributeData, bool) {
     let original_length = values.len();
     let mut truncated = original_length > MAX_ATTRIBUTE_VALUES;
-    let values = values
-        .into_iter()
-        .take(MAX_ATTRIBUTE_VALUES)
-        .map(|value| {
-            let (value, text_truncated) = truncate_text(value);
-            truncated |= text_truncated;
-            AttributeScalar::Text(value)
-        })
-        .collect();
-    ("string".to_owned(), AttributeData::Array(values), truncated)
+    let mut summary = Vec::with_capacity(original_length.min(MAX_ATTRIBUTE_VALUES));
+    summary.extend(values.into_iter().take(MAX_ATTRIBUTE_VALUES).map(|value| {
+        let (value, text_truncated) = truncate_text(value);
+        truncated |= text_truncated;
+        AttributeScalar::Text(value)
+    }));
+    (
+        "string".to_owned(),
+        AttributeData::Array(summary),
+        truncated,
+    )
 }
 
-fn summarize_array(dtype: &str, mut values: Vec<AttributeScalar>) -> (String, AttributeData, bool) {
+fn summarize_array(
+    dtype: &str,
+    values: impl ExactSizeIterator<Item = AttributeScalar>,
+) -> (String, AttributeData, bool) {
     let truncated = values.len() > MAX_ATTRIBUTE_VALUES;
-    values.truncate(MAX_ATTRIBUTE_VALUES);
-    (dtype.to_owned(), AttributeData::Array(values), truncated)
+    // Allocate the bounded result explicitly; iterator collection can reuse a large input buffer.
+    let mut summary = Vec::with_capacity(values.len().min(MAX_ATTRIBUTE_VALUES));
+    summary.extend(values.take(MAX_ATTRIBUTE_VALUES));
+    (dtype.to_owned(), AttributeData::Array(summary), truncated)
 }
 
 fn float_scalar(value: f64) -> AttributeScalar {
@@ -585,16 +710,15 @@ fn float_scalar(value: f64) -> AttributeScalar {
     }
 }
 
-fn truncate_text(mut value: String) -> (String, bool) {
-    if value.len() <= MAX_ATTRIBUTE_TEXT_BYTES {
+fn truncate_text(value: String) -> (String, bool) {
+    if value.capacity() <= MAX_ATTRIBUTE_TEXT_BYTES {
         return (value, false);
     }
-    let mut end = MAX_ATTRIBUTE_TEXT_BYTES;
+    let mut end = value.len().min(MAX_ATTRIBUTE_TEXT_BYTES);
     while !value.is_char_boundary(end) {
         end -= 1;
     }
-    value.truncate(end);
-    (value, true)
+    (value[..end].to_owned(), end < value.len())
 }
 
 fn data_type_name(data_type: &NcVariableType) -> String {
@@ -1333,6 +1457,31 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn attribute_summaries_bound_retained_capacity() {
+        for source in [
+            AttributeValue::Doubles(vec![1.; 100_000]),
+            AttributeValue::Longlongs(vec![1; 100_000]),
+            AttributeValue::Ulonglongs(vec![1; 100_000]),
+            AttributeValue::Strs(vec!["x".repeat(10_000); 300]),
+        ] {
+            let (_, value, truncated) = summarize_attribute(source);
+            let AttributeData::Array(values) = value else {
+                panic!("expected array");
+            };
+            assert!(truncated);
+            assert!(values.capacity() <= MAX_ATTRIBUTE_VALUES);
+            for value in values {
+                if let AttributeScalar::Text(value) = value {
+                    assert!(value.capacity() <= MAX_ATTRIBUTE_TEXT_BYTES);
+                }
+            }
+        }
+        let (text, truncated) = truncate_text("α".repeat(10_000));
+        assert!(truncated && text.capacity() <= MAX_ATTRIBUTE_TEXT_BYTES);
+        assert!(text.chars().all(|c| c == 'α'));
+    }
+
     fn test_variable() -> VariableSummary {
         VariableSummary {
             path: "/temperature".to_owned(),
@@ -1353,6 +1502,7 @@ mod tests {
             ],
             attributes: Vec::new(),
             view_hint: ViewHint::Plain,
+            capabilities: cf::VariableCapabilities::default(),
         }
     }
 

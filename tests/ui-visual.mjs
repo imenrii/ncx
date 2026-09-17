@@ -9,6 +9,7 @@ import { createServer } from "node:net";
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const output = resolve(process.argv[2] ?? "/tmp/ncx-visual");
 const binary = process.env.NCX_BINARY ?? join(root, "target/debug/ncx");
+const openFontProfile = process.env.NCX_VISUAL_PROFILE === "open";
 await mkdir(output, { recursive: true });
 const profile = await mkdtemp(join(tmpdir(), "ncx-visual-firefox-"));
 const reservation = createServer();
@@ -76,6 +77,10 @@ try {
     return result.result;
   };
   const settle = () => evaluate(`(async () => {
+    if (${JSON.stringify(openFontProfile)}) {
+      document.documentElement.style.setProperty('--ui-face', '"CM Math", "National Park", sans-serif');
+      document.querySelectorAll('.clock').forEach(node => node.style.visibility = 'hidden');
+    }
     await document.fonts.ready;
     for (let attempt = 0; attempt < 100; attempt++) {
       if (document.querySelector('.plot-frame') && !document.querySelector('.plot-loading')) {
@@ -147,14 +152,28 @@ try {
     await capture(`${scenario}-desktop`);
     await command("browsingContext.setViewport", { context, viewport: { width: 640, height: 900 }, devicePixelRatio: 1 });
     await capture(`${scenario}-narrow`);
-    await evaluate(`document.querySelector('.menu-button').click()`);
-    await capture(`${scenario}-menu-closed-narrow`);
-    await evaluate(`document.querySelector('.menu-button').click()`);
 
     await command("browsingContext.setViewport", { context, viewport: { width: 1280, height: 900 }, devicePixelRatio: 1 });
     await settle();
     await exportPng(`${scenario}-export`);
     if (scenario === "rectilinear") {
+      await evaluate(`(() => {
+        window.__coarseRules = [];
+        const visit = rules => { for (const rule of rules) {
+          if (rule.media && rule.conditionText === '(pointer: coarse)') {
+            window.__coarseRules.push([rule, rule.media.mediaText]); rule.media.mediaText = 'all';
+          } else if (rule.cssRules) visit(rule.cssRules);
+        } };
+        for (const sheet of document.styleSheets) visit(sheet.cssRules);
+        document.querySelector('.settings-button').click();
+      })()`);
+      await capture('settings-coarse', false);
+      await evaluate(`(() => {
+        const controls = [...document.querySelectorAll('.settings-dialog button, .settings-dialog select')];
+        if (!controls.length || controls.some(node => node.getBoundingClientRect().height < 44)) throw new Error('Settings coarse-pointer target below 44px');
+        document.querySelector('.settings-dialog').close();
+        for (const [rule, condition] of window.__coarseRules) rule.media.mediaText = condition;
+      })()`);
       await evaluate(`document.querySelector('.screenshot-button').click()`);
       await capture('save-dialog-desktop');
       await command("browsingContext.setViewport", { context, viewport: { width: 640, height: 900 }, devicePixelRatio: 1 });

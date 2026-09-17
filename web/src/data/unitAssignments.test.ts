@@ -1,3 +1,4 @@
+import { capabilities, metadataFixture } from "../../tests/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { attributeText, type Metadata, type Variable } from "./model.ts";
@@ -7,6 +8,7 @@ import { windPair, windValues } from "./wind.ts";
 import { findCompatibleVariable } from "./comparison.ts";
 
 const variable = (name: string, units?: string, group = ""): Variable => ({
+  capabilities: capabilities(),
   name, path: `${group}/${name}`, dataset_id: "a", dtype: "f32",
   dimensions: [{ name: "time", path: "/time", length: 2 }],
   view_hint: { kind: "plain" },

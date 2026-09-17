@@ -24,6 +24,38 @@ export interface CurveDomain {
   yMaximum: number;
 }
 
+/** Keep endpoints and extrema in source order within each contiguous pixel bin. */
+export function* curveEnvelope(
+  values: Float32Array, x: Float32Array | Float64Array, minimum: number, maximum: number, width: number,
+): Generator<number> {
+  const columns = Math.max(1, Math.ceil(width));
+  if (values.length <= columns * 4) {
+    for (let index = 0; index < values.length; index += 1) yield index;
+    return;
+  }
+  let bin: number | undefined, first = -1, last = -1, low = -1, high = -1;
+  const selected = () => [...new Set([first, low, high, last])].filter(index => index >= 0).sort((a, b) => a - b);
+  for (let index = 0; index < values.length; index += 1) {
+    if (!Number.isFinite(values[index]) || !Number.isFinite(x[index])) {
+      yield* selected();
+      yield index;
+      first = last = low = high = -1;
+      bin = undefined;
+      continue;
+    }
+    const next = Math.max(-1, Math.min(columns, Math.floor((x[index] - minimum) / (maximum - minimum) * columns)));
+    if (next !== bin) {
+      yield* selected();
+      first = low = high = index;
+      bin = next;
+    }
+    last = index;
+    if (values[index] < values[low]) low = index;
+    if (values[index] > values[high]) high = index;
+  }
+  yield* selected();
+}
+
 /** Value to page, on a linear or a log y axis. Shared so the curve and the
  *  ladder beside it cannot disagree about where a value sits. */
 export function curveYScale(
@@ -54,9 +86,10 @@ export function curveGeometry(
     step = false,
     headroom = 0,
     reserveTop = false,
+    samplingScale = 1,
   }: {
     log?: boolean; xRange?: CurveRange; yRange?: CurveRange; step?: boolean;
-    headroom?: number; reserveTop?: boolean;
+    headroom?: number; reserveTop?: boolean; samplingScale?: number;
   } = {},
 ) {
   if (!values?.length) return undefined;
@@ -142,7 +175,7 @@ export function curveGeometry(
   const yFor = curveYScale(log, yMinimum, yMaximum, plot.top, plot.height);
   let path = "";
   let drawing = false;
-  for (let index = 0; index < values.length; index += 1) {
+  for (const index of curveEnvelope(values, xValues, xMinimum, xMaximum, plot.width * samplingScale)) {
     const value = values[index];
     if (!Number.isFinite(value) || !Number.isFinite(xValues[index])) {
       drawing = false;
@@ -167,6 +200,7 @@ export function curveGeometry(
     xFor,
     yFor,
     path,
+    sampling: values.length > Math.ceil(plot.width * samplingScale) * 4 ? "min-max-envelope" : "native",
   };
 }
 

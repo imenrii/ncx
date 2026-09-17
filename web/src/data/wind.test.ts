@@ -1,3 +1,4 @@
+import { capabilities, metadataFixture } from "../../tests/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Metadata, Variable } from "./model.ts";
@@ -6,6 +7,7 @@ import { arrowVector, barbGeometry, barbPath, meshWindAnchors } from "../plots/w
 import { buildUgridGeometry } from "../plots/mesh.ts";
 
 const make = (name: string, standard: string): Variable => ({
+  capabilities: capabilities({ display_x: 2, display_y: 1, geographic: true }),
   name, path: `/${name}`, dataset_id: "one", dtype: "f32",
   dimensions: [{ path: "/time", name: "time", length: 2 }, { path: "/lat", name: "lat", length: 3 }, { path: "/lon", name: "lon", length: 4 }],
   view_hint: { kind: "rectilinear", x: "/lon", y: "/lat" },
@@ -19,8 +21,7 @@ test("wind sample plans bound reads before access and retain dimension order", (
   const ranges = new Map([["/lat", { start: 1, stop: 3, stride: 1 }], ["/lon", { start: 0, stop: 4, stride: 2 }]]);
   const plan = windSampleRequest(u, ranges, { "/time": 1 }, 100);
   assert.deepEqual(plan.shape, [2, 2]);
-  assert.equal(plan.request.selection, "1,1:3,0:4");
-  assert.equal(plan.request.stride, "1,1,2");
+  assert.deepEqual(plan.request.selection, [1, { start: 1, stop: 3, stride: 1 }, { start: 0, stop: 4, stride: 2 }]);
   assert.throws(() => windSampleRequest(u, ranges, {}, 100));
   assert.throws(() => windSampleRequest(u, ranges, { "/time": 1 }, 4));
   const large = { ...u, dimensions: [{ path: "/face", name: "face", length: 1001 }] };
@@ -46,6 +47,16 @@ test("scalar coordinate metadata does not restrict wind to particular quantities
   assert.ok(windPair(metadata([u, v, scalar]), scalar).pair);
   const unrelated = { ...scalar, dimensions: [{ path: "/other", name: "other", length: 2 }] };
   assert.ok(windPair(metadata([u, v, unrelated]), unrelated).pair);
+});
+
+test("wind matches canonical coordinates rather than relative reference spelling", () => {
+  const component = (source: Variable, spelling: string, coordinates = ["/lat", "/lon"]): Variable => ({
+    ...source, capabilities: { ...source.capabilities, references: { coordinates } },
+    attributes: [...source.attributes, { name: "coordinates", dtype: "char", value: spelling }],
+  });
+  const first = component(u, "./lat ./lon");
+  assert.ok(windPair(metadata([first, component(v, "/lat /lon")]), field).pair);
+  assert.ok(!windPair(metadata([first, component(v, "./lat ./lon", ["/other/lat", "/other/lon"])]), field).pair);
 });
 
 test("missing wind units use the selected velocity unit without overriding metadata", () => {

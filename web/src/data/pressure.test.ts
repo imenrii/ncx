@@ -1,3 +1,4 @@
+import { capabilities, metadataFixture } from "../../tests/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { pressureVariable, pressureVariables, selectedPressureVariable } from "./pressure.ts";
@@ -5,7 +6,7 @@ import type { Metadata, Variable } from "./model.ts";
 
 test("pressure selection uses effective units but never substitutes surface pressure for MSLP", () => {
   const make = (dataset_id: string, name: string, standard: string): Variable => ({ dataset_id, name, path: `/${name}`,
-    dtype: "f32", dimensions: [], view_hint: { kind: "plain" }, attributes: [
+    capabilities: capabilities(), dtype: "f32", dimensions: [], view_hint: { kind: "plain" }, attributes: [
       { name: "standard_name", dtype: "char", value: standard }, { name: "units", dtype: "char", value: "hPa" },
     ] });
   const msl = make("a", "msl", "air_pressure_at_mean_sea_level");

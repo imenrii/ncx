@@ -218,8 +218,8 @@ pass their existing smoke tests without changing scientific behavior.
 
 ## Phase 4: reduce UI editing scope and panel crowding
 
-Follow the [web design guide](../../Style/Web/web-design.md) and
-[font guide](../../Style/Web/commit-mono.md). Preserve the four materials,
+Follow the [web design guide](../../../Style/Web/web-design.md) and
+[font guide](../../../Style/Web/commit-mono.md). Preserve the four materials,
 light data canvas, real font roles, rem type, visible keyboard focus, and
 non-colour state indicators. Never solve crowding by shrinking targets or text.
 

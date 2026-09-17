@@ -13,6 +13,11 @@ export function createUnitAssignments() {
 
   return {
     original,
+    clearScope(scope: string) {
+      for (const key of assignments.keys()) {
+        if (JSON.parse(key)[0] === scope) assignments.delete(key);
+      }
+    },
     subscribe(listener: () => void) {
       listeners.add(listener);
       return () => { listeners.delete(listener); };

@@ -1,86 +1,24 @@
-export type AttributeScalar = number | string;
-
-export interface Attribute {
-  name: string;
-  dtype: string;
-  value: AttributeScalar | AttributeScalar[];
-  truncated?: boolean;
-}
-
-export interface Dimension {
-  path: string;
-  name: string;
-  length: number;
-  unlimited: boolean;
-}
-
-export interface VariableDimension {
-  path: string;
-  name: string;
-  length: number;
-}
-
-export type ViewHint =
-  | { kind: "plain" }
-  | { kind: "rectilinear"; x: string; y: string }
-  | { kind: "curvilinear"; x: string; y: string }
-  | {
-      kind: "ugrid2d";
-      mesh: string;
-      x: string;
-      y: string;
-      face_node_connectivity: string;
-      location: "node" | "edge" | "face";
-    };
-
-export interface Variable {
-  dataset_id?: string;
-  path: string;
-  name: string;
-  dtype: string;
-  dimensions: VariableDimension[];
-  attributes: Attribute[];
-  view_hint: ViewHint;
-}
-
-export interface Metadata {
+import type { AttributeScalar, AttributeSummary, DimensionSummary, VariableDimension, VariableSummary, ViewHint, MetadataResponse, DatasetEntry } from "../generated/protocol.ts";
+export type { AttributeScalar, VariableDimension, ViewHint } from "../generated/protocol.ts";
+export type Attribute = AttributeSummary;
+export type Dimension = DimensionSummary;
+export type Variable = VariableSummary & { dataset_id?: string };
+export type Metadata = Omit<MetadataResponse, "dataset_id" | "dataset_label" | "variables"> & {
   dataset_id: string;
   dataset_label: string;
-  dataset: { name: string };
-  limits: {
-    max_response_bytes: number;
-    ugrid_warn_faces: number;
-  };
-  groups: Array<{ path: string; name: string; attributes: Attribute[] }>;
-  dimensions: Dimension[];
   variables: Variable[];
-  warnings: string[];
-}
+};
+
+export type DimensionSelection = number | { start: number; stop: number; stride: number };
 
 export interface SliceRequest {
   dataset?: string;
   path: string;
-  selection: string;
-  stride: string;
+  selection: DimensionSelection[];
   wire?: "f64";
 }
 
-interface DatasetSummaryBase {
-  id: string;
-  label: string;
-}
-
-export type DatasetSummary = DatasetSummaryBase & (
-  | { state: "uninspected" }
-  | {
-      state: "ready";
-      name: string;
-      variables: number;
-      dimensions: number;
-      warnings: number;
-    }
-  | { state: "unavailable"; error: string }
-);
+export type DatasetSummary = DatasetEntry;
 
 export interface DataSlice {
   dtype: "f32" | "f64" | "i32" | "u32";
@@ -126,7 +64,7 @@ export interface Probe {
 }
 
 export type ViewName = "field" | "curve" | "metadata";
-export type ColorScale = "linear" | "log" | "symlog";
+export type { ColorScale } from "../plots/color.ts";
 // Colormap lives in ./color, beside the tables it names: the set of legal
 // values is a property of the colour data, not of the dataset model.
 
@@ -223,145 +161,32 @@ function sentenceCase(text: string): string {
  * carries to describe its data rather than to be plotted itself.
  */
 export function coordinateVariablePaths(metadata: Metadata): Set<string> {
-  const paths = new Set<string>();
-  const dimensionPaths = new Set(metadata.dimensions.map((dimension) => dimension.path));
-  for (const variable of metadata.variables) {
-    const axis = attributeText(variable, "axis");
-    const standard = attributeText(variable, "standard_name") ?? "";
-    const units = attributeText(variable, "units") ?? "";
-    if (
-      // A coordinate variable: one dimension, sharing its own name.
-      (variable.dimensions.length === 1 && dimensionPaths.has(variable.path)) ||
-      (axis !== undefined && /^[XYZT]$/i.test(axis)) ||
-      ["longitude", "latitude", "time", "depth", "altitude",
-        "projection_x_coordinate", "projection_y_coordinate"].includes(standard) ||
-      /^degrees_(north|east)$/.test(units)
-    ) {
-      paths.add(variable.path);
-    }
-  }
-  for (const variable of metadata.variables) {
-    for (const attribute of ["coordinates", "bounds", "climatology", "grid_mapping"]) {
-      const value = attributeText(variable, attribute);
-      if (!value) continue;
-      for (const token of value.split(/\s+/)) {
-        // Expanded CF grid mappings list both the CRS (with a colon) and its coordinates.
-        const reference = attribute === "grid_mapping" ? token.replace(/:$/, "") : token;
-        if (reference) paths.add(resolveVariableReference(variable.path, reference));
-      }
-    }
-  }
-  return paths;
+  return new Set(metadata.variables.filter(variable => variable.capabilities.coordinate).map(variable => variable.path));
 }
 
 export function hasGeographicCoordinates(metadata: Metadata, variable: Variable): boolean {
   const hint = variable.view_hint;
-  if (hint.kind !== "rectilinear" && hint.kind !== "curvilinear" && hint.kind !== "ugrid2d") return false;
-  const x = metadata.variables.find((candidate) => candidate.path === hint.x);
-  const y = metadata.variables.find((candidate) => candidate.path === hint.y);
-  if (!x || !y) return false;
-  return (
-    (attributeText(x, "standard_name") === "longitude" || (attributeText(x, "units") ?? "").startsWith("degrees_east")) &&
-    (attributeText(y, "standard_name") === "latitude" || (attributeText(y, "units") ?? "").startsWith("degrees_north"))
-  );
+  if (hint.kind === "plain") return false;
+  return metadata.variables.find(item => item.path === hint.x)?.capabilities.geographic_axis === "longitude" &&
+    metadata.variables.find(item => item.path === hint.y)?.capabilities.geographic_axis === "latitude";
 }
 
 export function isNumeric(variable: Variable): boolean {
-  return /^(u|i)(8|16|32|64)$|^f(32|64)$/.test(variable.dtype);
+  return variable.capabilities.numeric;
 }
 
 export function isTimeCoordinate(variable: Variable): boolean {
-  return attributeText(variable, "axis")?.toUpperCase() === "T" ||
-    attributeText(variable, "standard_name") === "time";
+  return variable.capabilities.time_axis;
 }
-
-// These static topology-prefixed helpers can also carry mesh/location attributes.
-// Do not classify physical fields from their prefix or mesh membership alone.
-const STATIC_MESH_HELPER = /^(?:face_(?:area|static_mask)|edge_(?:length|normal_[xy]|type)|(?:input|solver)_(?:face|edge)_id|solver_edge_sign)$/;
 
 export function meshGeometryPaths(metadata: Metadata): Set<string> {
-  const paths = new Set<string>();
-  const topologies = metadata.variables.filter(
-    (variable) => attributeText(variable, "cf_role") === "mesh_topology",
-  );
-  for (const topology of topologies) {
-    paths.add(topology.path);
-    for (const attribute of topology.attributes) {
-      if (
-        typeof attribute.value !== "string" ||
-        (!attribute.name.includes("coordinates") && !attribute.name.includes("connectivity"))
-      ) {
-        continue;
-      }
-      for (const reference of attribute.value.split(/\s+/)) {
-        if (reference) paths.add(resolveVariableReference(topology.path, reference));
-      }
-    }
-    const parent = topology.path.slice(0, topology.path.lastIndexOf("/"));
-    for (const variable of metadata.variables) {
-      const mesh = attributeText(variable, "mesh");
-      if (
-        variable.path.slice(0, variable.path.lastIndexOf("/")) === parent &&
-        variable.name.startsWith(`${topology.name}_`) &&
-        (mesh === undefined || (
-          resolveVariableReference(variable.path, mesh) === topology.path &&
-          variable.dimensions.length === 1 &&
-          STATIC_MESH_HELPER.test(variable.name.slice(topology.name.length + 1))
-        ))
-      ) {
-        paths.add(variable.path);
-      }
-    }
-  }
-  for (const variable of metadata.variables) {
-    const role = attributeText(variable, "cf_role") ?? "";
-    if (role.endsWith("_connectivity") || role === "location_index_set") {
-      paths.add(variable.path);
-    }
-  }
-  return paths;
+  return new Set(metadata.variables.filter(variable => variable.capabilities.mesh_geometry).map(variable => variable.path));
 }
 
-/** Viewer-only paths folded away by default; the NetCDF metadata stays untouched. */
 export function supportingVariablePaths(metadata: Metadata): Set<string> {
   return new Set([...coordinateVariablePaths(metadata), ...meshGeometryPaths(metadata)]);
 }
 
-/**
- * The variable to open a file on: the one a reader most likely came for.
- *
- * Ranked by whether it is data at all, then by how much of it there is to look
- * at — a griddable field beats a bare array, and a field that evolves through
- * time beats a static one. Coordinates and mesh geometry are never chosen;
- * they describe the data rather than being it.
- */
 export function defaultVariable(metadata: Metadata): Variable | undefined {
-  const excluded = supportingVariablePaths(metadata);
-  const candidates = metadata.variables.filter(isNumeric);
-  const data = candidates.filter(
-    (variable) => !excluded.has(variable.path) && variable.dimensions.every((dimension) => dimension.length > 0),
-  );
-  const score = (variable: Variable) => {
-    const griddable = variable.view_hint.kind !== "plain";
-    const animated = variable.dimensions.some((dimension) =>
-      metadata.variables.some(
-        (candidate) =>
-          candidate.path === dimension.path &&
-          isTimeCoordinate(candidate),
-      ),
-    );
-    return (
-      (griddable ? 8 : 0) +
-      (animated ? 4 : 0) +
-      Math.min(3, Math.max(0, variable.dimensions.length - 1))
-    );
-  };
-  const ranked = [...data].sort((first, second) => score(second) - score(first));
-  return ranked[0] ?? candidates[0];
-}
-
-export function resolveVariableReference(ownerPath: string, reference: string): string {
-  if (reference.startsWith("/")) return reference;
-  const parent = ownerPath.slice(0, ownerPath.lastIndexOf("/"));
-  return `${parent}/${reference}`;
+  return metadata.variables.find(variable => variable.path === metadata.default_variable);
 }

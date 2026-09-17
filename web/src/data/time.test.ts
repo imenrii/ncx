@@ -1,3 +1,4 @@
+import { capabilities } from "../../tests/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -13,6 +14,7 @@ import {
 } from "./time.ts";
 
 const variable: Variable = {
+  capabilities: capabilities({ time: { multiplier_ms: 3600000, origin_ms: Date.parse("2024-07-24T16:00:00Z"), offset_minutes: 480 } }),
   path: "/time",
   name: "time",
   dtype: "f32",
@@ -38,7 +40,7 @@ test("formats CF time once for titles, curves, and the timeline", () => {
 test("accepts the common UTC suffix used by CF files", () => {
   const utcVariable = {
     ...variable,
-    attributes: [{ name: "units", dtype: "string", value: "hours since 2024-07-25 00:00:00 UTC" }],
+    capabilities: capabilities({ time: { multiplier_ms: 3600000, origin_ms: Date.parse("2024-07-25T00:00:00Z"), offset_minutes: 0 } }),
   };
   const time = describeTime(utcVariable);
   assert.ok(time);
@@ -50,7 +52,7 @@ test("accepts the common UTC suffix used by CF files", () => {
 test("uses Style date-time labels without repeating one UTC hour across days", () => {
   const utcVariable = {
     ...variable,
-    attributes: [{ name: "units", dtype: "string", value: "hours since 2024-07-25 06:00:00 UTC" }],
+    capabilities: capabilities({ time: { multiplier_ms: 3600000, origin_ms: Date.parse("2024-07-25T06:00:00Z"), offset_minutes: 0 } }),
   };
   const time = describeTime(utcVariable);
   assert.ok(time);
@@ -64,7 +66,7 @@ test("uses Style date-time labels without repeating one UTC hour across days", (
 test("the curve time axis majors on midnight and names the month once", () => {
   const utcVariable = {
     ...variable,
-    attributes: [{ name: "units", dtype: "string", value: "hours since 2024-09-19 00:00:00 UTC" }],
+    capabilities: capabilities({ time: { multiplier_ms: 3600000, origin_ms: Date.parse("2024-09-19T00:00:00Z"), offset_minutes: 0 } }),
   };
   const time = describeTime(utcVariable);
   assert.ok(time);
@@ -93,7 +95,7 @@ test("the curve time axis majors on midnight and names the month once", () => {
 test("the curve time axis names the month again when it turns", () => {
   const utcVariable = {
     ...variable,
-    attributes: [{ name: "units", dtype: "string", value: "hours since 2024-09-30 00:00:00 UTC" }],
+    capabilities: capabilities({ time: { multiplier_ms: 3600000, origin_ms: Date.parse("2024-09-30T00:00:00Z"), offset_minutes: 0 } }),
   };
   const time = describeTime(utcVariable);
   assert.ok(time);
@@ -140,6 +142,7 @@ test("accepts one bounded caller-defined fixed display zone", () => {
 test("does not mislabel a non-Gregorian CF calendar as UTC", () => {
   const modelCalendar = {
     ...variable,
+    capabilities: capabilities({ calendar: "360_day", time: null }),
     attributes: [
       ...variable.attributes,
       { name: "calendar", dtype: "string", value: "360_day" },

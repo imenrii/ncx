@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { curveSelection, curveSelectionRange, displaySeries, nearestCurveSample, type CurveSeries } from "./curveSeries.ts";
+import { compatibleCurveAxis, curveSelection, curveSelectionRange, displaySeries, nearestCurveSample, type CurveSeries } from "./curveSeries.ts";
 import type { Variable } from "../data/model.ts";
 
 const model: CurveSeries = {
@@ -8,6 +8,13 @@ const model: CurveSeries = {
   y: new Float32Array([1, NaN]), absoluteTime: true, xUnit: "time", units: "m",
   quantity: "sea_surface_height_above_mean_sea_level", datum: "MSL", color: "black", dash: "none",
 };
+
+test("model curves retain calendar identity when they cannot use UTC", () => {
+  const axis = { absoluteTime: false, xUnit: "days since 2000-01-01", calendar: "360_day" };
+  assert.equal(compatibleCurveAxis(axis, { ...axis }), true);
+  assert.equal(compatibleCurveAxis(axis, { ...axis, calendar: "noleap" }), false);
+  assert.equal(compatibleCurveAxis(axis, { ...axis, absoluteTime: true }), false);
+});
 
 test("Y offsets are generic, absolute, finite, and do not mutate samples or times", () => {
   const shifted = displaySeries(model, 8);

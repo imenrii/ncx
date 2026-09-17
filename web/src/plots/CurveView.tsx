@@ -14,7 +14,7 @@ import type { ColorRange } from "./color";
 import { InteractiveCurvePlot } from "./InteractiveCurvePlot";
 import { WIND_COLOUR } from "./WindBarbs";
 import {
-  curveSelection, displaySeries, seriesQuantity, SERIES_COLORS, SERIES_DASHES, type CurvePresentation, type CurveSeries,
+  compatibleCurveAxis, curveSelection, displaySeries, seriesQuantity, SERIES_COLORS, SERIES_DASHES, type CurvePresentation, type CurveSeries,
 } from "./curveSeries";
 
 interface Props {
@@ -66,23 +66,35 @@ export function CurveView(props: Props) {
         const selection = curveSelection(props.variable, variable, props.curveDimension, props.indices);
         const dimension = variable.dimensions[selection.along];
         const coordinate = metadata.variables.find(item => item.path === dimension.path && item.dimensions.length === 1);
-        const requests = props.average?.indices.length && dimension.path !== props.average.dimension
-          ? props.average.indices.map(value => curveRequest(variable, selection.along, { ...selection.indices, [props.average!.dimension]: value }))
-          : [curveRequest(variable, selection.along, selection.indices)];
-        const [slices, values] = await Promise.all([
-          Promise.all(requests.map(request => fetchSlice(request, controller.signal))),
+        const samples = props.average?.indices.length && dimension.path !== props.average.dimension
+          ? props.average.indices : [undefined];
+        const [y, values] = await Promise.all([
+          (async () => {
+            let sums: Float64Array | undefined;
+            let counts: Uint32Array | undefined;
+            for (const sample of samples) {
+              controller.signal.throwIfAborted();
+              const indices = sample === undefined ? selection.indices : { ...selection.indices, [props.average!.dimension]: sample };
+              const slice = await fetchSlice(curveRequest(variable, selection.along, indices), controller.signal);
+              sums ??= new Float64Array(slice.values.length);
+              counts ??= new Uint32Array(slice.values.length);
+              if (slice.values.length !== sums.length) throw new Error("Curve slice shapes differ");
+              for (let index = 0; index < sums.length; index += 1) {
+                const value = Number(slice.values[index]);
+                if (Number.isFinite(value)) { sums[index] += value; counts[index] += 1; }
+              }
+            }
+            return Float32Array.from(sums!, (value, index) => counts![index] ? value / counts![index] : NaN);
+          })(),
           coordinate ? fetchCoordinate(coordinate) : undefined,
         ]);
-        const y = Float32Array.from(slices[0].values, (_, index) => {
-          const finite = slices.map(slice => Number(slice.values[index])).filter(Number.isFinite);
-          return finite.length ? finite.reduce((sum, value) => sum + value, 0) / finite.length : NaN;
-        });
         const time = describeTime(coordinate);
         const rawX = values?.length === y.length ? values : Float64Array.from(y, (_, index) => index);
         const series: CurveSeries = {
           id: dataset.id, label: dataset.label,
           x: time ? Float64Array.from(rawX, value => time.originMs + value * time.multiplierMs) : rawX,
           y, absoluteTime: Boolean(time), xUnit: time ? "time" : coordinate ? attributeText(coordinate, "units") ?? dimension.name : dimension.name,
+          calendar: coordinate ? coordinate.capabilities.calendar : undefined,
           ...seriesQuantity(variable), datum: verticalDatum(variable),
           color: "", dash: "",
         };
@@ -94,10 +106,11 @@ export function CurveView(props: Props) {
       const coordinate = props.metadata.variables.find(item => item.path === primaryDimension?.path && item.dimensions.length === 1);
       const absoluteTime = Boolean(describeTime(coordinate));
       const xUnit = absoluteTime ? "time" : coordinate ? attributeText(coordinate, "units") ?? primaryDimension.name : primaryDimension?.name;
+      const calendar = coordinate ? coordinate.capabilities.calendar : undefined;
       const errors = results.flatMap(item => item.error ? [item.error] : []);
       const series = results.flatMap(item => {
         if (!item.series) return [];
-        if (item.series.absoluteTime !== absoluteTime || item.series.xUnit !== xUnit) {
+        if (!compatibleCurveAxis(item.series, { absoluteTime, xUnit, calendar })) {
           errors.push(`${item.series.label}: incompatible X coordinate`);
           return [];
         }

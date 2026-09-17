@@ -44,7 +44,7 @@ test("rejects unsafe canvas dimensions before allocation", () => {
 
 test("registers one capture operation per plot frame", () => {
   const frame = {} as HTMLElement;
-  const capture = async () => new Blob(["plot"], { type: "image/png" });
+  const capture = async () => ({ blob: new Blob(["plot"], { type: "image/png" }), sampling: "native" });
   const unregister = registerPlotCapture(frame, capture);
 
   assert.equal(captureFor(frame), capture);

@@ -22,7 +22,8 @@ export interface MeshGeometry {
 interface MeshHitIndex {
   columns: number;
   rows: number;
-  cells: number[][];
+  offsets: Uint32Array;
+  triangles: Uint32Array;
 }
 
 export interface MeshHit {
@@ -49,45 +50,22 @@ export function buildCurvilinearGeometry(
     throw new Error("curvilinear coordinate shapes do not match");
   }
 
-  const positions: number[] = [];
-  const scalarIndices: number[] = [];
-  const coordinateIndices: number[] = [];
-  const triangleSources: number[] = [];
-  const coordinateIndex = (row: number, column: number) => {
-    const sourceRow = Math.min(sourceRows - 1, row * rowStride);
-    const sourceColumn = Math.min(sourceColumns - 1, column * columnStride);
-    return sourceRow * sourceColumns + sourceColumn;
-  };
-  const addVertex = (row: number, column: number) => {
-    const coordinate = coordinateIndex(row, column);
-    positions.push(x[coordinate], y[coordinate]);
-    scalarIndices.push(row * sampledColumns + column);
-    coordinateIndices.push(coordinate);
-  };
-
-  for (let row = 0; row + 1 < sampledRows; row += 1) {
-    for (let column = 0; column + 1 < sampledColumns; column += 1) {
-      const corners = [
-        coordinateIndex(row, column),
-        coordinateIndex(row, column + 1),
-        coordinateIndex(row + 1, column + 1),
-        coordinateIndex(row + 1, column),
-      ];
-      if (corners.some((index) => !Number.isFinite(x[index]) || !Number.isFinite(y[index]))) {
-        continue;
+  const coordinateIndex = (row: number, column: number) =>
+    Math.min(sourceRows - 1, row * rowStride) * sourceColumns + Math.min(sourceColumns - 1, column * columnStride);
+  return finishGeometry(x, y, emit => {
+    const vertex = (row: number, column: number, cell: number) =>
+      emit(coordinateIndex(row, column), row * sampledColumns + column, cell);
+    for (let row = 0; row + 1 < sampledRows; row += 1) {
+      for (let column = 0; column + 1 < sampledColumns; column += 1) {
+        const corners = [coordinateIndex(row, column), coordinateIndex(row, column + 1),
+          coordinateIndex(row + 1, column + 1), coordinateIndex(row + 1, column)];
+        if (corners.some(index => !Number.isFinite(x[index]) || !Number.isFinite(y[index]))) continue;
+        const cell = row * Math.max(1, sampledColumns - 1) + column;
+        vertex(row, column, cell); vertex(row, column + 1, cell); vertex(row + 1, column + 1, cell);
+        vertex(row, column, cell); vertex(row + 1, column + 1, cell); vertex(row + 1, column, cell);
       }
-      addVertex(row, column);
-      addVertex(row, column + 1);
-      addVertex(row + 1, column + 1);
-      addVertex(row, column);
-      addVertex(row + 1, column + 1);
-      addVertex(row + 1, column);
-      const cell = row * Math.max(1, sampledColumns - 1) + column;
-      triangleSources.push(cell, cell);
     }
-  }
-
-  return finishGeometry(positions, scalarIndices, coordinateIndices, triangleSources);
+  });
 }
 
 export function buildUgridGeometry(
@@ -106,39 +84,29 @@ export function buildUgridGeometry(
   }
 
   const padding = new Set(paddingValues);
-  const positions: number[] = [];
-  const scalarIndices: number[] = [];
-  const coordinateIndices: number[] = [];
-  const triangleSources: number[] = [];
-
-  for (let face = 0; face < faceCount; face += 1) {
-    const nodes: number[] = [];
-    for (let offset = 0; offset < nodesPerFace; offset += 1) {
-      const packed = Number(connectivity[face * nodesPerFace + offset]);
-      if (padding.has(packed)) continue;
-      const node = packed - startIndex;
-      if (!Number.isSafeInteger(node) || node < 0 || node >= x.length) {
-        throw new Error(`UGRID face ${face} refers to invalid node ${packed}`);
+  if (nodesPerFace > 1024) throw new Error("UGRID polygon exceeds the node limit");
+  return finishGeometry(x, y, (emit, counting) => {
+    for (let face = 0; face < faceCount; face += 1) {
+      const nodes: number[] = [];
+      for (let offset = 0; offset < nodesPerFace; offset += 1) {
+        const packed = Number(connectivity[face * nodesPerFace + offset]);
+        if (padding.has(packed)) continue;
+        const node = packed - startIndex;
+        if (!Number.isSafeInteger(node) || node < 0 || node >= x.length) throw new Error(`UGRID face ${face} refers to invalid node ${packed}`);
+        if (nodes.at(-1) !== node) nodes.push(node);
       }
-      if (nodes.at(-1) !== node) nodes.push(node);
-    }
-    if (nodes.length > 3 && nodes[0] === nodes.at(-1)) nodes.pop();
-    if (nodes.length < 3) throw new Error(`UGRID face ${face} has fewer than three nodes`);
-    if (nodes.some((node) => !Number.isFinite(x[node]) || !Number.isFinite(y[node]))) {
-      throw new Error(`UGRID face ${face} has a missing node coordinate`);
-    }
-
-    for (const [a, b, c] of triangulate(nodes, x, y)) {
-      for (const node of [a, b, c]) {
-        positions.push(x[node], y[node]);
-        scalarIndices.push(location === "node" ? node : face);
-        coordinateIndices.push(node);
+      if (nodes.length > 3 && nodes[0] === nodes.at(-1)) nodes.pop();
+      if (nodes.length < 3) throw new Error(`UGRID face ${face} has fewer than three nodes`);
+      if (nodes.some(node => !Number.isFinite(x[node]) || !Number.isFinite(y[node]))) throw new Error(`UGRID face ${face} has a missing node coordinate`);
+      const vertex = (node: number) => emit(node, location === "node" ? node : face, face);
+      if (counting) {
+        // A polygon has n−2 triangles; ear clipping runs only in the write pass.
+        for (let i = 1; i + 1 < nodes.length; i += 1) { vertex(nodes[0]); vertex(nodes[i]); vertex(nodes[i + 1]); }
+      } else {
+        for (const triangle of triangulate(nodes, x, y)) for (const node of triangle) vertex(node);
       }
-      triangleSources.push(face);
     }
-  }
-
-  return finishGeometry(positions, scalarIndices, coordinateIndices, triangleSources);
+  });
 }
 
 export function edgesToFaces(
@@ -149,7 +117,7 @@ export function edgesToFaces(
   if (edgeFaces.length !== edgeValues.length * 2) {
     throw new Error("UGRID edge-face connectivity must contain two faces per edge");
   }
-  const sums = new Float32Array(faceCount);
+  const sums = new Float64Array(faceCount);
   const counts = new Uint32Array(faceCount);
   edgeFaces.forEach((entry, index) => {
     const face = Number(entry);
@@ -282,83 +250,71 @@ function squaredDistance(ax: number, ay: number, bx: number, by: number): number
 }
 
 function finishGeometry(
-  positions: number[],
-  scalarIndices: number[],
-  coordinateIndices: number[],
-  triangleSources: number[],
+  x: Float64Array, y: Float64Array,
+  visit: (emit: (coordinate: number, scalar: number, triangle: number) => void, counting: boolean) => void,
 ): MeshGeometry {
-  if (positions.length === 0) throw new Error("mesh has no renderable triangles");
-  let minimumX = Number.POSITIVE_INFINITY;
-  let maximumX = Number.NEGATIVE_INFINITY;
-  let minimumY = Number.POSITIVE_INFINITY;
-  let maximumY = Number.NEGATIVE_INFINITY;
-  for (let index = 0; index < positions.length; index += 2) {
-    minimumX = Math.min(minimumX, positions[index]);
-    maximumX = Math.max(maximumX, positions[index]);
-    minimumY = Math.min(minimumY, positions[index + 1]);
-    maximumY = Math.max(maximumY, positions[index + 1]);
-  }
+  let vertices = 0, minimumX = Infinity, minimumY = Infinity, maximumX = -Infinity, maximumY = -Infinity;
+  visit(coordinate => {
+    vertices += 1;
+    minimumX = Math.min(minimumX, x[coordinate]); maximumX = Math.max(maximumX, x[coordinate]);
+    minimumY = Math.min(minimumY, y[coordinate]); maximumY = Math.max(maximumY, y[coordinate]);
+  }, true);
+  if (!vertices) throw new Error("mesh has no renderable triangles");
+  const bytes = vertices * 16 + vertices / 3 * 4;
+  if (!Number.isSafeInteger(bytes) || bytes > 256 * 1024 * 1024) throw new Error("Mesh geometry exceeds the memory limit");
   const origin = { x: minimumX, y: minimumY };
+  const positions = new Float32Array(vertices * 2), scalarIndices = new Uint32Array(vertices);
+  const coordinateIndices = new Uint32Array(vertices), triangleSources = new Uint32Array(vertices / 3);
+  let index = 0;
+  visit((coordinate, scalar, triangle) => {
+    positions[index * 2] = x[coordinate] - origin.x;
+    positions[index * 2 + 1] = y[coordinate] - origin.y;
+    scalarIndices[index] = scalar; coordinateIndices[index] = coordinate;
+    triangleSources[Math.floor(index / 3)] = triangle;
+    index += 1;
+  }, false);
   if (minimumX === maximumX) maximumX = minimumX + 1;
   if (minimumY === maximumY) maximumY = minimumY + 1;
-  const geometry = {
-    positions: Float32Array.from(
-      positions,
-      (value, index) => value - (index % 2 === 0 ? origin.x : origin.y),
-    ),
-    origin,
-    scalarIndices: Uint32Array.from(scalarIndices),
-    coordinateIndices: Uint32Array.from(coordinateIndices),
-    triangleSources: Uint32Array.from(triangleSources),
-    bounds: { minimumX, maximumX, minimumY, maximumY },
-  };
+  const geometry = { positions, scalarIndices, coordinateIndices, triangleSources, origin,
+    bounds: { minimumX, maximumX, minimumY, maximumY } };
   return { ...geometry, hitIndex: buildHitIndex(geometry) };
 }
 
 function buildHitIndex(geometry: Omit<MeshGeometry, "hitIndex">): MeshHitIndex {
-  const triangleCount = geometry.triangleSources.length;
-  // ponytail: 128² bounds index keeps hover cheap without a general mesh tree;
-  // replace it only if measured pathological meshes span many grid cells.
-  const divisions = Math.max(1, Math.min(128, Math.ceil(Math.sqrt(triangleCount / 16))));
-  const cells = Array.from({ length: divisions * divisions }, () => [] as number[]);
-  const column = (x: number) => gridIndex(
-    x,
-    geometry.bounds.minimumX - geometry.origin.x,
-    geometry.bounds.maximumX - geometry.origin.x,
-    divisions,
-  );
-  const row = (y: number) => gridIndex(
-    y,
-    geometry.bounds.minimumY - geometry.origin.y,
-    geometry.bounds.maximumY - geometry.origin.y,
-    divisions,
-  );
-  for (let triangle = 0; triangle < triangleCount; triangle += 1) {
-    const vertex = triangle * 3;
-    const xs = [
-      geometry.positions[vertex * 2],
-      geometry.positions[(vertex + 1) * 2],
-      geometry.positions[(vertex + 2) * 2],
-    ];
-    const ys = [
-      geometry.positions[vertex * 2 + 1],
-      geometry.positions[(vertex + 1) * 2 + 1],
-      geometry.positions[(vertex + 2) * 2 + 1],
-    ];
-    const firstColumn = column(Math.min(...xs));
-    const lastColumn = column(Math.max(...xs));
-    const firstRow = row(Math.min(...ys));
-    const lastRow = row(Math.max(...ys));
-    for (let gridRow = firstRow; gridRow <= lastRow; gridRow += 1) {
-      for (let gridColumn = firstColumn; gridColumn <= lastColumn; gridColumn += 1) {
-        cells[gridRow * divisions + gridColumn].push(triangle);
-      }
+  const count = geometry.triangleSources.length;
+  const divisions = Math.max(1, Math.min(128, Math.ceil(Math.sqrt(count / 16))));
+  const counts = new Uint32Array(divisions * divisions);
+  const { positions, origin, bounds } = geometry;
+  const cells = (triangle: number) => {
+    const vertex = triangle * 6;
+    const column = (x: number) => gridIndex(x, bounds.minimumX - origin.x, bounds.maximumX - origin.x, divisions);
+    const row = (y: number) => gridIndex(y, bounds.minimumY - origin.y, bounds.maximumY - origin.y, divisions);
+    return [column(Math.min(positions[vertex], positions[vertex + 2], positions[vertex + 4])),
+      column(Math.max(positions[vertex], positions[vertex + 2], positions[vertex + 4])),
+      row(Math.min(positions[vertex + 1], positions[vertex + 3], positions[vertex + 5])),
+      row(Math.max(positions[vertex + 1], positions[vertex + 3], positions[vertex + 5]))];
+  };
+  let total = 0;
+  for (let triangle = 0; triangle < count; triangle += 1) {
+    const [left, right, top, bottom] = cells(triangle);
+    total += (right - left + 1) * (bottom - top + 1);
+    if (total > 8_000_000) {
+      // ponytail: pathological overlap uses a bounded O(triangles) probe; use a BVH if measured hover cost requires it.
+      return { columns: 1, rows: 1, offsets: Uint32Array.of(0, count), triangles: Uint32Array.from({ length: count }, (_, i) => i) };
     }
+    for (let y = top; y <= bottom; y += 1) for (let x = left; x <= right; x += 1) counts[y * divisions + x] += 1;
   }
-  return { columns: divisions, rows: divisions, cells };
+  const offsets = new Uint32Array(counts.length + 1);
+  for (let index = 0; index < counts.length; index += 1) offsets[index + 1] = offsets[index] + counts[index];
+  const cursor = offsets.slice(0, -1), triangles = new Uint32Array(total);
+  for (let triangle = 0; triangle < count; triangle += 1) {
+    const [left, right, top, bottom] = cells(triangle);
+    for (let y = top; y <= bottom; y += 1) for (let x = left; x <= right; x += 1) triangles[cursor[y * divisions + x]++] = triangle;
+  }
+  return { columns: divisions, rows: divisions, offsets, triangles };
 }
 
-function hitCell(geometry: MeshGeometry, x: number, y: number): number[] | undefined {
+function hitCell(geometry: MeshGeometry, x: number, y: number): Uint32Array | undefined {
   const minimumX = geometry.bounds.minimumX - geometry.origin.x;
   const maximumX = geometry.bounds.maximumX - geometry.origin.x;
   const minimumY = geometry.bounds.minimumY - geometry.origin.y;
@@ -368,10 +324,19 @@ function hitCell(geometry: MeshGeometry, x: number, y: number): number[] | undef
   }
   const column = gridIndex(x, minimumX, maximumX, geometry.hitIndex.columns);
   const row = gridIndex(y, minimumY, maximumY, geometry.hitIndex.rows);
-  return geometry.hitIndex.cells[row * geometry.hitIndex.columns + column];
+  const cell = row * geometry.hitIndex.columns + column;
+  return geometry.hitIndex.triangles.subarray(geometry.hitIndex.offsets[cell], geometry.hitIndex.offsets[cell + 1]);
 }
 
 function gridIndex(value: number, minimum: number, maximum: number, count: number): number {
   const fraction = (value - minimum) / (maximum - minimum);
   return Math.max(0, Math.min(count - 1, Math.floor(fraction * count)));
+}
+
+export type MeshBuild =
+  | { kind: "curvilinear"; args: Parameters<typeof buildCurvilinearGeometry> }
+  | { kind: "ugrid"; args: Parameters<typeof buildUgridGeometry> };
+
+export function computeMesh(job: MeshBuild): MeshGeometry {
+  return job.kind === "curvilinear" ? buildCurvilinearGeometry(...job.args) : buildUgridGeometry(...job.args);
 }

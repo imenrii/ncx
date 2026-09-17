@@ -1,4 +1,4 @@
-import type { SliceRequest, Variable } from "./model";
+import type { DimensionSelection, SliceRequest, Variable } from "./model";
 import type { ViewBounds } from "../plots/view";
 
 export const PREVIEW_SAMPLES_PER_AXIS = 2000;
@@ -11,11 +11,7 @@ export interface DisplayDimensions {
 }
 
 export function defaultDisplayDimensions(variable: Variable): DisplayDimensions {
-  const rank = variable.dimensions.length;
-  if (rank === 0) return { x: undefined, y: undefined };
-  if (variable.view_hint.kind === "ugrid2d") return { x: rank - 1, y: undefined };
-  if (rank === 1) return { x: 0, y: undefined };
-  return { x: rank - 1, y: rank - 2 };
+  return { x: variable.capabilities.display_x ?? undefined, y: variable.capabilities.display_y ?? undefined };
 }
 
 /** Cross-dataset extraction must not silently clamp or substitute dimensions. */
@@ -102,26 +98,13 @@ export function fieldRequest(
   const requestFullResolution =
     settled && fullResolutionSamples <= MAX_FULL_RESOLUTION_SAMPLES;
 
-  const selection: string[] = [];
-  const stride: string[] = [];
-  variable.dimensions.forEach((dimension, index) => {
+  const selection: DimensionSelection[] = variable.dimensions.map((dimension, index) => {
     const range = ranges[index];
-    selection.push(range
-      ? range.start === 0 && range.stop === dimension.length ? ":" : `${range.start}:${range.stop}`
-      : String(clampIndex(indices[dimension.path], dimension.length)));
+    if (!range) return clampIndex(indices[dimension.path], dimension.length);
     const pixels = index === display.x ? viewport.width : viewport.height;
-    stride.push(
-      range && !requestFullResolution
-        ? String(previewStride(range.stop - range.start, pixels))
-        : "1",
-    );
+    return { ...range, stride: requestFullResolution ? 1 : previewStride(range.stop - range.start, pixels) };
   });
-  return {
-    dataset: variable.dataset_id,
-    path: variable.path,
-    selection: selection.join(","),
-    stride: stride.join(","),
-  };
+  return { dataset: variable.dataset_id, path: variable.path, selection };
 }
 
 export function curveRequest(
@@ -130,13 +113,12 @@ export function curveRequest(
   indices: Record<string, number>,
 ): SliceRequest {
   const selection = variable.dimensions.map((dimension, index) =>
-    index === curveDimension ? ":" : String(clampIndex(indices[dimension.path], dimension.length)),
+    index === curveDimension ? { start: 0, stop: dimension.length, stride: 1 } : clampIndex(indices[dimension.path], dimension.length),
   );
   return {
     dataset: variable.dataset_id,
     path: variable.path,
-    selection: selection.join(","),
-    stride: variable.dimensions.map(() => "1").join(","),
+    selection,
   };
 }
 

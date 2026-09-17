@@ -40,6 +40,36 @@ fn main() {
     let cached_dir = root.join("res/gen");
     let script = root.join("web/scripts/subset-fonts.py");
 
+    println!("cargo::rerun-if-changed=web/dist/assets");
+    let mut assets = fs::read_dir(root.join("web/dist/assets"))
+        .expect("build frontend assets first")
+        .map(|entry| entry.expect("read frontend asset").path())
+        .filter(|path| {
+            path.is_file()
+                && !matches!(
+                    path.file_name().and_then(|name| name.to_str()),
+                    Some("app.js" | "app.css")
+                )
+        })
+        .collect::<Vec<_>>();
+    assets.sort();
+    let entries = assets
+        .iter()
+        .map(|path| {
+            format!(
+                "({:?}, include_bytes!({:?})),",
+                path.file_name().unwrap().to_str().unwrap(),
+                path.to_str().unwrap()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    fs::write(
+        out.join("web_assets.rs"),
+        format!("const EXTRA_ASSETS: &[(&str, &[u8])] = &[{entries}];"),
+    )
+    .expect("write asset table");
+
     println!("cargo::rerun-if-changed=web/scripts/subset-fonts.py");
     println!("cargo::rerun-if-changed=res/gen");
 

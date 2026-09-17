@@ -1,3 +1,4 @@
+import { pngSampling } from "./png";
 import { PLOT_STYLE, plotFontSize } from "./plotStyle";
 /**
  * Print-ready PNG export.
@@ -263,6 +264,7 @@ export async function exportPlotPng(name: string, options?: ExportOptions): Prom
   output.append(body);
   appendComparisonLabels(body, figure, contentRect);
 
+  const sampling: string[] = [];
   for (const frame of frames) delete frame.dataset.exportCaptured;
   for (let index = 0; index < frames.length; index += 1) {
     const frame = frames[index];
@@ -278,7 +280,9 @@ export async function exportPlotPng(name: string, options?: ExportOptions): Prom
       const pixelWidth = Math.max(1, Math.round(canvasRect.width * layout.scale));
       const pixelHeight = Math.max(1, Math.round(canvasRect.height * layout.scale));
       validateCanvasSize(pixelWidth, pixelHeight);
-      const blob = await capture(pixelWidth, pixelHeight);
+      const captured = await capture(pixelWidth, pixelHeight);
+      sampling.push(captured.sampling);
+      const blob = captured.blob;
       appendImage(body, await blobDataUrl(blob), canvasRect, contentRect);
       frame.dataset.exportCaptured = "true";
     }
@@ -289,8 +293,9 @@ export async function exportPlotPng(name: string, options?: ExportOptions): Prom
       inlineComputedStyle(svg, furniture);
     };
     const curveCapture = curveCaptureFor(frame);
-    if (curveCapture) curveCapture(clone);
+    if (curveCapture) curveCapture(clone, layout.scale);
     else clone(source);
+    sampling.push(...Array.from(furniture.querySelectorAll<SVGElement>("[data-sampling]"), element => element.dataset.sampling!));
     for (const probe of furniture.querySelectorAll(".probe-mark, .curve-tracker, .curve-zoom-box")) probe.remove();
     retitleAxis(furniture, 0, settings.xTitle);
     if (!figure.querySelector(".linked-curves") || frame === frames[0]) {
@@ -329,7 +334,7 @@ export async function exportPlotPng(name: string, options?: ExportOptions): Prom
     URL.revokeObjectURL(url);
   }
 
-  const png = await canvasPng(raster);
+  const png = pngSampling(await canvasPng(raster), sampling);
   const download = URL.createObjectURL(png);
   const link = document.createElement("a");
   link.href = download;

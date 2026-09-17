@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useSyncExternalStore, useMemo, useReducer, useRef, useState, type SetStateAction } from "react";
-import { initialVariableState, updateVariableState, savedSelection, saveSelection } from "./viewerState";
+import { useCallback, useEffect, useLayoutEffect, useSyncExternalStore, useMemo, useReducer, useRef, useState } from "react";
+import { initialVariableState, reduceVariableState, savedSelection, saveSelection } from "./viewerState";
 import { PlotBoundary } from "./PlotBoundary";
 
 import { fetchCoordinate } from "../data/api";
@@ -81,9 +81,11 @@ export function Viewer({
   const chromeHidden = query.get("chrome") === "none";
   const zone = query.get("display_zone");
   const displayTimeZone = useMemo(() => parseDisplayTimeZone(zone) ?? UTC_TIME_ZONE, [zone]);
-  const [selection, updateSelection] = useReducer(updateVariableState, undefined, () => initialVariableState());
-  const { display, indices, view: requestedView, probe, colormap, playDirection, frameReady,
+  const [selection, updateSelection] = useReducer(reduceVariableState, undefined, () => initialVariableState());
+  const { display, indices, view: requestedView, probe, colormap,
     colorRange, rangeLocked, coordinatePaths, curveAlong } = selection;
+  const playDirection = selection.playback.kind === "playing" ? selection.playback.direction : 0;
+  const frameReady = selection.frame === "ready";
   const [settled, setSettled] = useState(false);
   const [scale, setScale] = useState<ColorScale>("linear");
   const [search, setSearch] = useState("");
@@ -129,7 +131,7 @@ export function Viewer({
     setUnitId("");
     setCurveLocked(false);
     setScale("linear");
-    updateSelection({ rangeLocked: false });
+    updateSelection({ type: "range/locked", locked: false });
     sourceFeed.resetUnitOffsets();
   }, [unitRevision]);
   const variable = metadata?.variables.find((candidate) => candidate.path === selectedPath);
@@ -174,15 +176,10 @@ export function Viewer({
   }, [sourceKey, selectedDataset, onSelectDataset]);
 
   useEffect(() => {
-    if (!metadata || !variable) return;
-    const next = initialVariableState(metadata, variable);
-    const saved = savedSelection(metadata.dataset_id!);
-    if (saved?.path === variable.path &&
-        !(saved.view === "curve" && variable.dimensions.length === 0) &&
-        !(saved.view === "field" && variable.dimensions.length === 1 && variable.view_hint.kind !== "ugrid2d")) {
-      next.view = saved.view;
-    }
-    updateSelection(next);
+    if (!metadata || !variable) { updateSelection({ type: "dataset/opening" }); return; }
+    const saved = savedSelection(metadata.dataset_id);
+    const next = initialVariableState(metadata, variable, saved?.path === variable.path ? saved.view : undefined);
+    updateSelection({ type: "variable/selected", variable, view: next.view });
     saveSelection(metadata.dataset_id!, variable.path, next.view);
   }, [rawMetadata, selectedPath]);
 
@@ -271,31 +268,17 @@ export function Viewer({
   useEffect(() => {
     if (!timeline || playDirection === 0 || !frameReady) return;
     const timer = window.setTimeout(() => {
-      updateSelection((current) => {
-        const value = current.indices[timeline.dimension.path] ?? 0;
-        const last = timeline.dimension.length - 1;
-        const next = value + playDirection;
-        if (next < 0 || next > last) return { playDirection: 0 };
-        return {
-          frameReady: false,
-          playDirection: next === 0 || next === last ? 0 : playDirection,
-          indices: { ...current.indices, [timeline.dimension.path]: next },
-        };
-      });
+      updateSelection({ type: "playback/ticked" });
     }, 180);
     return () => window.clearTimeout(timer);
   }, [timeline, playDirection, frameReady]);
 
-  const updateIndex = (path: string, value: number) => updateSelection((current) => ({
-    frameReady: false, indices: { ...current.indices, [path]: value },
-  }));
-  const markFrameLoaded = useCallback(() => updateSelection({ frameReady: true }), []);
-  const stopPlayback = useCallback(() => updateSelection({ playDirection: 0, frameReady: true }), []);
-  const setProbe = useCallback((probe: Probe) => updateSelection({ probe }), []);
-  const setRangeLocked = (rangeLocked: boolean) => updateSelection({ rangeLocked });
-  const setColorRange = useCallback((range: SetStateAction<ColorRange>) => updateSelection((current) => ({
-    colorRange: typeof range === "function" ? range(current.colorRange) : range,
-  })), []);
+  const updateIndex = (path: string, value: number) => updateSelection({ type: "dimension/indexed", path, value });
+  const markFrameLoaded = useCallback(() => updateSelection({ type: "frame/loaded" }), []);
+  const stopPlayback = useCallback(() => updateSelection({ type: "frame/failed" }), []);
+  const setProbe = useCallback((probe: Probe) => updateSelection({ type: "probe/placed", probe }), []);
+  const setRangeLocked = (locked: boolean) => updateSelection({ type: "range/locked", locked });
+  const setColorRange = useCallback((range: ColorRange) => updateSelection({ type: "range/changed", range }), []);
   const fieldVariable = useMemo(
     () => metadata && variable
       ? variableWithCoordinates(metadata, variable, display, coordinatePaths)
@@ -343,7 +326,7 @@ export function Viewer({
   // The timeline drives the first selector dimension with a slider, so showing
   // a number input for it as well would be two controls for one value.
   const fixedDimensions = selectorDimensions
-    .filter(({ dimension }) => dimension.path !== timeline?.dimension.path)
+    .filter(({ dimension }) => dimension.length > 1 && dimension.path !== timeline?.dimension.path)
     .map(({ dimension }) => dimension);
   const timelineIndex = timeline ? indices[timeline.dimension.path] ?? 0 : undefined;
   const figureTitle = fieldTitle(
@@ -383,7 +366,7 @@ export function Viewer({
       const candidates = compatibleCoordinates(metadata, variable, next, axis);
       return [axis, candidates.length === 1 ? candidates[0].path : undefined];
     }));
-    updateSelection({ display: next, coordinatePaths: coordinates, probe: undefined, playDirection: 0 });
+    updateSelection({ type: "display/selected", display: next, coordinates });
   };
   const settingsButton = (
     <button
@@ -477,7 +460,7 @@ export function Viewer({
                 }
                 onClick={() => {
                   saveSelection(selectedDataset, selectedPath, name);
-                  updateSelection({ frameReady: false, playDirection: 0, view: name });
+                  updateSelection({ type: "view/selected", view: name });
                 }}
               >
                 {name === "field" && variable.dimensions.length === 0
@@ -532,9 +515,7 @@ export function Viewer({
                       candidates={yCoordinates}
                       value={coordinatePaths.y}
                       onChange={(y) => {
-                        updateSelection((current) => ({
-                          coordinatePaths: { ...current.coordinatePaths, y }, probe: undefined,
-                        }));
+                        updateSelection({ type: "coordinate/selected", axis: "y", path: y });
                       }}
                     />
                   )}
@@ -549,9 +530,7 @@ export function Viewer({
                       candidates={xCoordinates}
                       value={coordinatePaths.x}
                       onChange={(x) => {
-                        updateSelection((current) => ({
-                          coordinatePaths: { ...current.coordinatePaths, x }, probe: undefined,
-                        }));
+                        updateSelection({ type: "coordinate/selected", axis: "x", path: x });
                       }}
                     />
                   )}
@@ -564,7 +543,7 @@ export function Viewer({
                   Along
                   <select
                     value={curveDimension}
-                    onChange={(event) => updateSelection({ curveAlong: Number(event.target.value) })}
+                    onChange={(event) => updateSelection({ type: "curve/selected", along: Number(event.target.value) })}
                   >
                     {variable.dimensions.map((dimension, index) => (
                       <option key={dimension.path} value={index}>
@@ -627,7 +606,7 @@ export function Viewer({
                       Colour
                       <select
                         value={colormap}
-                        onChange={(event) => updateSelection({ colormap: event.target.value as ColormapChoice })}
+                        onChange={(event) => updateSelection({ type: "palette/selected", colormap: event.target.value as ColormapChoice })}
                         onWheel={(event) => {
                           const current = event.currentTarget.selectedIndex;
                           const next = Math.max(0, Math.min(
@@ -636,7 +615,7 @@ export function Viewer({
                           ));
                           if (next === current) return;
                           event.preventDefault();
-                          updateSelection({ colormap: event.currentTarget.options[next].value as ColormapChoice });
+                          updateSelection({ type: "palette/selected", colormap: event.currentTarget.options[next].value as ColormapChoice });
                         }}
                       >
                         {COLORMAP_GROUPS.map((group) => (
@@ -839,7 +818,9 @@ export function Viewer({
           time={timelineTime}
           playing={playDirection}
           onChange={(value) => timeline && updateIndex(timeline.dimension.path, value)}
-          onPlay={(playDirection) => updateSelection({ playDirection })}
+          onPlay={(direction) => updateSelection(direction && timeline
+            ? { type: "playback/started", direction, path: timeline.dimension.path }
+            : { type: "playback/stopped" })}
         />
       </main>
 

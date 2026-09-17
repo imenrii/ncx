@@ -1,7 +1,7 @@
 import { fetchCoordinate, fetchSlice } from "../data/api";
 import { unitChoice } from "../data/units";
 import { longitudeNear, pressureReason, MAX_PRESSURE_VALUES, PRESSURE_INTERVAL } from "../data/pressure";
-import type { Metadata, Variable, SliceRequest } from "../data/model";
+import type { DimensionSelection, Metadata, Variable, SliceRequest } from "../data/model";
 import type { MeshGeometry, Bounds } from "./mesh";
 import { gridContourMesh, meshContourMesh } from "./pressureGeometry";
 import { pressureContours, meshExtrema, type ContourMesh, type PressureCentre, type PressureContour } from "./pressureContours";
@@ -14,7 +14,7 @@ const traced = (mesh: ContourMesh, interval: number): PressureField => ({
 
 function request(variable: Variable, ranges: Map<string, number[]>, indices: Record<string, number>, maxBytes: number): SliceRequest {
   let count = 1;
-  const selection: string[] = [], stride: string[] = [];
+  const selection: DimensionSelection[] = [];
   for (const dim of variable.dimensions) {
     const range = ranges.get(dim.path);
     if (range) {
@@ -22,15 +22,15 @@ function request(variable: Variable, ranges: Map<string, number[]>, indices: Rec
       if (!range.length || !Number.isSafeInteger(step) || step < 1 || range.some((value, index) =>
         !Number.isSafeInteger(value) || value < 0 || value >= dim.length || value !== range[0] + index * step)) throw new Error("Invalid pressure stencil range");
       count *= range.length;
-      selection.push(`${range[0]}:${range.at(-1)! + 1}`); stride.push(String(step));
+      selection.push({ start: range[0], stop: range.at(-1)! + 1, stride: step });
     } else {
       const index = indices[dim.path] ?? (dim.length === 1 ? 0 : NaN);
       if (!Number.isSafeInteger(index) || index < 0 || index >= dim.length) throw new Error(`Pressure contours need a valid ${dim.name} index`);
-      selection.push(String(index)); stride.push("1");
+      selection.push(index);
     }
   }
   if (!Number.isSafeInteger(count) || count > MAX_PRESSURE_VALUES || count * 4 > maxBytes) throw new Error("Pressure stencil exceeds the response limit");
-  return { dataset: variable.dataset_id, path: variable.path, selection: selection.join(","), stride: stride.join(",") };
+  return { dataset: variable.dataset_id, path: variable.path, selection };
 }
 
 export async function loadPressureContours(

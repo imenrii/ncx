@@ -11,6 +11,12 @@ services:
       - "${NCX_BIND_ADDRESS:?Set NCX_BIND_ADDRESS in .env}:${NCX_PORT:?Set NCX_PORT in .env}:8765"
     command:
       - hub
+      - --mode
+      - HTTP
+      - --ssh-auth
+      - password
+      - --known-hosts
+      - /etc/ncx/known_hosts
       - --listen
       - 0.0.0.0:8765
       - --base-path
@@ -25,6 +31,10 @@ services:
       - /usr/local/bin/ncx
     volumes:
       - ncx-binary:/opt/ncx
+      - type: bind
+        source: "${NCX_KNOWN_HOSTS:?Set NCX_KNOWN_HOSTS in .env}"
+        target: /etc/ncx/known_hosts
+        read_only: true
       - type: bind
         source: "${NCX_DATA_ROOT:?Set NCX_DATA_ROOT in .env}"
         target: /data

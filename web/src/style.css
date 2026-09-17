@@ -2135,6 +2135,7 @@ input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
 @media (pointer: coarse) {
   :root {
     --topbar-height: 44px;
+    --hit: 44px;
   }
 
   button,
@@ -2772,3 +2773,5 @@ i .value {
 .linked-curves > .plot-frame { flex: 1 0 18rem; min-height: 18rem; }
 .secondary-curve-head { border-top: 1px solid var(--line); padding-top: .35rem; }
 .curve-zero { stroke: var(--ink-quiet); stroke-width: 1; stroke-dasharray: 3 3; }
+
+.hub-mode { margin-left: 12px; font-family: var(--mono); font-size: var(--size-micro); }

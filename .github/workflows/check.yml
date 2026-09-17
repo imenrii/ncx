@@ -1,0 +1,51 @@
+name: Check
+on:
+  pull_request:
+  push:
+    branches: [master, main]
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: browser-actions/setup-firefox@v1
+        with:
+          firefox-version: '151.0.4'
+      - run: sudo apt-get update && sudo apt-get install -y libnetcdf-dev netcdf-bin openssh-server python3-pil
+      - run: sudo mkdir -p /run/sshd
+      - run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy && rustup default 1.97.1
+      - run: npm ci
+        working-directory: web
+      - run: npm test && npm run build
+        working-directory: web
+      - run: cargo fmt --check && cargo test --locked && cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked real_ssh_rejects_unknown_and_changed_host_keys -- --ignored
+      - run: cargo build --locked
+      - run: python3 tests/policy-smoke.py
+      - name: Browser smoke
+        run: |
+          for scenario in rectilinear curvilinear ugrid ugrid_projected ugrid_helpers grouped_ugrid comparison collection station wind hub; do
+            node tests/ui-smoke.mjs "$scenario"
+          done
+      - name: Performance budget
+        run: node --expose-gc tests/performance.mjs
+      - name: Visual comparison
+        run: |
+          NCX_VISUAL_PROFILE=open node tests/ui-visual.mjs /tmp/ncx-visual
+          python3 tests/visual-diff.py tests/visual-baseline /tmp/ncx-visual
+      - name: Capture artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-differences
+          path: /tmp/ncx-visual
+          if-no-files-found: ignore
+      - run: cargo build --release --locked

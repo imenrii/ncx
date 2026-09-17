@@ -1,9 +1,11 @@
+import { paintFieldSource, drawFieldRaster, fieldSliceBounds } from "./structured";
+import { useSlice } from "../data/useSlice";
+import { PlotStatus } from "./PlotStatus";
 import { displayValue, convertedLabel, unitChoice } from "../data/units";
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 
-import { LatestSliceLoader, fetchCoordinate, fetchSlice, fetchStaticSlice } from "../data/api";
+import { fetchCoordinate, fetchSlice, fetchStaticSlice } from "../data/api";
 import {
-  colorForValue,
   finiteRange,
   formatNumber,
   type ColorRange,
@@ -16,7 +18,7 @@ import type {
   Probe,
   Variable,
 } from "../data/model";
-import { attributeText, displayUnit, quantityLabel, resolveVariableReference } from "../data/model";
+import { attributeText, displayUnit, quantityLabel } from "../data/model";
 import { formatPosition, probeAtPosition } from "./projection";
 import { canvasPng, registerPlotCapture, validateCanvasSize } from "./capture";
 import { fieldRequest, type DisplayDimensions } from "../data/selection";
@@ -68,15 +70,11 @@ export function FieldView(props: FieldViewProps) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const sourceCanvas = useRef<HTMLCanvasElement | null>(null);
   const rasterImage = useRef<ImageData | null>(null);
-  const loader = useRef<LatestSliceLoader>(new LatestSliceLoader());
-  const [slice, setSlice] = useState<DataSlice>();
   const [coordinates, setCoordinates] = useState<Coordinates>({});
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
   const [hover, setHover] = useState<HoverValue>();
   const [reserve, setReserve] = useState<ContourBox>();
   const [view, setView] = useState<ViewBounds>(props.initialView ?? FULL_FIELD);
-  useEffect(() => { setHover(undefined); }, [frameSize.width, frameSize.height, view, slice]);
   const changeView = (nextView: ViewBounds) => {
     setView(nextView);
     props.onViewChange(nextView);
@@ -116,29 +114,15 @@ export function FieldView(props: FieldViewProps) {
     ],
   );
 
-  useEffect(() => () => loader.current.dispose(), []);
-
-  useEffect(() => {
-    setLoading(true);
-    loader.current.request({
-      request,
-      accept: (nextSlice) => {
-        setSlice(nextSlice);
-        setLoading(false);
-        setError(undefined);
-        props.onFrameLoaded();
-        props.onStatus(
-          `${nextSlice.shape.join(" × ") || "scalar"} · stride ${request.stride} · ${nextSlice.dtype}`,
-        );
-      },
-      reject: (nextError) => {
-        setLoading(false);
-        setError(nextError.message);
-        props.onFrameError?.();
-        props.onStatus(nextError.message);
-      },
-    });
-  }, [request.dataset, request.path, request.selection, request.stride, props.onFrameLoaded, props.onFrameError, props.onStatus]);
+  const { slice, loading, error: readError } = useSlice(request, true, {
+    ready: next => {
+      setError(undefined);
+      props.onFrameLoaded();
+      props.onStatus(`${next.shape.join(" × ") || "scalar"} · stride ${request.selection.map(axis => typeof axis === "number" ? 1 : axis.stride).join(",")} · ${next.dtype}`);
+    },
+    failed: error => { props.onFrameError?.(); props.onStatus(error.message); },
+  });
+  useEffect(() => { setHover(undefined); }, [frameSize.width, frameSize.height, view, slice]);
 
   useEffect(() => {
     let active = true;
@@ -297,7 +281,7 @@ export function FieldView(props: FieldViewProps) {
       if (!painted) throw new Error("The browser could not create the field export canvas");
       const output = document.createElement("canvas");
       drawFieldRaster(output, painted.canvas, exportLayout, view, width, height);
-      return canvasPng(output);
+      return { blob: await canvasPng(output), sampling: `nearest; stride=${exportRequest.selection.map(axis => typeof axis === "number" ? 1 : axis.stride).join(",")}` };
     });
   }, [
     frame,
@@ -447,21 +431,20 @@ export function FieldView(props: FieldViewProps) {
           <span>{formatPosition(props.metadata, props.variable, hover.x, hover.y)}</span>
         </output>
       )}
-      {loading && <span className="plot-loading">reading newest slice…</span>}
-      {error && <div className="plot-error">{error}</div>}
+      <PlotStatus loading={loading} message="reading newest slice…" error={readError ?? error} />
     </div>
   );
 }
 
 async function loadRectilinearAxis(metadata: Metadata, variable: Variable) {
   const values = await fetchCoordinate(variable);
-  const boundsReference = attributeText(variable, "bounds");
+  const boundsReference = variable.capabilities.references.bounds?.[0];
   if (!boundsReference) {
     const result = buildRectilinearAxis(values);
     return { values, ...result };
   }
 
-  const boundsPath = resolveVariableReference(variable.path, boundsReference);
+  const boundsPath = boundsReference;
   const boundsVariable = metadata.variables.find((candidate) => candidate.path === boundsPath);
   if (!boundsVariable) {
     const result = buildRectilinearAxis(values);
@@ -494,126 +477,6 @@ async function loadRectilinearAxis(metadata: Metadata, variable: Variable) {
   }
 }
 
-function paintFieldSource(
-  layout: NonNullable<ReturnType<typeof fieldLayout>>,
-  range: ColorRange,
-  scale: ColorScale,
-  colormap: ColormapChoice,
-  existingCanvas?: HTMLCanvasElement | null,
-  existingImage?: ImageData | null,
-): { canvas: HTMLCanvasElement; image: ImageData } | undefined {
-  const canvas = existingCanvas ?? document.createElement("canvas");
-  let image = existingImage ?? undefined;
-  if (canvas.width !== layout.columns || canvas.height !== layout.rows) {
-    canvas.width = layout.columns;
-    canvas.height = layout.rows;
-    image = undefined;
-  }
-  const context = canvas.getContext("2d", { alpha: false });
-  if (!context) return undefined;
-  image ??= context.createImageData(layout.columns, layout.rows);
-  measurePerformance(PERFORMANCE_MEASURE.fieldRaster, () => {
-    for (let targetRow = 0; targetRow < layout.rows; targetRow += 1) {
-      const row = layout.flipY ? layout.rows - 1 - targetRow : targetRow;
-      for (let targetColumn = 0; targetColumn < layout.columns; targetColumn += 1) {
-        const column = layout.flipX ? layout.columns - 1 - targetColumn : targetColumn;
-        const target = (targetRow * layout.columns + targetColumn) * 4;
-        const color = colorForValue(layout.valueAt(row, column), range, scale, colormap);
-        image.data[target] = color?.[0] ?? 238;
-        image.data[target + 1] = color?.[1] ?? 238;
-        image.data[target + 2] = color?.[2] ?? 238;
-        image.data[target + 3] = 255;
-      }
-    }
-    context.putImageData(image, 0, 0);
-  });
-  return { canvas, image };
-}
-
-function drawFieldRaster(
-  target: HTMLCanvasElement,
-  source: HTMLCanvasElement,
-  layout: NonNullable<ReturnType<typeof fieldLayout>>,
-  view: ViewBounds,
-  width: number,
-  height: number,
-): void {
-  validateCanvasSize(width, height);
-  if (target.width !== width || target.height !== height) {
-    target.width = width;
-    target.height = height;
-  }
-  const context = target.getContext("2d", { alpha: false });
-  if (!context) throw new Error("The browser could not create the field canvas");
-  context.imageSmoothingEnabled = false;
-  context.fillStyle = "#eee";
-  context.fillRect(0, 0, width, height);
-  if (layout.xAxis?.affine !== false && layout.yAxis?.affine !== false) {
-    const destination = projectRectangle(fieldSliceBounds(layout), view, width, height);
-    context.drawImage(source, destination.left, destination.top, destination.width, destination.height);
-  } else {
-    resampleRectilinear(context, source, layout, view, width, height);
-  }
-}
-
-function resampleRectilinear(
-  context: CanvasRenderingContext2D,
-  source: HTMLCanvasElement,
-  layout: NonNullable<ReturnType<typeof fieldLayout>>,
-  view: ViewBounds,
-  width: number,
-  height: number,
-): void {
-  if (!layout.xAxis || !layout.yAxis) return;
-  const sourcePixels = source.getContext("2d", { alpha: false })?.getImageData(
-    0,
-    0,
-    source.width,
-    source.height,
-  ).data;
-  if (!sourcePixels) return;
-  const image = context.createImageData(width, height);
-  const columns = new Int32Array(width);
-  const rows = new Int32Array(height);
-  for (let x = 0; x < width; x += 1) {
-    const position = view.minimumX + ((x + 0.5) / width) * (view.maximumX - view.minimumX);
-    const sourceIndex = layout.xAxis.cellAtNormalized(position);
-    columns[x] = sourceIndex === undefined || sourceIndex < layout.xStart || sourceIndex >= layout.xStop
-      ? -1
-      : Math.min(layout.columns - 1, Math.floor((sourceIndex - layout.xStart) / layout.xStride));
-  }
-  for (let y = 0; y < height; y += 1) {
-    const position = view.maximumY - ((y + 0.5) / height) * (view.maximumY - view.minimumY);
-    const sourceIndex = layout.yAxis.cellAtNormalized(position);
-    rows[y] = sourceIndex === undefined || sourceIndex < layout.yStart || sourceIndex >= layout.yStop
-      ? -1
-      : Math.min(layout.rows - 1, Math.floor((sourceIndex - layout.yStart) / layout.yStride));
-  }
-
-  for (let y = 0; y < height; y += 1) {
-    const row = rows[y];
-    for (let x = 0; x < width; x += 1) {
-      const column = columns[x];
-      const target = (y * width + x) * 4;
-      if (column < 0 || row < 0) {
-        image.data[target] = 238;
-        image.data[target + 1] = 238;
-        image.data[target + 2] = 238;
-        image.data[target + 3] = 255;
-        continue;
-      }
-      const pixelX = layout.flipX ? layout.columns - 1 - column : column;
-      const pixelY = layout.flipY ? layout.rows - 1 - row : row;
-      const sourceIndex = (pixelY * source.width + pixelX) * 4;
-      image.data[target] = sourcePixels[sourceIndex];
-      image.data[target + 1] = sourcePixels[sourceIndex + 1];
-      image.data[target + 2] = sourcePixels[sourceIndex + 2];
-      image.data[target + 3] = 255;
-    }
-  }
-  context.putImageData(image, 0, 0);
-}
-
 function fieldLayout(
   variable: Variable,
   display: DisplayDimensions,
@@ -642,16 +505,11 @@ function fieldLayout(
   const rows = slice.shape[yPosition];
   const xDimension = variable.dimensions[display.x];
   const yDimension = variable.dimensions[display.y];
-  const requestStride = slice.request.stride.split(",").map(Number);
-  const requestSelection = slice.request.selection.split(",");
-  const selectedRange = (index: number, length: number) => {
-    const [start, stop] = requestSelection[index].split(":");
-    return [Number(start || 0), Number(stop || length)] as const;
-  };
-  const xStride = requestStride[display.x];
-  const yStride = requestStride[display.y];
-  const [xStart, xStop] = selectedRange(display.x, xDimension.length);
-  const [yStart, yStop] = selectedRange(display.y, yDimension.length);
+  const xSelection = slice.request.selection[display.x];
+  const ySelection = slice.request.selection[display.y];
+  if (typeof xSelection === "number" || typeof ySelection === "number") throw new Error("Field dimensions must be ranges");
+  const { start: xStart, stop: xStop, stride: xStride } = xSelection;
+  const { start: yStart, stop: yStop, stride: yStride } = ySelection;
   const xAxis = coordinates.xAxis;
   const yAxis = coordinates.yAxis;
   const flipX = xAxis ? xAxis.edges.at(-1)! < xAxis.edges[0] : false;
@@ -702,24 +560,6 @@ function fieldLayout(
       };
     },
   };
-}
-
-function fieldSliceBounds(
-  layout: NonNullable<ReturnType<typeof fieldLayout>>,
-): ViewRectangle {
-  const xLength = layout.xDimension.length;
-  const yLength = layout.yDimension.length;
-  const x = layout.xAxis
-    ? layout.xAxis.rangeBounds(layout.xStart, layout.xStop)
-    : layout.flipX
-      ? [1 - layout.xStop / xLength, 1 - layout.xStart / xLength] as const
-      : [layout.xStart / xLength, layout.xStop / xLength] as const;
-  const y = layout.yAxis
-    ? layout.yAxis.rangeBounds(layout.yStart, layout.yStop)
-    : layout.flipY
-      ? [layout.yStart / yLength, layout.yStop / yLength] as const
-      : [1 - layout.yStop / yLength, 1 - layout.yStart / yLength] as const;
-  return { left: x[0], top: 1 - y[1], width: x[1] - x[0], height: y[1] - y[0] };
 }
 
 function fieldCell(

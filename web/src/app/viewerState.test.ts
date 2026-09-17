@@ -1,76 +1,58 @@
+import { capabilities, metadataFixture } from "../../tests/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { Metadata, Variable } from "../data/model.ts";
-import { initialVariableState, updateVariableState, savedSelection, saveSelection } from "./viewerState.ts";
+import { initialVariableState, reduceVariableState as reduce, savedSelection, saveSelection } from "./viewerState.ts";
 
-const field: Variable = {
-  dataset_id: "a", path: "/temperature", name: "temperature", dtype: "f32",
-  dimensions: [
-    { path: "/time", name: "time", length: 5 },
-    { path: "/y", name: "y", length: 4 },
-    { path: "/x", name: "x", length: 6 },
-  ],
-  attributes: [], view_hint: { kind: "rectilinear", x: "/lon", y: "/lat" },
-};
-const metadata: Metadata = {
-  dataset_id: "a", dataset_label: "A", dataset: { name: "a.nc" },
-  limits: { max_response_bytes: 1000, ugrid_warn_faces: 1000 },
-  groups: [], dimensions: [], variables: [field], warnings: [],
-};
+const metadata = metadataFixture("rectilinear");
+const field = metadata.variables.find(v => v.name === "temperature")!;
+const selected = () => reduce(initialVariableState(), { type: "variable/selected", variable: field });
 
-test("a new variable resets coupled controls, probe and playback together", () => {
-  const changed = updateVariableState(initialVariableState(metadata, field), {
-    indices: { "/time": 4 }, display: { x: 0, y: 1 }, view: "curve",
-    probe: { indices: { "/time": 4 }, x: 1, y: 2, value: 3 },
-    playDirection: -1, frameReady: false, rangeLocked: true,
-    colorRange: { minimum: -8, maximum: 9 }, curveAlong: 1,
-    colormap: "batlow", coordinatePaths: {},
-  });
-  const curve = { ...field, path: "/series", dimensions: [field.dimensions[0]], view_hint: { kind: "plain" } } as Variable;
-  const next = updateVariableState(changed, initialVariableState(metadata, curve));
-  assert.deepEqual(next.indices, { "/time": 0 });
-  assert.deepEqual(next.display, { x: 0, y: undefined });
+test("selection and display events reset incompatible probe and playback together", () => {
+  let state = selected();
+  state = reduce(state, { type: "range/locked", locked: true });
+  state = reduce(state, { type: "probe/placed", probe: { indices: { "/lat": 0, "/lon": 0 }, x: 1, y: 2, value: 3 } });
+  state = reduce(state, { type: "playback/started", path: "/time", direction: 1 });
+  assert.equal(state.playback.kind, "playing");
+  const changed = reduce(state, { type: "display/selected", display: { x: 0, y: 1 }, coordinates: {} });
+  assert.equal(changed.probe, undefined);
+  assert.equal(changed.playback.kind, "stopped");
+  const curve = { ...field, capabilities: capabilities({ display_x: 0, display_y: null }), dimensions: [field.dimensions[0]], view_hint: { kind: "plain" as const } };
+  const next = reduce(changed, { type: "variable/selected", variable: curve, view: "field" });
   assert.equal(next.view, "curve");
-  assert.equal(next.probe, undefined);
-  assert.equal(next.playDirection, 0);
-  assert.equal(next.frameReady, true);
   assert.equal(next.rangeLocked, false);
-  assert.deepEqual(next.colorRange, { minimum: 0, maximum: 1 });
-  assert.equal(next.curveAlong, undefined);
-  assert.deepEqual(next.coordinatePaths, {});
+  assert.deepEqual(next.display, { x: 0, y: undefined });
+  assert.deepEqual(next.indices, { "/time": 0 });
+  assert.equal(reduce(next, { type: "dataset/opening" }).kind, "empty");
 });
 
-test("frame changes retain the selected coordinates, display, probe and locked range", () => {
-  const locked = updateVariableState(initialVariableState(metadata, field), {
-    rangeLocked: true, colorRange: { minimum: 12, maximum: 18 },
-    probe: { indices: { "/x": 2, "/y": 1 }, x: 2, y: 1, value: 15 },
-  });
-  const next = updateVariableState(locked, (current) => ({
-    frameReady: false, indices: { ...current.indices, "/time": 3 },
-  }));
-  assert.deepEqual(next.indices, { "/time": 3, "/y": 0, "/x": 0 });
-  assert.equal(next.frameReady, false);
-  assert.equal(next.display, locked.display);
-  assert.equal(next.probe, locked.probe);
-  assert.equal(next.colorRange, locked.colorRange);
+test("indices reject invalid values and preserve the current range and probe", () => {
+  let state = selected();
+  state = reduce(state, { type: "range/changed", range: { minimum: 12, maximum: 18 } });
+  state = reduce(state, { type: "range/locked", locked: true });
+  const next = reduce(state, { type: "dimension/indexed", path: "/time", value: 1 });
+  assert.equal(next.frame, "loading");
+  assert.equal(next.indices["/time"], 1);
+  assert.equal(next.colorRange, state.colorRange);
   assert.equal(next.rangeLocked, true);
-  assert.deepEqual(next.coordinatePaths, { x: "/lon", y: "/lat" });
-  assert.equal(locked.indices["/time"], 0);
+  for (const value of [-1, NaN, .5, 100000]) assert.equal(reduce(next, { type: "dimension/indexed", path: "/time", value }), next);
+  assert.equal(reduce(next, { type: "dimension/indexed", path: "/missing", value: 0 }), next);
 });
 
-test("UGRID edge display follows explicit or connectivity-derived edge dimensions", () => {
-  const edge: Variable = {
-    ...field, dimensions: [{ path: "/edges", name: "edges", length: 9 }, field.dimensions[0]],
-    view_hint: { kind: "ugrid2d", mesh: "/mesh", x: "/lon", y: "/lat", face_node_connectivity: "/faces", location: "edge" },
-  };
-  const topology = { ...field, path: "/mesh", attributes: [{ name: "edge_dimension", dtype: "char", value: "edges" }] };
-  const source = { ...metadata, variables: [edge, topology] };
-  assert.deepEqual(initialVariableState(source, edge).display, { x: 0, y: undefined });
-  topology.attributes = [{ name: "edge_node_connectivity", dtype: "char", value: "edge_nodes" }];
-  source.variables.push({ ...field, path: "/edge_nodes", dimensions: [edge.dimensions[0]] });
-  assert.deepEqual(initialVariableState(source, edge).display, { x: 0, y: undefined });
-  assert.equal(initialVariableState(source, { ...edge, dimensions: [edge.dimensions[0]] }).view, "field");
-  assert.deepEqual(initialVariableState(metadata, edge).display, { x: 1, y: undefined });
+test("playback waits for reads and stops at either end or an error", () => {
+  let state = reduce(selected(), { type: "playback/started", path: "/time", direction: 1 });
+  state = reduce(state, { type: "playback/ticked" });
+  assert.equal(state.indices["/time"], 1);
+  assert.equal(reduce(state, { type: "playback/ticked" }), state);
+  for (let index = 2; index < field.dimensions[0].length; index += 1) {
+    state = reduce(state, { type: "frame/loaded" });
+    state = reduce(state, { type: "playback/ticked" });
+  }
+  assert.equal(state.indices["/time"], field.dimensions[0].length - 1);
+  assert.equal(state.playback.kind, "stopped");
+  state = reduce(state, { type: "playback/started", path: "/time", direction: -1 });
+  state = reduce(state, { type: "frame/failed" });
+  assert.equal(state.playback.kind, "stopped");
+  assert.equal(state.frame, "ready");
 });
 
 test("selection storage is dataset-keyed and blocked or corrupt storage uses defaults", () => {

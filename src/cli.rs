@@ -15,6 +15,7 @@ use tokio::time::{Instant, sleep};
 use crate::NcxResult;
 use crate::dataset::Dataset;
 use crate::hub::{self, HubConfig, MAX_HUB_SESSIONS};
+use crate::policy::HubPolicy;
 use crate::server::{self, Limits};
 
 const USAGE: &str = "\
@@ -30,6 +31,12 @@ Usage:
 Options:
   --port PORT                       Loopback port for `serve` (default: 0)
   --listen ADDRESS                  IPv4 hub listener (default: 127.0.0.1:8765)
+  --mode local|HTTP|HTTPS            Hub deployment mode (default: local)
+  --ssh-auth key|password            Hub SSH authentication (default: key)
+  --host-key-policy POLICY           strict, accept-new, or insecure
+  --known-hosts FILE                SSH known-hosts file
+  --trusted-proxy IPv4              HTTPS reverse-proxy peer
+  --public-origin HTTPS_ORIGIN      HTTPS external origin
   --base-path PATH                  Hub URL path (default: /ncx)
   --local-root DIRECTORY            Allow hub files below this directory
   --remote-ncx FILE                 Standalone ncx binary for SSH sessions
@@ -141,6 +148,7 @@ fn parse_arguments(arguments: Vec<String>) -> NcxResult<ParsedCommand> {
     let mut limits = Limits::default();
     let mut port = 0;
     let mut listen = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 8765);
+    let mut policy = HubPolicy::default();
     let mut base_path = "/ncx".to_owned();
     let mut local_roots = Vec::new();
     let mut remote_ncx = None;
@@ -165,6 +173,26 @@ fn parse_arguments(arguments: Vec<String>) -> NcxResult<ParsedCommand> {
                     return Err("--listen is only valid with `ncx hub`".to_owned());
                 }
                 listen = parse_value(&arguments, &mut index, "--listen")?;
+            }
+            "--mode" | "--ssh-auth" | "--host-key-policy" | "--known-hosts" | "--trusted-proxy"
+            | "--public-origin" => {
+                if command != "hub" {
+                    return Err("hub policy options require `ncx hub`".to_owned());
+                }
+                let option = arguments[index].clone();
+                let value: String = parse_value(&arguments, &mut index, &option)?;
+                match option.as_str() {
+                    "--mode" => policy.mode = value.parse()?,
+                    "--ssh-auth" => policy.auth = value.parse()?,
+                    "--host-key-policy" => policy.host_keys = value.parse()?,
+                    "--known-hosts" => policy.known_hosts = Some(value.into()),
+                    "--trusted-proxy" => {
+                        policy.trusted_proxy =
+                            Some(value.parse().map_err(|_| "trusted-proxy must be IPv4")?)
+                    }
+                    "--public-origin" => policy.public_origin = Some(value),
+                    _ => unreachable!(),
+                }
             }
             "--base-path" => {
                 if command != "hub" {
@@ -283,6 +311,7 @@ fn parse_arguments(arguments: Vec<String>) -> NcxResult<ParsedCommand> {
         Ok(ParsedCommand::Hub {
             listen,
             config: HubConfig {
+                policy,
                 base_path,
                 local_roots,
                 session_limit,
@@ -503,6 +532,7 @@ async fn serve_local(
 }
 
 async fn serve_hub(listen: SocketAddrV4, config: HubConfig) -> NcxResult<()> {
+    config.policy.validate(listen)?;
     let listener = TcpListener::bind(listen)
         .await
         .map_err(|error| format!("cannot bind {listen}: {error}"))?;

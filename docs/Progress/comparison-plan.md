@@ -8,21 +8,22 @@ Parent: [improvement plan](improvement-plan.md).
 
 Keep the current cuSURGE viewing flow: sources enter through Add and appear as
 ordinary curves. Keep the existing plot controls. Add one Steering entry that
-opens a compact terminal. Arithmetic and second-panel selection belong there.
+opens a screen-wide bottom terminal with living variables on the left. Arithmetic
+and explicit plot binding belong there; panel 2 remains a curve panel.
 
 No Compare dialog, operation toolbar, validation cards, or permanent explanatory
 copy. Reuse the current linked second panel, including its axes, cursor, style,
 and export. Do not show an empty result card when no second panel is requested.
 Put command errors in the terminal. Keep routine loading in the existing status
-surface. Follow [Style/Web](../../Style/Web/web-design.md).
+surface. Follow [Style/Web](../../../Style/Web/web-design.md).
 
-The previous [draft.html](draft.html) is rejected and retained only as a record.
-It is not the proposed Steering interface. Replace it after the interaction
-and ownership contract is settled; do not patch its dialog design.
+The [interactive draft](draft.html) now shows the proposed topbar toggle and
+bottom terminal with aligned living variables, log, and command input. It uses
+sample data and does not execute Python. The rejected dialog design is removed.
 
 ## Contracts
 
-The proposed vocabulary is in [CONTEXT.md](../CONTEXT.md). The narrow interface,
+The proposed vocabulary is in [Steering context](steering-context.md). The narrow interface,
 state ownership, publication, and override rules are in [steering.md](steering.md).
 Runtime evidence is in [steering-runtime-research.md](steering-runtime-research.md).
 
@@ -62,16 +63,18 @@ rules in `steering.md` replace competing effects and timing-based precedence.
 
 1. Review the ownership and override contract. Resolve the exact axis-range
    rule; the recommended interpretation is in `steering.md`.
-2. Replace the HTML draft with the current source strip, Add, ordinary plots,
-   and a collapsed Steering terminal. Show one command and one resulting
-   second panel. No fixture control bar or comparison settings sheet.
+2. Review the updated HTML draft: topbar Steering toggle, completely hidden
+   closed panel, aligned sidebar, and Enter-to-submit input. Continue with real
+   execution and result-panel examples after the runtime spike. No fixture
+   control bar or comparison settings sheet.
 3. Run a small real-Python browser spike. Measure initialization, asset size,
    array transfer, six-source work, Stop, and offline behavior. Exercise local,
    HTTP, HTTPS, and the actual cuSURGE iframe policy. Do not install a notebook
    application or add a server Python execution route.
-4. Implement the source registry and immutable view snapshot first. Route GUI,
-   host, and terminal panel edits through one owner. Retain canonical CF facts
-   and existing read limits.
+4. Implement source-backed variable references, exact bounded reads, and plot
+   bindings first, as specified in the revised `steering.md`. A view capture is
+   a logical selection, not its display buffer. Route GUI, host, and terminal
+   plot edits through one owner. Retain canonical CF facts and existing limits.
 5. Add explicit execution, Python workspace variables, result publication, and
    the existing second-panel renderer. Test selection changes during execution.
 6. Add explicitly registered automatic transforms only if needed to preserve

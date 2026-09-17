@@ -1,0 +1,40 @@
+netcdf grouped_ugrid {
+group: ocean {
+  dimensions: node = 3; face = 1; edge = 3; Three = 3; Two = 2;
+  variables:
+    int mesh;
+      mesh:cf_role = "mesh_topology";
+      mesh:topology_dimension = 2;
+      mesh:node_coordinates = "./lon ./lat";
+      mesh:face_node_connectivity = "./face_nodes";
+      mesh:edge_face_connectivity = "./edge_faces";
+      mesh:edge_node_connectivity = "./edge_nodes";
+      mesh:edge_dimension = "edge";
+    double lon(node); lon:standard_name = "longitude"; lon:units = "degrees_east";
+    double lat(node); lat:standard_name = "latitude"; lat:units = "degrees_north";
+    int face_nodes(face, Three); face_nodes:cf_role = "face_node_connectivity";
+    int edge_nodes(edge, Two); edge_nodes:cf_role = "edge_node_connectivity";
+    int edge_faces(edge, Two); edge_faces:cf_role = "edge_face_connectivity"; edge_faces:_FillValue = -1;
+  data:
+    mesh = 0; lon = 110, 111, 110; lat = 22, 22, 23;
+    face_nodes = 0, 1, 2; edge_nodes = 0, 1, 1, 2, 2, 0;
+    edge_faces = 0, _, 0, _, 0, _;
+  group: state {
+    variables:
+      float temp(node); temp:mesh = "../mesh"; temp:location = "node";
+        temp:coordinates = "../lon ../lat"; temp:units = "degree_Celsius";
+      float current(edge); current:mesh = "../mesh"; current:location = "edge";
+        current:units = "m s-1";
+      float cross_group(node); cross_group:mesh = "../mesh"; cross_group:location = "node";
+        cross_group:coordinates = "/ocean/geo/lon /ocean/lat";
+      float missing_reference(node); missing_reference:mesh = "../mesh"; missing_reference:location = "node";
+        missing_reference:coordinates = "../missing ../lat";
+    data: temp = 20, 21, 22; current = 1, 2, 3;
+      cross_group = 20, 21, 22; missing_reference = 20, 21, 22;
+  }
+  group: geo {
+    variables: double lon(node); lon:standard_name = "longitude"; lon:units = "degrees_east";
+    data: lon = 110, 111, 110;
+  }
+}
+}

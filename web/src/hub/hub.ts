@@ -8,6 +8,8 @@ let resumeTransition: (() => void) | undefined;
 export interface HubStatus {
   hub: boolean;
   active: boolean;
+  mode?: "local" | "http" | "https";
+  password?: boolean;
 }
 
 export interface HubSessionRecord {

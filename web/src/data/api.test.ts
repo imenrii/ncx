@@ -1,3 +1,4 @@
+import { capabilities, metadataFixture } from "../../tests/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -11,6 +12,7 @@ const { unitAssignments } = await import("./unitAssignments.ts");
 
 function variable(path: string) {
   return {
+    capabilities: capabilities({ display_x: 0, display_y: null }),
     dataset_id: "case",
     path,
     name: path.slice(1),
@@ -65,7 +67,7 @@ test("cached metadata uses current unit assignments without another request", as
   let reads = 0;
   globalThis.fetch = async () => {
     reads += 1;
-    return Response.json({ dataset: { name: "wind" }, variables: [variable("/u10"), variable("/v10")] });
+    return Response.json({ ...metadataFixture("wind"), dataset: { name: "wind" }, variables: [variable("/u10"), variable("/v10")] });
   };
   try {
     const initial = await fetchMetadata("assignment-case");
@@ -86,7 +88,7 @@ test("fetchSlice keeps display values as f32", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => binaryResponse("f32", [2.5]);
   try {
-    const slice = await fetchSlice({ path: "/temperature", selection: "0", stride: "1" });
+    const slice = await fetchSlice({ path: "/temperature", selection: [0] });
     assert.equal(slice.dtype, "f32");
     assert.ok(slice.values instanceof Float32Array);
     assert.equal(slice.values[0], 2.5);

@@ -17,6 +17,8 @@ use tokio::net::TcpListener;
 
 use crate::NcxResult;
 use crate::dataset::{DataError, DataResponse, Dataset, DatasetMetadata, WireType};
+use crate::reading::{ReadAdmission, reserved_body};
+use tokio::sync::OwnedSemaphorePermit;
 
 const INDEX_HTML: &str = include_str!("../web/dist/index.html");
 static VERSIONED_INDEX_HTML: LazyLock<String> = LazyLock::new(|| {
@@ -32,6 +34,7 @@ static VERSIONED_INDEX_HTML: LazyLock<String> = LazyLock::new(|| {
 });
 const APP_JAVASCRIPT: &[u8] = include_bytes!("../web/dist/assets/app.js");
 const APP_CSS: &[u8] = include_bytes!("../web/dist/assets/app.css");
+include!(concat!(env!("OUT_DIR"), "/web_assets.rs"));
 // Fonts, embedded at compile time from `res/` so the binary is the whole
 // deliverable -- it has to be, since it is usually run over SSH on a cluster
 // that cannot reach a CDN.
@@ -95,6 +98,7 @@ pub(crate) async fn viewer_is_ready(port: u16) -> bool {
 }
 
 #[derive(Clone, Copy, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Limits {
     pub max_response_bytes: u64,
     pub ugrid_warn_faces: u64,
@@ -110,6 +114,7 @@ impl Default for Limits {
 }
 
 struct AppState {
+    reads: ReadAdmission,
     catalog: DatasetCatalog,
     limits: Limits,
 }
@@ -164,6 +169,8 @@ struct LazyDatasetState {
 }
 
 #[derive(Clone, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(rename = "DatasetEntry"))]
 struct DatasetSummary {
     id: String,
     label: String,
@@ -172,6 +179,7 @@ struct DatasetSummary {
 }
 
 #[derive(Clone, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(tag = "state", rename_all = "snake_case")]
 enum DatasetInspection {
     Uninspected,
@@ -350,10 +358,11 @@ fn dataset_unavailable(message: String) -> DataError {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 struct MetadataResponse {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     dataset_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     dataset_label: Option<String>,
     #[serde(flatten)]
     metadata: DatasetMetadata,
@@ -361,7 +370,9 @@ struct MetadataResponse {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 struct DatasetsResponse {
+    protocol_version: u32,
     datasets: Vec<DatasetSummary>,
     collection: bool,
 }
@@ -377,6 +388,7 @@ where
     F: Future<Output = ()> + Send + 'static,
 {
     let state = Arc::new(AppState {
+        reads: ReadAdmission::default(),
         catalog: DatasetCatalog::new(datasets, collection)?,
         limits,
     });
@@ -400,6 +412,7 @@ where
     Router::new()
         .route("/assets/app.js", get(app_javascript))
         .route("/assets/app.css", get(app_css))
+        .route("/assets/{asset}", get(extra_asset))
         .route("/fonts/gorton-400.woff2", get(font_ui_regular))
         .route("/fonts/gorton-600.woff2", get(font_ui_semibold))
         .route("/fonts/commit-400.woff2", get(font_mono_regular))
@@ -482,6 +495,7 @@ async fn dataset_list(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     (
         [(CACHE_CONTROL, HeaderValue::from_static("no-store"))],
         Json(DatasetsResponse {
+            protocol_version: crate::dataset::PROTOCOL_VERSION,
             datasets: state.catalog.list(),
             collection: state.catalog.collection,
         }),
@@ -501,28 +515,37 @@ async fn metadata(
         Ok(query) => query,
         Err(error) => return invalid_query(error),
     };
-    let requested = query.dataset;
-    let limits = state.limits;
-    let named = state.catalog.named();
-    let opened =
-        tokio::task::spawn_blocking(move || state.catalog.open(requested.as_deref())).await;
-    let source = match opened {
-        Ok(Ok(source)) => source,
-        Ok(Err(error)) => return error_response(error),
-        Err(error) => {
-            return error_response(DataError {
-                status: 500,
-                code: "dataset_open_task_failed",
-                message: error.to_string(),
-                suggested_stride: None,
-            });
-        }
-    };
-    (
-        [(CACHE_CONTROL, HeaderValue::from_static("no-store"))],
-        Json(metadata_response(&source, named, limits)),
-    )
-        .into_response()
+    let result = async {
+        let _job = state.reads.admit()?;
+        let memory = state
+            .reads
+            .reserve(2 * crate::dataset::MAX_METADATA_BYTES)
+            .await?;
+        let open = state.clone();
+        let body = state
+            .reads
+            .blocking(move || {
+                let source = open.catalog.open(query.dataset.as_deref())?;
+                let bytes = crate::reading::bounded_json(
+                    &metadata_response(&source, open.catalog.named(), open.limits),
+                    crate::dataset::MAX_METADATA_BYTES,
+                )?;
+                Ok(reserved_body(bytes, memory))
+            })
+            .await?;
+        Ok::<_, DataError>(
+            (
+                [
+                    (CONTENT_TYPE, "application/json"),
+                    (CACHE_CONTROL, "no-store"),
+                ],
+                body,
+            )
+                .into_response(),
+        )
+    }
+    .await;
+    result.unwrap_or_else(error_response)
 }
 
 #[derive(Deserialize)]
@@ -551,39 +574,48 @@ async fn data(
         Ok(wire) => wire,
         Err(error) => return error_response(error),
     };
-    let maximum = state.limits.max_response_bytes;
-    let read = tokio::task::spawn_blocking(move || {
+    let result = async {
+        let _job = state.reads.admit()?;
         let started = Instant::now();
-        let result = state
-            .catalog
-            .open(query.dataset.as_deref())
-            .and_then(|source| {
-                source.dataset.read_data(
-                    &query.path,
-                    &query.selection,
-                    &query.stride,
-                    wire,
-                    maximum,
-                )
-            });
-        let elapsed = started.elapsed();
-        if elapsed.as_millis() >= 100 {
-            eprintln!("ncx: read {} in {} ms", query.path, elapsed.as_millis());
-        }
-        (result, elapsed)
-    })
-    .await;
-
-    match read {
-        Ok((Ok(data), elapsed)) => data_response(data, elapsed),
-        Ok((Err(error), _)) => error_response(error),
-        Err(error) => error_response(DataError {
-            status: 500,
-            code: "read_task_failed",
-            message: error.to_string(),
-            suggested_stride: None,
-        }),
+        let open = state.clone();
+        let requested = query.dataset;
+        let opening_memory = state
+            .reads
+            .reserve(4 * crate::dataset::MAX_METADATA_BYTES)
+            .await?;
+        let source = state
+            .reads
+            .blocking(move || {
+                let _memory = opening_memory;
+                open.catalog.open(requested.as_deref())
+            })
+            .await?;
+        let plan = source.dataset.plan_read(
+            &query.path,
+            &query.selection,
+            &query.stride,
+            wire,
+            state.limits.max_response_bytes,
+        )?;
+        let memory = state.reads.reserve(plan.peak_bytes).await?;
+        let slot = source
+            .dataset
+            .read_slot
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| DataError::new(503, "reader_closed", "Reader closed"))?;
+        let (data, memory) = state
+            .reads
+            .blocking(move || {
+                let _slot = slot;
+                Ok((source.dataset.read(plan)?, memory))
+            })
+            .await?;
+        Ok::<_, DataError>(data_response(data, started.elapsed(), Some(memory)))
     }
+    .await;
+    result.unwrap_or_else(error_response)
 }
 
 fn metadata_response(source: &OpenedDataset, named: bool, limits: Limits) -> MetadataResponse {
@@ -604,14 +636,22 @@ fn invalid_query(error: QueryRejection) -> Response {
     })
 }
 
-fn data_response(data: DataResponse, read_time: Duration) -> Response {
+fn data_response(
+    data: DataResponse,
+    read_time: Duration,
+    memory: Option<OwnedSemaphorePermit>,
+) -> Response {
     let shape = data
         .shape
         .iter()
         .map(usize::to_string)
         .collect::<Vec<_>>()
         .join(",");
-    let mut response = Response::new(Body::from(data.body));
+    let body = match memory {
+        Some(permit) => reserved_body(data.body, permit),
+        None => bytes::Bytes::from(data.body),
+    };
+    let mut response = Response::new(Body::from(body));
     let headers = response.headers_mut();
     headers.insert(
         CONTENT_TYPE,
@@ -656,7 +696,7 @@ struct ErrorDetail {
 
 fn error_response(error: DataError) -> Response {
     let status = StatusCode::from_u16(error.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    (
+    let mut response = (
         status,
         [(CACHE_CONTROL, HeaderValue::from_static("no-store"))],
         Json(ApiError {
@@ -667,7 +707,13 @@ fn error_response(error: DataError) -> Response {
             },
         }),
     )
-        .into_response()
+        .into_response();
+    if status == StatusCode::SERVICE_UNAVAILABLE {
+        response
+            .headers_mut()
+            .insert("retry-after", HeaderValue::from_static("1"));
+    }
+    response
 }
 
 async fn api_not_found() -> Response {
@@ -714,6 +760,13 @@ async fn app_javascript() -> Response {
 
 async fn app_css() -> Response {
     static_asset("text/css; charset=utf-8", APP_CSS)
+}
+
+async fn extra_asset(axum::extract::Path(name): axum::extract::Path<String>) -> Response {
+    match EXTRA_ASSETS.iter().find(|(asset, _)| *asset == name) {
+        Some((_, bytes)) => static_asset("text/javascript; charset=utf-8", bytes),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 async fn font_ui_regular() -> Response {
@@ -767,6 +820,80 @@ async fn font_plot_fallback() -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn protocol_types_are_current() {
+        use crate::cf::{GeographicAxis, GeographicCoordinates, TimeAxis, VariableCapabilities};
+        use crate::dataset::*;
+        use ts_rs::TS;
+        let config = ts_rs::Config::new().with_large_int("number");
+        let declarations = [
+            DatasetMetadata::decl(&config),
+            crate::dataset::DatasetSummary::decl(&config),
+            GroupSummary::decl(&config),
+            DimensionSummary::decl(&config),
+            VariableDimension::decl(&config),
+            VariableSummary::decl(&config),
+            ViewHint::decl(&config),
+            AttributeSummary::decl(&config),
+            AttributeData::decl(&config),
+            AttributeScalar::decl(&config),
+            VariableCapabilities::decl(&config),
+            TimeAxis::decl(&config),
+            GeographicCoordinates::decl(&config),
+            GeographicAxis::decl(&config),
+            Limits::decl(&config),
+            super::DatasetSummary::decl(&config),
+            DatasetInspection::decl(&config),
+            MetadataResponse::decl(&config),
+            DatasetsResponse::decl(&config),
+        ];
+        let expected = format!(
+            "// Generated from Rust DTOs. Run NCX_UPDATE_PROTOCOL=1 cargo test protocol_types_are_current.\nexport const PROTOCOL_VERSION = {PROTOCOL_VERSION};\n{}\n",
+            declarations
+                .into_iter()
+                .map(|d| format!("export {d}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("web/src/generated/protocol.ts");
+        if std::env::var_os("NCX_UPDATE_PROTOCOL").is_some() {
+            std::fs::write(&path, &expected).unwrap();
+        }
+        assert_eq!(
+            std::fs::read_to_string(path).unwrap(),
+            expected,
+            "stale generated protocol"
+        );
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut fixtures = std::collections::BTreeMap::new();
+        for entry in std::fs::read_dir(root.join("tests/data")).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_none_or(|extension| extension != "nc") {
+                continue;
+            }
+            let name = path.file_stem().unwrap().to_str().unwrap().to_owned();
+            let dataset = Dataset::open(&path).unwrap();
+            let source = OpenedDataset {
+                id: name.clone(),
+                label: name.clone(),
+                dataset: Arc::new(dataset),
+            };
+            fixtures.insert(name, metadata_response(&source, true, Limits::default()));
+        }
+        let expected = format!("{}\n", serde_json::to_string_pretty(&fixtures).unwrap());
+        let path = root.join("web/src/generated/metadata-fixtures.json");
+        if std::env::var_os("NCX_UPDATE_PROTOCOL").is_some() {
+            std::fs::write(&path, &expected).unwrap();
+        }
+        assert_eq!(
+            std::fs::read_to_string(path).unwrap(),
+            expected,
+            "stale canonical metadata fixtures"
+        );
+    }
 
     const READINESS_REQUEST: &[u8] =
         b"GET /api/datasets HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
@@ -876,6 +1003,8 @@ mod tests {
 
     #[tokio::test]
     async fn data_response_reports_f64_shape_body_and_complete_read_time() {
+        let reads = ReadAdmission::default();
+        let memory = reads.reserve(crate::reading::MEMORY_BYTES).await.unwrap();
         let response = data_response(
             DataResponse {
                 dtype: "f64",
@@ -886,6 +1015,7 @@ mod tests {
                     .collect(),
             },
             std::time::Duration::from_micros(1_250),
+            Some(memory),
         );
         assert_eq!(response.headers()["x-ncx-dtype"], "f64");
         assert_eq!(response.headers()["x-ncx-shape"], "3");
@@ -895,6 +1025,18 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(body.len(), 24);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), reads.reserve(1))
+                .await
+                .is_err()
+        );
+        drop(body);
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), reads.reserve(1))
+                .await
+                .unwrap()
+                .is_ok()
+        );
     }
 
     #[test]
@@ -1036,6 +1178,7 @@ mod tests {
     #[tokio::test]
     async fn dataset_http_seams_show_lazy_state_then_metadata_transition() {
         let state = Arc::new(AppState {
+            reads: ReadAdmission::default(),
             catalog: DatasetCatalog::new(
                 vec![ServedDataset::lazy(
                     "classic",
@@ -1047,6 +1190,13 @@ mod tests {
             .unwrap(),
             limits: Limits::default(),
         });
+        let tickets: Vec<_> = (0..crate::reading::MAX_REQUESTS)
+            .map(|_| state.reads.admit().unwrap())
+            .collect();
+        let busy = metadata(State(state.clone()), Ok(Query(DatasetQuery::default()))).await;
+        assert_eq!(busy.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(busy.headers()["retry-after"], "1");
+        drop(tickets);
         let before = dataset_list(State(state.clone())).await.into_response();
         let before = axum::body::to_bytes(before.into_body(), usize::MAX)
             .await

@@ -2,11 +2,13 @@ mod cf;
 mod cli;
 mod dataset;
 mod hub;
+mod policy;
+mod reading;
 mod server;
 
 pub type NcxResult<T> = Result<T, String>;
 
-#[tokio::main]
+#[tokio::main(worker_threads = 2)]
 async fn main() {
     if let Err(message) = cli::run().await {
         eprintln!("ncx: {message}");

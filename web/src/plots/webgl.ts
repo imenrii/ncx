@@ -3,8 +3,8 @@ import {
   paletteBytes,
   type ColormapChoice,
   type ColorRange,
+  type ColorScale,
 } from "./color";
-import type { ColorScale } from "../data/model";
 import { canvasPng, validateCanvasSize } from "./capture";
 import type { Bounds, MeshGeometry } from "./mesh";
 import { PERFORMANCE_MEASURE, measurePerformance } from "../data/performance";
@@ -105,6 +105,7 @@ class MeshRenderer implements MeshSurface {
   private readonly valueBuffer: WebGLBuffer;
   private readonly palette: WebGLTexture;
   private uploadedGeometry: MeshGeometry | undefined;
+  private uploadedValues: Float32Array | undefined;
   private uploadedColormap: ColormapChoice | undefined;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
@@ -161,18 +162,20 @@ class MeshRenderer implements MeshSurface {
     gl.viewport(0, 0, width, height);
     gl.useProgram(this.program);
 
-    if (this.uploadedGeometry !== geometry) {
+    const geometryChanged = this.uploadedGeometry !== geometry;
+    if (geometryChanged) {
       gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
       gl.bufferData(gl.ARRAY_BUFFER, geometry.positions, gl.STATIC_DRAW);
       this.uploadedGeometry = geometry;
     }
-    measurePerformance(PERFORMANCE_MEASURE.meshScalarUpload, () => {
+    if (geometryChanged || this.uploadedValues !== sourceValues) measurePerformance(PERFORMANCE_MEASURE.meshScalarUpload, () => {
       const expandedValues = new Float32Array(geometry.scalarIndices.length);
       for (let index = 0; index < expandedValues.length; index += 1) {
         expandedValues[index] = sourceValues[geometry.scalarIndices[index]] ?? Number.NaN;
       }
       gl.bindBuffer(gl.ARRAY_BUFFER, this.valueBuffer);
       gl.bufferData(gl.ARRAY_BUFFER, expandedValues, gl.DYNAMIC_DRAW);
+      this.uploadedValues = sourceValues;
     });
 
     if (this.uploadedColormap !== settings.colormap) {

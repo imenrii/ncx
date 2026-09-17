@@ -34,6 +34,8 @@ test("rebases large mesh coordinates before f32 upload and returns world probes"
 });
 
 test("averages edge values onto their adjacent faces", () => {
+  const large = Float32Array.of(3e38, 3e38);
+  assert.equal(edgesToFaces(large, Int32Array.of(0, -1, 0, -1), 1)[0], large[0]);
   assert.deepEqual(
     [...edgesToFaces(Float32Array.of(2, 4, 8), Int32Array.of(0, -1, 0, 1, 1, -1), 2)],
     [3, 6],

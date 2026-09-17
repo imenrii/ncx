@@ -7,14 +7,17 @@ import type {
 } from "./model";
 import { currentHubCacheKey, sessionFetch } from "../hub/hub.ts";
 import { unitAssignments } from "./unitAssignments.ts";
+import { decodeDatasets, decodeMetadata } from "./protocol.ts";
+import { AsyncByteCache } from "./cache.ts";
 import {
   PERFORMANCE_MEASURE,
   measurePerformance,
   measurePerformanceAsync,
 } from "./performance.ts";
 
-const staticSliceCache = new Map<string, Promise<DataSlice>>();
-const metadataCache = new Map<string, Promise<Metadata>>();
+const staticSliceCache = new AsyncByteCache<DataSlice>(128 * 1024 * 1024, slice => slice.values.byteLength);
+const metadataCache = new AsyncByteCache<Metadata>(16 * 1024 * 1024, metadata => JSON.stringify(metadata).length * 2, 64);
+let cacheScope = "";
 const apiRoot = new URL("api/", document.baseURI);
 const viewerGeneration = new URL(document.baseURI).searchParams.get("generation");
 
@@ -29,48 +32,46 @@ export async function fetchDatasets(): Promise<{ datasets: DatasetSummary[]; col
   if (!response.ok) {
     throw new Error(await errorMessage(response));
   }
-  const body = (await response.json()) as { datasets?: DatasetSummary[]; collection?: boolean };
-  if (!Array.isArray(body.datasets) || body.datasets.length === 0) {
-    throw new Error("ncx returned no datasets");
-  }
+  const body = decodeDatasets(await response.json());
   return { datasets: body.datasets, collection: body.collection === true };
 }
 
 export async function fetchMetadata(dataset?: string): Promise<Metadata> {
-  const scope = currentHubCacheKey();
+  const scope = currentCacheScope();
   const key = `${scope}:${dataset ?? ""}`;
-  const cached = metadataCache.get(key);
-  if (cached) return unitAssignments.apply(await cached, scope);
-  const pending = loadMetadata(dataset).catch((error) => {
-    metadataCache.delete(key);
-    throw error;
-  });
-  metadataCache.set(key, pending);
-  return unitAssignments.apply(await pending, scope);
+  const metadata = await metadataCache.load(key, signal => loadMetadata(dataset, signal));
+  return unitAssignments.apply(metadata, scope);
 }
 
-async function loadMetadata(dataset?: string): Promise<Metadata> {
+function currentCacheScope(): string {
+  const scope = currentHubCacheKey();
+  if (scope !== cacheScope) {
+    staticSliceCache.clear();
+    metadataCache.clear();
+    unitAssignments.clearScope(cacheScope);
+    cacheScope = scope;
+  }
+  return scope;
+}
+
+async function loadMetadata(dataset?: string, signal?: AbortSignal): Promise<Metadata> {
   const query = new URLSearchParams();
   if (dataset) query.set("dataset", dataset);
-  const response = await sessionFetch(apiUrl(`meta${query.size ? `?${query}` : ""}`), { cache: "no-store" });
+  const response = await sessionFetch(apiUrl(`meta${query.size ? `?${query}` : ""}`), { cache: "no-store", signal });
   if (!response.ok) {
     throw new Error(await errorMessage(response));
   }
-  const metadata = (await response.json()) as Metadata;
-  metadata.dataset_id ||= dataset ?? "dataset";
-  metadata.dataset_label ||= metadata.dataset_id;
-  metadata.variables = metadata.variables.map((variable) => ({
-    ...variable,
-    dataset_id: metadata.dataset_id,
-  }));
-  return metadata;
+  const metadata = decodeMetadata(await response.json());
+  const id = metadata.dataset_id ?? dataset ?? "dataset";
+  return { ...metadata, dataset_id: id, dataset_label: metadata.dataset_label ?? id,
+    variables: metadata.variables.map(variable => ({ ...variable, dataset_id: id })) };
 }
 
 export async function fetchSlice(request: SliceRequest, signal?: AbortSignal): Promise<DataSlice> {
   const query = new URLSearchParams({
     path: request.path,
-    selection: request.selection,
-    stride: request.stride,
+    selection: request.selection.map(axis => typeof axis === "number" ? String(axis) : `${axis.start}:${axis.stop}`).join(","),
+    stride: request.selection.map(axis => typeof axis === "number" ? 1 : axis.stride).join(","),
   });
   if (request.dataset) query.set("dataset", request.dataset);
   if (request.wire) query.set("wire", request.wire);
@@ -133,22 +134,13 @@ export function fetchCoordinate(variable: Variable): Promise<Float64Array> {
 }
 
 export function fetchStaticSlice(variable: Variable, wire?: SliceRequest["wire"]): Promise<DataSlice> {
-  const key = `${currentHubCacheKey()}:${variable.dataset_id ?? ""}:${variable.path}:${wire ?? "default"}`;
-  let cached = staticSliceCache.get(key);
-  if (!cached) {
-    cached = fetchSlice({
+  const key = `${currentCacheScope()}:${variable.dataset_id ?? ""}:${variable.path}:${wire ?? "default"}`;
+  return staticSliceCache.load(key, signal => fetchSlice({
       dataset: variable.dataset_id,
       path: variable.path,
-      selection: variable.dimensions.map(() => ":").join(","),
-      stride: variable.dimensions.map(() => "1").join(","),
+      selection: variable.dimensions.map(dimension => ({ start: 0, stop: dimension.length, stride: 1 })),
       wire,
-    });
-    staticSliceCache.set(key, cached);
-    void cached.catch(() => {
-      if (staticSliceCache.get(key) === cached) staticSliceCache.delete(key);
-    });
-  }
-  return cached;
+    }, signal));
 }
 
 async function errorMessage(response: Response): Promise<string> {

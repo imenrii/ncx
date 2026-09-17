@@ -1,3 +1,4 @@
+import { capabilities, metadataFixture } from "../../tests/fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -6,6 +7,7 @@ import { comparisonFieldSelection, curveRequest, defaultCurveDimension,
   defaultDisplayDimensions, fieldRequest, ugridFieldRequest } from "./selection.ts";
 
 const variable: Variable = {
+  capabilities: capabilities({ display_x: 3, display_y: 2 }),
   dataset_id: "case-a",
   path: "/temperature",
   name: "temperature",
@@ -46,8 +48,7 @@ test("maps display dimensions and indices to the thin data API", () => {
   );
 
   assert.deepEqual(display, { x: 3, y: 2 });
-  assert.equal(request.selection, "120,4,:,:");
-  assert.equal(request.stride, "1,1,4,4");
+  assert.deepEqual(request.selection, [120, 4, { start: 0, stop: 2000, stride: 4 }, { start: 0, stop: 3000, stride: 4 }]);
   assert.equal(request.dataset, "case-a");
 });
 
@@ -61,8 +62,7 @@ test("a settled zoom requests its visible source window at full resolution", () 
     { minimumX: 0.25, maximumX: 0.5, minimumY: 0.25, maximumY: 0.5 },
   );
 
-  assert.equal(request.selection, "120,4,500:1000,750:1500");
-  assert.equal(request.stride, "1,1,1,1");
+  assert.deepEqual(request.selection, [120, 4, { start: 500, stop: 1000, stride: 1 }, { start: 750, stop: 1500, stride: 1 }]);
 });
 
 test("a curve ranges one dimension and fixes every other dimension", () => {
@@ -71,14 +71,12 @@ test("a curve ranges one dimension and fixes every other dimension", () => {
     "/y": 100,
     "/x": 200,
   });
-  assert.equal(request.selection, ":,4,100,200");
-  assert.equal(request.stride, "1,1,1,1");
+  assert.deepEqual(request.selection, [{ start: 0, stop: 241, stride: 1 }, 4, 100, 200]);
 });
 
 test("UGRID never invents a spatial preview stride", () => {
   const request = ugridFieldRequest(variable, 3, { "/time": 12, "/level": 4, "/y": 9 });
-  assert.equal(request.selection, "12,4,9,:");
-  assert.equal(request.stride, "1,1,1,1");
+  assert.deepEqual(request.selection, [12, 4, 9, { start: 0, stop: 3000, stride: 1 }]);
 });
 
 test("a curve sweeps time, not whatever dimension happened to be on x", () => {

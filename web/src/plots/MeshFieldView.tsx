@@ -1,21 +1,22 @@
+import { prepareMesh } from "./meshBuild";
+import { useSlice } from "../data/useSlice";
+import { PlotStatus } from "./PlotStatus";
 import { displayValue, convertedLabel, unitChoice } from "../data/units";
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 
-import { LatestSliceLoader, fetchCoordinate, fetchSlice, fetchStaticSlice } from "../data/api";
+import { fetchCoordinate, fetchSlice, fetchStaticSlice } from "../data/api";
 import { finiteRange, formatNumber } from "./color";
 import { registerPlotCapture } from "./capture";
 import type { FieldProps } from "./SpatialField";
 import { useFieldInteraction } from "./useFieldInteraction";
 import { fieldMargin, plotType } from "./plotgeom";
-import { PERFORMANCE_MEASURE, measurePerformance } from "../data/performance";
+import { PERFORMANCE_MEASURE, measurePerformance, measurePerformanceAsync } from "../data/performance";
 import { Colorbar, PlotAxes, FieldMarks, type PlotBounds } from "./plot";
 import { CoastlineOverlay } from "./CoastlineOverlay";
 import { FieldOverlays } from "./FieldOverlays";
 import { FieldControls } from "./OverlayLegend";
 import type { ContourBox } from "./pressureContours";
 import {
-  buildCurvilinearGeometry,
-  buildUgridGeometry,
   edgesToFaces,
   findMeshHit,
   type Bounds,
@@ -28,7 +29,7 @@ import type {
   Probe,
   Variable,
 } from "../data/model";
-import { attributeNumber, attributeNumbers, attributeText, displayUnit, quantityLabel, resolveVariableReference } from "../data/model";
+import { attributeNumber, attributeNumbers, attributeText, displayUnit, quantityLabel } from "../data/model";
 import {
   formatPosition,
   geographicCoordinateVariables,
@@ -60,16 +61,12 @@ export function MeshFieldView(props: MeshFieldViewProps) {
   const [frame, size] = useElementSize<HTMLDivElement>();
   const canvas = useRef<HTMLCanvasElement>(null);
   const renderer = useRef<MeshSurface | undefined>(undefined);
-  const loader = useRef(new LatestSliceLoader());
-  const [slice, setSlice] = useState<DataSlice>();
   const [geometry, setGeometry] = useState<FieldGeometry>();
   const [view, setView] = useState<Bounds | undefined>(props.initialView);
   const [hover, setHover] = useState<PointerValue>();
   const [reserve, setReserve] = useState<ContourBox>();
-  useEffect(() => { setHover(undefined); }, [size.width, size.height, view, slice]);
   const [acceptedLargeMesh, setAcceptedLargeMesh] = useState(false);
   const [rendererReady, setRendererReady] = useState(false);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
   const changeView = (nextView: ViewBounds) => {
     setView(nextView);
@@ -150,73 +147,45 @@ export function MeshFieldView(props: MeshFieldViewProps) {
     ],
   );
 
-  useEffect(() => () => loader.current.dispose(), []);
-
-  useEffect(() => {
-    if (needsConfirmation) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    canvas.current?.removeAttribute("data-rendered");
-    loader.current.request({
-      request,
-      accept: (nextSlice) => {
-        setSlice(nextSlice);
-        setLoading(false);
-        setError(undefined);
-        props.onFrameLoaded();
-        props.onStatus(
-          `${nextSlice.shape.join(" × ")} · ${hint.kind}${hint.kind === "ugrid2d" ? ` ${hint.location}` : ""} · ${nextSlice.dtype}`,
-        );
-      },
-      reject: (nextError) => {
-        setLoading(false);
-        setError(nextError.message);
-        props.onFrameError?.();
-        props.onStatus(nextError.message);
-      },
-    });
-  }, [
-    needsConfirmation,
-    request.dataset,
-    request.path,
-    request.selection,
-    request.stride,
-    hint.kind,
-    hint.kind === "ugrid2d" ? hint.location : "",
-    props.onFrameLoaded,
-    props.onFrameError,
-    props.onStatus,
-  ]);
+  const { slice, loading, error: readError } = useSlice(request, !needsConfirmation, {
+    ready: next => {
+      setError(undefined);
+      props.onFrameLoaded();
+      props.onStatus(`${next.shape.join(" × ")} · ${hint.kind}${hint.kind === "ugrid2d" ? ` ${hint.location}` : ""} · ${next.dtype}`);
+    },
+    failed: error => { props.onFrameError?.(); props.onStatus(error.message); },
+  });
+  useEffect(() => { if (loading) canvas.current?.removeAttribute("data-rendered"); }, [loading]);
+  useEffect(() => { setHover(undefined); }, [size.width, size.height, view, slice]);
 
   const sliceShape = slice?.shape.join(",") ?? "";
   useEffect(() => {
-    let active = true;
+    const controller = new AbortController();
     if (needsConfirmation || !slice) return;
-    buildGeometry(props.metadata, props.variable, props.display, slice)
+    buildGeometry(props.metadata, props.variable, props.display, slice, controller.signal)
       .then((nextGeometry) => {
-        if (!active) return;
+        if (controller.signal.aborted) return;
         setGeometry(nextGeometry);
         setView((current) => current ?? props.initialView ?? nextGeometry.bounds);
         setError(undefined);
       })
       .catch((cause: unknown) => {
-        if (!active) return;
+        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) return;
         const message = cause instanceof Error ? cause.message : String(cause);
         setError(message);
         props.onFrameError?.();
         props.onStatus(message);
       });
     return () => {
-      active = false;
+      controller.abort();
     };
   }, [
     needsConfirmation,
     props.metadata,
     props.variable,
     props.display,
-    request.stride,
+    request.selection.map(axis => typeof axis === "number" ? 1 : axis.stride).join(","),
     sliceShape,
     props.onFrameError,
     props.onStatus,
@@ -269,14 +238,17 @@ export function MeshFieldView(props: MeshFieldViewProps) {
     return registerPlotCapture(node, async (width, height) => {
       let exportGeometry = geometry;
       let exportValues = values;
+      let sampling = hint.kind === "ugrid2d" && hint.location === "edge" ? "native; incident-edge mean" : "native";
       if (hint.kind === "curvilinear") {
-        const exportSlice = await fetchSlice(fieldRequest(
+        const exportRequest = fieldRequest(
           props.variable,
           props.display,
           props.indices,
           { width, height },
           true,
-        ));
+        );
+        const exportSlice = await fetchSlice(exportRequest);
+        sampling = `nearest; stride=${exportRequest.selection.map(axis => typeof axis === "number" ? 1 : axis.stride).join(",")}`;
         if (!(exportSlice.values instanceof Float32Array)) {
           throw new Error("The mesh data is not available for export");
         }
@@ -288,7 +260,7 @@ export function MeshFieldView(props: MeshFieldViewProps) {
         );
         exportValues = exportSlice.values;
       }
-      return surface.capture(
+      const blob = await surface.capture(
         exportGeometry,
         exportValues,
         {
@@ -302,6 +274,7 @@ export function MeshFieldView(props: MeshFieldViewProps) {
         width,
         height,
       );
+      return { blob, sampling };
     });
   }, [
     frame,
@@ -467,8 +440,7 @@ export function MeshFieldView(props: MeshFieldViewProps) {
           )}</span>
         </output>
       )}
-      {loading && <span className="plot-loading">reading newest mesh field…</span>}
-      {error && <div className="plot-error">{error}</div>}
+      <PlotStatus loading={loading} message="reading newest mesh field…" error={readError ?? error} />
     </div>
   );
 }
@@ -478,6 +450,7 @@ async function buildGeometry(
   variable: Variable,
   display: DisplayDimensions,
   slice: DataSlice,
+  signal?: AbortSignal,
 ): Promise<FieldGeometry> {
   const hint = variable.view_hint;
   if (hint.kind === "curvilinear") {
@@ -508,9 +481,9 @@ async function buildGeometry(
     ) {
       throw new Error("curvilinear coordinates and field must be two-dimensional");
     }
-    const strides = slice.request.stride.split(",").map(Number);
-    const geometry = measurePerformance(PERFORMANCE_MEASURE.meshGeometry, () =>
-      buildCurvilinearGeometry(
+    const strides = slice.request.selection.map(axis => typeof axis === "number" ? 1 : axis.stride);
+    const geometry = await measurePerformanceAsync(PERFORMANCE_MEASURE.meshGeometry, () =>
+      prepareMesh({ kind: "curvilinear", args: [
         xValues,
         yValues,
         coordinateShape[0],
@@ -519,7 +492,7 @@ async function buildGeometry(
         slice.shape[1],
         strides[displayY],
         strides[displayX],
-      ));
+      ] }, signal));
     return addGeographicCoordinates(
       metadata,
       variable,
@@ -551,8 +524,8 @@ async function buildGeometry(
       throw new Error("UGRID requires one-dimensional node coordinates and padded 2-D connectivity");
     }
     const connectivity = connectivitySlice.values;
-    const geometry = measurePerformance(PERFORMANCE_MEASURE.meshGeometry, () =>
-      buildUgridGeometry(
+    const geometry = await measurePerformanceAsync(PERFORMANCE_MEASURE.meshGeometry, () =>
+      prepareMesh({ kind: "ugrid", args: [
         xValues,
         yValues,
         connectivity,
@@ -564,7 +537,7 @@ async function buildGeometry(
           ...attributeNumbers(connectivityVariable, "missing_value"),
         ],
         hint.location === "node" ? "node" : "face",
-      ));
+      ] }, signal));
     const projected = await addGeographicCoordinates(
       metadata,
       variable,
@@ -576,14 +549,14 @@ async function buildGeometry(
     );
     if (hint.location !== "edge") return projected;
     const topology = requiredVariable(metadata, hint.mesh);
-    const reference = attributeText(topology, "edge_face_connectivity");
+    const reference = topology.capabilities.references.edge_face_connectivity?.[0];
     if (!reference) throw new Error("UGRID edge data requires edge_face_connectivity");
     const edgeFacesVariable = requiredVariable(
       metadata,
-      resolveVariableReference(topology.path, reference),
+      reference,
     );
     const edgeFaces = await fetchStaticSlice(edgeFacesVariable);
-    const edgeDimension = attributeText(topology, "edge_dimension");
+    const edgeDimension = topology.capabilities.edge_dimension;
     const edgeAxis = edgeDimension
       ? edgeFacesVariable.dimensions.findIndex((dimension) => dimension.name === edgeDimension)
       : 0;
@@ -641,7 +614,7 @@ function probeFromHit(
     const columns = slice.shape[1];
     const row = Math.floor(hit.scalarIndex / columns);
     const column = hit.scalarIndex % columns;
-    const strides = slice.request.stride.split(",").map(Number);
+    const strides = slice.request.selection.map(axis => typeof axis === "number" ? 1 : axis.stride);
     nextIndices[variable.dimensions[display.x].path] = column * strides[display.x];
     nextIndices[variable.dimensions[display.y].path] = row * strides[display.y];
   }
