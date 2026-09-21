@@ -45,3 +45,29 @@ retain its input. Cache limits do not claim to bound total browser heap.
 
 Curve averages accumulate one slice at a time with f64 sums and integer
 counts. They do not retain all input slices at once.
+
+## Browser mesh geometry
+
+To configure the build-time geometry limit, edit `MESH_GEOMETRY_LIMIT_MIB` at
+the top of `web/src/plots/mesh.ts`. The value is in MiB (1,048,576 bytes).
+Rebuild the frontend with `cd web && npm run build`, then run
+`cargo build --release` from the repository root to embed it in the binary.
+The limit applies per mesh to expanded geometry arrays. It excludes the hit
+index, source coordinates, scalar data, worker copies, and GPU buffers.
+
+## Steering and published arrays
+
+`data/arrayData.ts` defines the shared exact selection checks and the internal
+resident-data reader registry. Published variables use private identities;
+they are not new external sources. Their axes resolve through the same reader
+as their scientific values. Releasing a publication removes its reader.
+
+`fetchSlice` admits at most 128 MiB of in-flight browser response bytes. It
+checks response shape against the request and copies a stream into a bounded
+allocation, cancelling a body that exceeds its declared shape. These transient
+reservations end after decode; cache and renderer ownership remain separate.
+
+Steering's read, block, publication, and execution limits are in
+`steering/model.ts`. It never turns a full scientific read into a strided preview.
+See [Steering](steering.md) for the separate limits on ncx-owned storage and
+unrestricted NumPy allocations.

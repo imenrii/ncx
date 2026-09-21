@@ -1,0 +1,1 @@
+var e=[{match:/[^,\[\->+.<\]\s].*/g,type:`cmnt`,sub:`todo`},{type:`func`,match:/\.+/g},{type:`kwd`,match:/[<>]+/g},{type:`oper`,match:/[+-]+/g}];export{e as default};

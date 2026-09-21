@@ -79,6 +79,31 @@ The resulting binary is located at `target/release/ncx`.
 
 ## Usage & Viewer Options
 
+### Steering
+
+The **Steering** topbar button opens a Python/NumPy console with an Outline of
+variables and live display objects. Variables support lazy arithmetic:
+
+```python
+t = sources.s1["/CLK"]
+t += 1.45
+plots.curve.show(t)
+```
+
+Enter submits a command; Shift+Enter adds a line. Completion, Ctrl+R history
+search, expandable results, and concise errors support interactive editing.
+Python and Dask load locally on first open. Computation runs in a worker with
+a Stop control, using the existing bounded source reads and plot renderers.
+Use `p = frame.append(variable)` to add a panel. Field and Curve derive from
+its one binding; a field-backed panel shows a curve after its probe is placed.
+Read `p.probe.position`, move it with `await p.probe.move(longitude=..., latitude=...)`,
+and get its lazy series through `p.probe.data`. `panels[0]` is the main panel.
+All fields share the time slider and overlay settings. Immutable expressions
+and evaluated selections are reused.
+
+See [Steering](docs/steering.md) for commands, plot ownership, memory limits,
+and the CSP required by embedding hosts.
+
 ### URL Parameters
 
 - **Clean Embeds**: Append `chrome=none` to the viewer URL to hide the header, status bar, Settings button, dataset switcher, and source controls. The host owns source order; variable navigation stays available.

@@ -16,3 +16,6 @@ inputs, outputs, and failure rules for maintainers.
 
 [Progress](Progress/) contains historical plans, research, and implementation
 records. It does not override these contracts. Steering is deferred.
+
+[Steering](steering.md) defines the optional Python console, source references,
+publication ownership, and memory and deployment limits.

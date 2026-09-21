@@ -85,3 +85,31 @@ Build the delivery binary after checks:
 ```bash
 cargo build --release --locked
 ```
+
+## Steering
+
+The ordinary frontend tests include exact in-memory slicing and source/resident
+adapter checks. After the frontend and Rust builds, run:
+
+```bash
+node tests/steering-python.mjs
+node tests/steering-smoke.mjs
+NCX_STEERING_MODE=hub node tests/steering-smoke.mjs /tmp/ncx-steering-hub
+NCX_FRAME_FIXTURE=curvilinear node tests/steering-smoke.mjs /tmp/ncx-frame-curvilinear
+NCX_FRAME_FIXTURE=ugrid node tests/steering-smoke.mjs /tmp/ncx-frame-ugrid
+NCX_FRAME_FIXTURE=ugrid NCX_FRAME_VARIABLE=/edge_current node tests/steering-smoke.mjs /tmp/ncx-frame-edge
+NCX_FRAME_FIXTURE=wind node tests/steering-smoke.mjs /tmp/ncx-frame-wind
+NCX_STEERING_CSP=1 node tests/steering-smoke.mjs /tmp/ncx-frame-csp
+```
+
+For baseline comparisons, use the fixture generator and Firefox runner in the
+[Steering profile](Progress/steering-profile.md#reproduce). It records first
+display, interaction, runtime startup, anomaly publication, and response sizes
+against a separate pre-Steering release binary.
+
+The Python test uses the bundled Pyodide/NumPy build, so no system NumPy install
+is needed. Firefox checks paired Field/Curve views, independent editable probes, exact
+global time, shared overlays, scalar and series panels, and PNG export. The Python
+test also checks bounded computation, immutable expressions, and failed commands. They
+save desktop and narrow screenshots. Embedding hosts need the CSP described
+in [Steering](steering.md#runtime-and-bounds).

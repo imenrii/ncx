@@ -71,6 +71,12 @@ export function unitRule(variable: Variable): { rule?: QuantityRule; reason?: st
 }
 
 export function unitChoice(variable: Variable): UnitChoice {
+  if (variable.value_kind) {
+    const text = attributeText(variable, "units") ?? "";
+    const family = (Object.keys(UNIT_FAMILIES) as (keyof typeof UNIT_FAMILIES)[]).find(family => findUnit(family, text));
+    return family ? { source: findUnit(family, text), choices: UNIT_FAMILIES[family], beaufort: false }
+      : { choices: [], beaufort: false, reason: "No conversion for this unit" };
+  }
   const { rule, reason } = unitRule(variable);
   if (reason) return { choices: [], beaufort: false, reason };
   const units = attributeText(variable, "units") ?? "";
@@ -113,5 +119,5 @@ export function defaultECMWFUnit(variable: Variable): string | undefined {
 
 export function displayValue(value: number, variable: Variable, target?: Unit): number {
   const source = unitChoice(variable).source;
-  return source && target ? convert(value, source, target) : value;
+  return source && target ? convert(value, source, target, variable.value_kind === "delta") : value;
 }

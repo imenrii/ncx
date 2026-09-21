@@ -1,5 +1,5 @@
 import { defaultColormap, type ColormapChoice, type ColorRange } from "../plots/color.ts";
-import { attributeText, type Metadata, type Probe, type Variable, type ViewName } from "../data/model.ts";
+import { attributeText, type Metadata, type Variable, type ViewName } from "../data/model.ts";
 import { defaultDisplayDimensions, defaultIndices, type DisplayDimensions } from "../data/selection.ts";
 
 type Stopped = { kind: "stopped" };
@@ -8,7 +8,6 @@ interface Controls {
   display: DisplayDimensions;
   indices: Record<string, number>;
   view: ViewName;
-  probe: Probe | undefined;
   colormap: ColormapChoice;
   frame: "ready" | "loading";
   colorRange: ColorRange;
@@ -29,7 +28,6 @@ export type ViewerEvent =
   | { type: "display/selected"; display: DisplayDimensions; coordinates: Controls["coordinatePaths"] }
   | { type: "coordinate/selected"; axis: "x" | "y"; path?: string }
   | { type: "curve/selected"; along: number }
-  | { type: "probe/placed"; probe: Probe }
   | { type: "playback/started"; path: string; direction: -1 | 1 }
   | { type: "playback/ticked" }
   | { type: "playback/stopped" }
@@ -50,7 +48,7 @@ export function initialVariableState(_metadata?: Metadata, variable?: Variable, 
   const controls: Controls = {
     display: variable ? defaultDisplayDimensions(variable) : { x: undefined, y: undefined },
     indices: variable ? defaultIndices(variable) : {},
-    probe: undefined, frame: "ready", rangeLocked: false, curveAlong: undefined,
+    frame: "ready", rangeLocked: false, curveAlong: undefined,
     colorRange: { minimum: 0, maximum: 1 },
     colormap: variable ? defaultColormap({
       standardName: attributeText(variable, "standard_name"), longName: attributeText(variable, "long_name"),
@@ -76,18 +74,16 @@ export function reduceVariableState(state: VariableState, event: ViewerEvent): V
   };
   switch (event.type) {
     case "view/selected":
-      return viewAllowed(state.variable, event.view) ? { ...state, view: event.view, frame: "loading", playback: stopped } : state;
+      return { ...state, view: event.view, frame: event.view === "field" ? "loading" : "ready", playback: stopped };
     case "dimension/indexed":
-      return validIndex(event.path, event.value) ? { ...state, frame: "loading", indices: { ...state.indices, [event.path]: event.value } } : state;
+      return validIndex(event.path, event.value) ? { ...state, frame: state.view === "field" ? "loading" : "ready", indices: { ...state.indices, [event.path]: event.value } } : state;
     case "display/selected":
       if (!validAxis(event.display.x) || !validAxis(event.display.y) || event.display.x !== undefined && event.display.x === event.display.y) return state;
-      return { ...state, display: event.display, coordinatePaths: event.coordinates, probe: undefined, playback: stopped };
+      return { ...state, display: event.display, coordinatePaths: event.coordinates, playback: stopped };
     case "coordinate/selected":
-      return { ...state, coordinatePaths: { ...state.coordinatePaths, [event.axis]: event.path }, probe: undefined };
+      return { ...state, coordinatePaths: { ...state.coordinatePaths, [event.axis]: event.path } };
     case "curve/selected":
       return validAxis(event.along) ? { ...state, curveAlong: event.along, playback: stopped } : state;
-    case "probe/placed":
-      return Object.entries(event.probe.indices).every(([path, value]) => validIndex(path, value)) ? { ...state, probe: event.probe } : state;
     case "playback/started": {
       const next = (state.indices[event.path] ?? 0) + event.direction;
       return validIndex(event.path, next) ? { ...state, playback: { kind: "playing", path: event.path, direction: event.direction } } : state;
@@ -97,7 +93,7 @@ export function reduceVariableState(state: VariableState, event: ViewerEvent): V
       const { path, direction } = state.playback;
       const value = (state.indices[path] ?? 0) + direction;
       if (!validIndex(path, value)) return { ...state, playback: stopped };
-      return { ...state, frame: "loading", indices: { ...state.indices, [path]: value },
+      return { ...state, frame: state.view === "field" ? "loading" : "ready", indices: { ...state.indices, [path]: value },
         playback: validIndex(path, value + direction) ? state.playback : stopped };
     }
     case "playback/stopped": return { ...state, playback: stopped };

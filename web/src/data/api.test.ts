@@ -86,7 +86,11 @@ test("cached metadata uses current unit assignments without another request", as
 
 test("fetchSlice keeps display values as f32", async () => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => binaryResponse("f32", [2.5]);
+  globalThis.fetch = async () => {
+    const response = binaryResponse("f32", [2.5]);
+    response.headers.set("X-Ncx-Shape", "");
+    return response;
+  };
   try {
     const slice = await fetchSlice({ path: "/temperature", selection: [0] });
     assert.equal(slice.dtype, "f32");
@@ -95,4 +99,19 @@ test("fetchSlice keeps display values as f32", async () => {
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("slice transport rejects a wrong shape or oversized body", async () => {
+  const originalFetch = globalThis.fetch;
+  const request = { path: "/temperature", selection: [{ start: 0, stop: 1, stride: 1 }] };
+  try {
+    globalThis.fetch = async () => binaryResponse("f32", [1, 2]);
+    await assert.rejects(fetchSlice(request), /shape/);
+    globalThis.fetch = async () => {
+      const response = binaryResponse("f32", [1, 2]);
+      response.headers.set("X-Ncx-Shape", "1");
+      return response;
+    };
+    await assert.rejects(fetchSlice(request), /byte count/);
+  } finally { globalThis.fetch = originalFetch; }
 });

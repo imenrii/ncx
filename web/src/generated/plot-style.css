@@ -13,6 +13,7 @@
   --plot-face: "CM Math", "AVHershey Simplex", "National Park", "Commit Mono", system-ui, sans-serif;
   --plot-weight-normal: 400;
   --plot-weight-strong: 700;
+  --plot-panel-gap: 0.7em;
   --stroke-grid: 0.7px;
   --stroke-spine: 1px;
   --stroke-reference: 1.25px;

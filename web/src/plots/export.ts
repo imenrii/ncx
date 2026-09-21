@@ -197,6 +197,51 @@ function retitleAxis(root: SVGElement, index: number, text: string): void {
 /** Save every visible plot pane as one print-ready PNG. */
 export async function exportPlotPng(name: string, options?: ExportOptions): Promise<void> {
   const figure = activeFigure();
+  const settings = options ?? defaultExportOptions();
+  if (!figure?.classList.contains("steering-frame")) return capturePlotPng(name, settings);
+  const original = figure.getAttribute("style");
+  const profile = PLOT_STYLE.panels;
+  const width = settings.widthMm * 96 / 25.4;
+  const tick = profile.printTickPt * 96 / 72;
+  const gap = tick * profile.printGap;
+  const panes = Array.from(figure.children).filter((node): node is HTMLElement =>
+    node instanceof HTMLElement && !node.hidden && Boolean(node.querySelector(".plot-frame")));
+  const paneStyles = panes.map(pane => pane.getAttribute("style"));
+  const fields = panes.filter(pane => pane.dataset.kind === "field").length;
+  const columns = fields > 1 ? 2 : 1;
+  const cellWidth = (width - gap * (columns + 1)) / columns;
+  const rowHeight = Math.max(180, cellWidth / profile.aspect);
+  let rows = 0, occupied = 0;
+  for (const pane of panes) {
+    const span = pane.dataset.kind === "curve" ? Math.max(1, pane.querySelectorAll(".plot-frame").length) : 1;
+    pane.style.gridRowEnd = `span ${span}`;
+    if (pane.dataset.kind === "curve") { rows += span + (occupied ? 1 : 0); occupied = 0; }
+    else if (++occupied === columns) { rows++; occupied = 0; }
+  }
+  if (occupied) rows++;
+  // Export at the requested physical width. Live view padding is never scaled
+  // into the print layout; restoring the style also restores its viewport.
+  figure.dataset.export = "true";
+  Object.assign(figure.style, {
+    width: `${width}px`, height: `${rows * rowHeight + (rows + 1) * gap}px`, overflow: "visible", padding: `${gap}px`, gap: `${gap}px`,
+    gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`, gridAutoRows: `${rowHeight}px`,
+  });
+  for (const [role, ratio] of Object.entries({ tick: 1, axis: profile.printAxisRatio, title: profile.printTitleRatio, subtitle: 1, tooltip: 1 })) {
+    figure.style.setProperty(`--plot-${role}-size`, `${tick * ratio}px`);
+  }
+  try {
+    await document.fonts.ready;
+    for (let i = 0; i < 4; i++) await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    await capturePlotPng(name, settings);
+  } finally {
+    delete figure.dataset.export;
+    if (original === null) figure.removeAttribute("style"); else figure.setAttribute("style", original);
+    panes.forEach((pane, i) => { if (paneStyles[i] === null) pane.removeAttribute("style"); else pane.setAttribute("style", paneStyles[i]!); });
+  }
+}
+
+async function capturePlotPng(name: string, options?: ExportOptions): Promise<void> {
+  const figure = activeFigure();
   const frames = figure && Array.from(figure.querySelectorAll<HTMLElement>(".plot-frame"))
     .filter((frame) => {
       const rect = frame.getBoundingClientRect();
@@ -217,7 +262,7 @@ export async function exportPlotPng(name: string, options?: ExportOptions): Prom
 
   await document.fonts.ready;
   const settings = options ?? defaultExportOptions();
-  const content = figure.querySelector<HTMLElement>(".field-comparison");
+  const content = figure.classList.contains("steering-frame") ? figure : figure.querySelector<HTMLElement>(".field-comparison");
   // Long rotated axis titles may extend beyond their SVG viewport. Reserve
   // their full painted bounds before adding the title band; otherwise
   // a valid curve is saved with its quantity clipped or printed over the title.
@@ -263,6 +308,20 @@ export async function exportPlotPng(name: string, options?: ExportOptions): Prom
   body.setAttribute("transform", `translate(0 ${bandHeight})`);
   output.append(body);
   appendComparisonLabels(body, figure, contentRect);
+  if (figure.classList.contains("steering-frame")) {
+    for (const [index, pane] of Array.from(figure.querySelectorAll<HTMLElement>(":scope > .steering-pane")).entries()) {
+      const header = pane.querySelector<HTMLElement>(".figure-head");
+      if (!header) continue;
+      const rect = header.getBoundingClientRect();
+      const label = svgElement("text");
+      label.setAttribute("x", String(rect.left - contentRect.left));
+      label.setAttribute("y", String(rect.top - contentRect.top + titleSize));
+      label.setAttribute("style", `font-family:${PLOT_STYLE.face};font-size:${titleSize}px;fill:${PLOT_STYLE.ink}`);
+      label.setAttribute("class", "export-panel-label");
+      label.textContent = `(${String.fromCharCode(97 + index)}) ${header.querySelector("h1")?.textContent ?? ""}`;
+      body.append(label);
+    }
+  }
 
   const sampling: string[] = [];
   for (const frame of frames) delete frame.dataset.exportCaptured;
@@ -298,7 +357,7 @@ export async function exportPlotPng(name: string, options?: ExportOptions): Prom
     sampling.push(...Array.from(furniture.querySelectorAll<SVGElement>("[data-sampling]"), element => element.dataset.sampling!));
     for (const probe of furniture.querySelectorAll(".probe-mark, .curve-tracker, .curve-zoom-box")) probe.remove();
     retitleAxis(furniture, 0, settings.xTitle);
-    if (!figure.querySelector(".linked-curves") || frame === frames[0]) {
+    if ((!figure.querySelector(".linked-curves") && !figure.classList.contains("steering-frame")) || frame === frames[0]) {
       retitleAxis(furniture, 1, settings.yTitle);
     }
     if (!settings.grid) for (const line of furniture.querySelectorAll(".gridline")) line.remove();

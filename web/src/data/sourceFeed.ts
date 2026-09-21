@@ -93,6 +93,20 @@ export function createSourceFeed() {
       return () => { listeners.delete(listener); };
     },
     getSnapshot: () => snapshot,
+    reset() {
+      datasets = [];
+      selection = null;
+      selectionKey = offsetKey = "";
+      curves = [];
+      sources = [];
+      secondary = undefined;
+      explicit = false;
+      toolbar = 0;
+      offsets = {};
+      revision += 1;
+      suppliedRevision = -1;
+      notify();
+    },
     get sources() { return sources; },
     get secondary() { return suppliedRevision === revision ? secondary : undefined; },
     get explicit() { return explicit; },

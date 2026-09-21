@@ -1,3 +1,6 @@
+// Build-time limit per mesh for expanded geometry arrays, excluding GPU buffers and the hit index.
+const MESH_GEOMETRY_LIMIT_MIB = 512;
+
 export interface Bounds {
   minimumX: number;
   maximumX: number;
@@ -261,7 +264,7 @@ function finishGeometry(
   }, true);
   if (!vertices) throw new Error("mesh has no renderable triangles");
   const bytes = vertices * 16 + vertices / 3 * 4;
-  if (!Number.isSafeInteger(bytes) || bytes > 256 * 1024 * 1024) throw new Error("Mesh geometry exceeds the memory limit");
+  if (!Number.isSafeInteger(bytes) || bytes > MESH_GEOMETRY_LIMIT_MIB * 1024 * 1024) throw new Error("Mesh geometry exceeds the memory limit");
   const origin = { x: minimumX, y: minimumY };
   const positions = new Float32Array(vertices * 2), scalarIndices = new Uint32Array(vertices);
   const coordinateIndices = new Uint32Array(vertices), triangleSources = new Uint32Array(vertices / 3);

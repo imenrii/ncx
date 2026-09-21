@@ -9,6 +9,7 @@ import { currentHubCacheKey, sessionFetch } from "../hub/hub.ts";
 import { unitAssignments } from "./unitAssignments.ts";
 import { decodeDatasets, decodeMetadata } from "./protocol.ts";
 import { AsyncByteCache } from "./cache.ts";
+import { arraySource, arrayBytes, selectionShape } from "./arrayData.ts";
 import {
   PERFORMANCE_MEASURE,
   measurePerformance,
@@ -37,6 +38,8 @@ export async function fetchDatasets(): Promise<{ datasets: DatasetSummary[]; col
 }
 
 export async function fetchMetadata(dataset?: string): Promise<Metadata> {
+  const local = arraySource(dataset);
+  if (local) return local.metadata;
   const scope = currentCacheScope();
   const key = `${scope}:${dataset ?? ""}`;
   const metadata = await metadataCache.load(key, signal => loadMetadata(dataset, signal));
@@ -67,7 +70,20 @@ async function loadMetadata(dataset?: string, signal?: AbortSignal): Promise<Met
     variables: metadata.variables.map(variable => ({ ...variable, dataset_id: id })) };
 }
 
+let inFlightBytes = 0;
 export async function fetchSlice(request: SliceRequest, signal?: AbortSignal): Promise<DataSlice> {
+  const bytes = arrayBytes(selectionShape(request.selection), request.wire === "f64" ? 8 : 4, 64 * 1024 * 1024);
+  if (inFlightBytes + bytes > 128 * 1024 * 1024) throw new Error("Read buffers are busy; retry after current reads finish");
+  inFlightBytes += bytes;
+  try { return await loadSlice(request, signal); }
+  finally { inFlightBytes -= bytes; }
+}
+
+async function loadSlice(request: SliceRequest, signal?: AbortSignal): Promise<DataSlice> {
+  signal?.throwIfAborted();
+  const local = arraySource(request.dataset);
+  if (local) return local.read(request, signal);
+  if (request.dataset?.startsWith("steering:")) throw new Error("Published data is no longer available");
   const query = new URLSearchParams({
     path: request.path,
     selection: request.selection.map(axis => typeof axis === "number" ? String(axis) : `${axis.start}:${axis.stop}`).join(","),
@@ -82,7 +98,32 @@ export async function fetchSlice(request: SliceRequest, signal?: AbortSignal): P
       if (!response.ok) {
         throw new Error(await errorMessage(response));
       }
-      return { response, buffer: await response.arrayBuffer() };
+      const dtype = response.headers.get("X-Ncx-Dtype");
+      if (!["f32", "f64", "i32", "u32"].includes(dtype ?? "") || (request.wire === "f64") !== (dtype === "f64")) {
+        await response.body?.cancel();
+        throw new Error("Unsupported response dtype for this request");
+      }
+      const shape = selectionShape(request.selection);
+      if (response.headers.get("X-Ncx-Shape") !== shape.join(",")) {
+        await response.body?.cancel();
+        throw new Error("Response shape differs from the requested selection");
+      }
+      const expected = arrayBytes(shape, dtype === "f64" ? 8 : 4, 64 * 1024 * 1024);
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("Slice response has no body");
+      const bytes = new Uint8Array(expected);
+      let offset = 0;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value.byteLength > expected - offset) throw new Error("Slice body exceeds its expected byte count");
+          bytes.set(value, offset); offset += value.byteLength;
+        }
+        if (offset !== expected) throw new Error("Slice body is shorter than its expected byte count");
+      } catch (error) { await reader.cancel(); throw error; }
+      finally { reader.releaseLock(); }
+      return { response, buffer: bytes.buffer };
     },
   );
 

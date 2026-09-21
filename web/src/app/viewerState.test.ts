@@ -7,14 +7,12 @@ const metadata = metadataFixture("rectilinear");
 const field = metadata.variables.find(v => v.name === "temperature")!;
 const selected = () => reduce(initialVariableState(), { type: "variable/selected", variable: field });
 
-test("selection and display events reset incompatible probe and playback together", () => {
+test("selection and display events reset playback and variable controls", () => {
   let state = selected();
   state = reduce(state, { type: "range/locked", locked: true });
-  state = reduce(state, { type: "probe/placed", probe: { indices: { "/lat": 0, "/lon": 0 }, x: 1, y: 2, value: 3 } });
   state = reduce(state, { type: "playback/started", path: "/time", direction: 1 });
   assert.equal(state.playback.kind, "playing");
   const changed = reduce(state, { type: "display/selected", display: { x: 0, y: 1 }, coordinates: {} });
-  assert.equal(changed.probe, undefined);
   assert.equal(changed.playback.kind, "stopped");
   const curve = { ...field, capabilities: capabilities({ display_x: 0, display_y: null }), dimensions: [field.dimensions[0]], view_hint: { kind: "plain" as const } };
   const next = reduce(changed, { type: "variable/selected", variable: curve, view: "field" });
@@ -25,7 +23,7 @@ test("selection and display events reset incompatible probe and playback togethe
   assert.equal(reduce(next, { type: "dataset/opening" }).kind, "empty");
 });
 
-test("indices reject invalid values and preserve the current range and probe", () => {
+test("indices reject invalid values and preserve the current range", () => {
   let state = selected();
   state = reduce(state, { type: "range/changed", range: { minimum: 12, maximum: 18 } });
   state = reduce(state, { type: "range/locked", locked: true });
@@ -79,4 +77,14 @@ test("selection storage is dataset-keyed and blocked or corrupt storage uses def
     if (previous) Object.defineProperty(host, "sessionStorage", previous);
     else delete host.sessionStorage;
   }
+});
+
+
+test("curve playback advances the shared clock without waiting for a field read", () => {
+  let state = reduce(selected(), { type: "view/selected", view: "curve" });
+  state = reduce(state, { type: "playback/started", path: "/time", direction: 1 });
+  state = reduce(state, { type: "playback/ticked" });
+  state = reduce(state, { type: "playback/ticked" });
+  assert.equal(state.indices["/time"], 2);
+  assert.equal(state.frame, "ready");
 });

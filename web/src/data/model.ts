@@ -2,7 +2,7 @@ import type { AttributeScalar, AttributeSummary, DimensionSummary, VariableDimen
 export type { AttributeScalar, VariableDimension, ViewHint } from "../generated/protocol.ts";
 export type Attribute = AttributeSummary;
 export type Dimension = DimensionSummary;
-export type Variable = VariableSummary & { dataset_id?: string };
+export type Variable = VariableSummary & { dataset_id?: string; value_kind?: "absolute" | "delta" };
 export type Metadata = Omit<MetadataResponse, "dataset_id" | "dataset_label" | "variables"> & {
   dataset_id: string;
   dataset_label: string;
@@ -162,6 +162,18 @@ function sentenceCase(text: string): string {
  */
 export function coordinateVariablePaths(metadata: Metadata): Set<string> {
   return new Set(metadata.variables.filter(variable => variable.capabilities.coordinate).map(variable => variable.path));
+}
+
+/** The native spatial dimension for a mesh variable, independent of its rank. */
+export function meshDimension(metadata: Metadata, variable: Variable): string | undefined {
+  const hint = variable.view_hint;
+  if (hint.kind !== "ugrid2d") return undefined;
+  if (hint.location === "edge") {
+    const name = metadata.variables.find(v => v.path === hint.mesh)?.capabilities.edge_dimension;
+    return variable.dimensions.find(d => d.path === name || d.name === name)?.path;
+  }
+  const path = hint.location === "node" ? hint.x : hint.face_node_connectivity;
+  return metadata.variables.find(v => v.path === path)?.dimensions[0]?.path;
 }
 
 export function hasGeographicCoordinates(metadata: Metadata, variable: Variable): boolean {

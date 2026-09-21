@@ -412,7 +412,7 @@ where
     Router::new()
         .route("/assets/app.js", get(app_javascript))
         .route("/assets/app.css", get(app_css))
-        .route("/assets/{asset}", get(extra_asset))
+        .route("/assets/{*asset}", get(extra_asset))
         .route("/fonts/gorton-400.woff2", get(font_ui_regular))
         .route("/fonts/gorton-600.woff2", get(font_ui_semibold))
         .route("/fonts/commit-400.woff2", get(font_mono_regular))
@@ -764,7 +764,20 @@ async fn app_css() -> Response {
 
 async fn extra_asset(axum::extract::Path(name): axum::extract::Path<String>) -> Response {
     match EXTRA_ASSETS.iter().find(|(asset, _)| *asset == name) {
-        Some((_, bytes)) => static_asset("text/javascript; charset=utf-8", bytes),
+        Some((_, bytes)) => static_asset(
+            if name.ends_with(".wasm") {
+                "application/wasm"
+            } else if name.ends_with(".json") {
+                "application/json"
+            } else if name.ends_with(".zip") || name.ends_with(".whl") {
+                "application/octet-stream"
+            } else if name.ends_with(".txt") {
+                "text/plain; charset=utf-8"
+            } else {
+                "text/javascript; charset=utf-8"
+            },
+            bytes,
+        ),
         None => StatusCode::NOT_FOUND.into_response(),
     }
 }

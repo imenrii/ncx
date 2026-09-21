@@ -20,11 +20,13 @@ export interface FieldProps {
   range: ColorRange;
   rangeLocked: boolean;
   sharedRange?: boolean;
+  compact?: boolean;
   mapSource: "none" | "coastline";
   wind?: boolean;
   fieldSettings: FieldSettings;
   pressure?: Variable;
   overlays?: OverlayToggles;
+  overlaySource?: { metadata: Metadata; variable: Variable; indices: Record<string, number> };
   probe: Probe | undefined;
   initialView?: ViewBounds;
   onViewChange: (view: ViewBounds) => void;

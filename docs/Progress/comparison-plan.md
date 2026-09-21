@@ -1,7 +1,8 @@
 # Comparison through Steering
 
-Status: revised proposal. The earlier Compare dialog and Settings editor were
-rejected. This document does not change shipped behavior.
+Status: migration plan. Manual Steering is implemented as described in
+[the current contract](../steering.md). Host calculation migration remains planned.
+The earlier Compare dialog and Settings editor were rejected.
 Parent: [improvement plan](improvement-plan.md).
 
 ## Direction

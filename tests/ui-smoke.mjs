@@ -472,7 +472,7 @@ try {
   await waitFor(() => !document.querySelector('.settings-dialog'), 'settings did not apply');
   if (document.activeElement !== settingsButton) failures.push('settings did not restore button focus');
   if (browserMode === 'rectilinear') {
-    const figure = document.querySelector('.stage > .figure');
+    const figure = document.querySelector('.stage .figure');
     const axes = [...document.querySelectorAll('.axis-control select')].map(select => select.value);
     settingsButton.click();
     const sizeDialog = await waitFor(() => document.querySelector('.settings-dialog[open]'), 'view dimensions missing');
@@ -608,6 +608,18 @@ try {
     };
     const windReads = () => window.__ncxFetches.filter(url => ['path=/u10', 'path=/v10'].some(path => decodeURIComponent(url).includes(path))).length;
     const fieldCanvas = () => document.querySelector('.field-canvas, .mesh-canvas');
+    const probeCurve = async () => {
+      tab('Field');
+      const canvas = await waitFor(() => document.querySelector('.field-canvas[data-rendered="true"], .mesh-canvas[data-rendered="true"]'), 'field for probe missing');
+      if (!document.querySelector('.probe-mark')) {
+        const box = canvas.getBoundingClientRect();
+        for (const type of ['pointerdown', 'pointerup']) canvas.dispatchEvent(new PointerEvent(type, {
+          bubbles: true, button: 0, clientX: box.left + box.width * .1, clientY: box.top + box.height * .5,
+        }));
+        await waitFor(() => document.querySelector('.probe-mark'), 'field probe missing');
+      }
+      tab('Curve');
+    };
     await layer('Wind vector', true);
     await waitFor(() => document.querySelector('.wind-field[data-wind="ready"] .wind-field-barbs path'), 'default field barbs did not render');
     window.__ncxExpectedWind = '.wind-field-barbs';
@@ -661,7 +673,7 @@ try {
       if (document.querySelector('#metadata-unit').value !== 'Pa') failures.push('ECMWF pressure default missing on reload');
       if (document.querySelector('.metadata-summary').textContent.includes('contour interval')) failures.push('contour interval remains in Metadata');
       await assign('Pa');
-      tab('Curve');
+      await probeCurve();
       const assignedAxis = () => document.querySelector('.curve-axis')?.dataset.yDomain;
       await waitFor(() => control('Unit')?.value === 'Pa' && assignedAxis(), 'Curve did not initially use the assigned Pa unit');
       const rawMinimum = Number(assignedAxis().split(',')[0]);
@@ -669,13 +681,13 @@ try {
       await waitFor(() => Math.abs(Number(assignedAxis()?.split(',')[0]) - rawMinimum / 1000) < 0.001, 'Pa to kPa conversion failed');
       tab('Metadata');
       await assign('hPa');
-      tab('Curve');
+      await probeCurve();
       await waitFor(() => control('Unit')?.value === 'hPa' &&
         Math.abs(Number(assignedAxis()?.split(',')[0]) - rawMinimum) < 0.001,
         'Metadata assignment did not replace the previous Curve unit without rescaling source numbers');
       tab('Metadata');
       await assign('Pa');
-      tab('Curve');
+      await probeCurve();
       await waitFor(() => control('Unit')?.value === 'Pa' && assignedAxis(), 'Curve did not reset to the new Pa assignment');
       change('Unit', 'hPa');
       await waitFor(() => Math.abs(Number(assignedAxis()?.split(',')[0]) - rawMinimum / 100) < 0.001, 'assigned Pa to displayed hPa conversion failed');
@@ -844,7 +856,7 @@ try {
     window.__ncxExpectedWind = '.wind-arrows';
     document.querySelector('.screenshot-button').click();
     await saveOpenDialog(await waitFor(() => document.querySelector('.save-dialog[open]'), 'wind save dialog missing'));
-    tab('Curve');
+    await probeCurve();
     await waitFor(() => document.querySelector('.wind-barb'), 'barbs did not appear inside pressure curve');
     const curveTop = document.querySelector('.curve-axis > rect').getAttribute('y');
     const axis = () => document.querySelector('.curve-axis')?.dataset.yDomain;
@@ -932,12 +944,12 @@ try {
     await saveOpenDialog(await waitFor(() => document.querySelector('.save-dialog[open]'), 'barb save dialog missing'));
     change('Wind', 'off');
     await waitFor(() => !document.querySelector('.wind-barbs'), 'barbs did not turn off');
-    if (!document.querySelector('.curve-head > span')?.textContent.includes('hPa')) failures.push('curve header kept the source unit after conversion');
+    if (!document.querySelector('.curve-svg')?.getAttribute('aria-label').includes('hPa')) failures.push('curve kept the source unit after conversion');
     if (document.querySelector('.curve-axis > rect').getAttribute('y') !== curveTop) failures.push('Wind changed the reserved curve strip');
     if (control('Quantity') || [...document.querySelectorAll('.toolbar button')].some(button => /(?:Reset|Remove) offsets/.test(button.textContent))) failures.push('removed curve controls remain');
     [...document.querySelectorAll('.variable-row')].find(row => row.querySelector('span')?.textContent === 'u10').click();
     await waitFor(() => window.ncx.getState().selection?.path === '/u10', 'wind component did not open');
-    tab('Curve');
+    await probeCurve();
     await waitFor(() => axis()?.split(',').map(Number).every(Number.isFinite), 'wind component curve did not load');
     const nativeWindMinimum = Number(axis()?.split(',')[0]);
     const sharedOffset = document.querySelector('#curve-y-offset');

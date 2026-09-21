@@ -35,6 +35,11 @@ jobs:
           for scenario in rectilinear curvilinear ugrid ugrid_projected ugrid_helpers grouped_ugrid comparison collection station wind hub; do
             node tests/ui-smoke.mjs "$scenario"
           done
+      - name: Steering
+        run: |
+          node tests/steering-python.mjs
+          node tests/steering-smoke.mjs
+          NCX_STEERING_MODE=hub node tests/steering-smoke.mjs /tmp/ncx-steering-hub
       - name: Performance budget
         run: node --expose-gc tests/performance.mjs
       - name: Visual comparison

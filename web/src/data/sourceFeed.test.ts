@@ -212,3 +212,18 @@ test("secondary empty panel is distinct from absent input", () => {
   state.api.setSources({revision: state.api.getState().revision, sources});
   assert.equal(state.secondary, undefined);
 });
+
+test("a new viewer clears supplied data and cannot reuse a prior revision", () => {
+  const state = feed();
+  state.api.setSources({ revision: state.api.getState().revision, sources: [{ id: "a", dataset: "a" }, inline] });
+  const old = state.api.getState().revision;
+  state.reset();
+  assert.deepEqual(state.sources, []);
+  assert.equal(state.secondary, undefined);
+  assert.equal(state.explicit, false);
+  assert.equal(state.inlineAvailable, false);
+  assert.throws(() => state.api.setSources({ revision: old, sources: [] }), /Stale/);
+  state.configure(datasets);
+  state.defaults([{ id: "b", dataset: "b" }]);
+  assert.equal(state.sources[0].id, "b");
+});

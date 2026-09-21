@@ -13,20 +13,21 @@ export function MetadataPanel({ metadata, variable }: { metadata: Metadata; vari
   const raw = unitAssignments.original(metadata).variables.find(item => item.path === variable.path)!;
   const fileUnit = attributeText(raw, "units");
   const family = unitRule(raw).rule?.family;
+  const bound = variable.value_kind !== undefined;
   return (
     <div className="metadata-panel">
       <section>
-        <h2>{variable.path}</h2>
+        <h2>{bound ? variable.name : variable.path}</h2>
         <dl className="metadata-summary">
-          <div><dt>stored type</dt><dd>{variable.dtype}</dd></div>
+          <div><dt>{bound ? "data type" : "stored type"}</dt><dd>{variable.dtype}</dd></div>
           <div>
             <dt>shape</dt>
             <dd>{variable.dimensions.map((dimension) => `${dimension.name}=${dimension.length}`).join(" × ") || "scalar"}</dd>
           </div>
           <div><dt>view hint</dt><dd>{variable.view_hint.kind}</dd></div>
           <div className="metadata-unit">
-            <dt>{fileUnit?.trim() ? "Units" : <label htmlFor="metadata-unit">Units</label>}</dt>
-            <dd>{fileUnit?.trim() ? fileUnit : <select
+            <dt>{fileUnit?.trim() || bound ? "Units" : <label htmlFor="metadata-unit">Units</label>}</dt>
+            <dd>{fileUnit?.trim() ? fileUnit : bound ? "Unspecified" : <select
               id="metadata-unit"
               value={attributeText(variable, "units")?.trim() ?? ""}
               onChange={event => unitAssignments.assign(metadata, variable.path, event.currentTarget.value)}
@@ -91,4 +92,3 @@ function AttributeRow({ attribute }: { attribute: Attribute }) {
 function formatAttributeValue(value: number | string): string {
   return typeof value === "string" ? value : String(value);
 }
-

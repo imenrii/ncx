@@ -1,0 +1,5125 @@
+{
+  "environment": {
+    "date": "2026-09-21",
+    "baseline": "b43a784f0c9af4d53e5c78ea19521cd6310f6d7b",
+    "platform": "Linux-3.10.0-1160.105.1.el7.x86_64-x86_64-with-glibc2.35",
+    "cpu": "Intel(R) Xeon(R) Gold 6258R CPU @ 2.70GHz",
+    "firefox": "Mozilla Firefox 151.0.4",
+    "node": "v24.18.0",
+    "artifacts": {
+      "baseline_binary": {
+        "bytes": 5184848,
+        "sha256": "ca586425e4df43ffe771cb1ddfd6f9a1995a30228cc811306009d916b42a138f"
+      },
+      "measured_app_resource": "/assets/app.js?v=c0677c078543060a"
+    },
+    "note": "Five alternating release trials per fixture. Final Curve-clock readiness and global wind-component routing were checked separately after profiling."
+  },
+  "trials": [
+    {
+      "version": "baseline",
+      "fixture": "field",
+      "run": 0,
+      "server_ready_ms": 28.363690000000005,
+      "cold_plot_ms": 479,
+      "cold_resources": [
+        {
+          "name": "/assets/app.js?v=b0a9be82d0757475",
+          "bytes": 472192,
+          "transfer": 472492,
+          "duration": 28
+        },
+        {
+          "name": "/assets/app.css?v=f49daf14688c566b",
+          "bytes": 43431,
+          "transfer": 43731,
+          "duration": 28
+        },
+        {
+          "name": "/favicon.ico",
+          "bytes": 455,
+          "transfer": 755,
+          "duration": 90
+        },
+        {
+          "name": "/fonts/gorton-400.woff2",
+          "bytes": 18488,
+          "transfer": 18788,
+          "duration": 2
+        },
+        {
+          "name": "/api/session",
+          "bytes": 74,
+          "transfer": 374,
+          "duration": 5
+        },
+        {
+          "name": "/fonts/gorton-600.woff2",
+          "bytes": 18780,
+          "transfer": 19080,
+          "duration": 5
+        },
+        {
+          "name": "/api/datasets",
+          "bytes": 161,
+          "transfer": 461,
+          "duration": 1
+        },
+        {
+          "name": "/api/meta?dataset=field",
+          "bytes": 2832,
+          "transfer": 3132,
+          "duration": 2
+        },
+        {
+          "name": "/fonts/commit-web-450.woff2",
+          "bytes": 48792,
+          "transfer": 49092,
+          "duration": 2
+        },
+        {
+          "name": "/fonts/commit-web-600.woff2",
+          "bytes": 48512,
+          "transfer": 48812,
+          "duration": 11
+        },
+        {
+          "name": "/fonts/cmmath.woff2",
+          "bytes": 47028,
+          "transfer": 47328,
+          "duration": 11
+        },
+        {
+          "name": "/fonts/nationalpark.woff2",
+          "bytes": 15124,
+          "transfer": 15424,
+          "duration": 11
+        },
+        {
+          "name": "/fonts/hershey-heavy.woff2",
+          "bytes": 6996,
+          "transfer": 7296,
+          "duration": 14
+        },
+        {
+          "name": "/fonts/commit-web-400.woff2",
+          "bytes": 47984,
+          "transfer": 48284,
+          "duration": 12
+        },
+        {
+          "name": "/fonts/hershey-medium.woff2",
+          "bytes": 6900,
+          "transfer": 7200,
+          "duration": 14
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%2C0&stride=1%2C1%2C1&dataset=field",
+          "bytes": 0,
+          "transfer": 0,
+          "duration": 0
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%3A256%2C0%3A256&stride=1%2C256%2C256&dataset=field",
+          "bytes": 4,
+          "transfer": 304,
+          "duration": 12
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A32&stride=1&dataset=field&wire=f64",
+          "bytes": 256,
+          "transfer": 556,
+          "duration": 16
+        },
+        {
+          "name": "/api/data?path=%2Flon&selection=0%3A256&stride=1&dataset=field&wire=f64",
+          "bytes": 2048,
+          "transfer": 2348,
+          "duration": 17
+        },
+        {
+          "name": "/api/data?path=%2Flat&selection=0%3A256&stride=1&dataset=field&wire=f64",
+          "bytes": 2048,
+          "transfer": 2348,
+          "duration": 18
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%3A256%2C0%3A256&stride=1%2C1%2C1&dataset=field",
+          "bytes": 262144,
+          "transfer": 262444,
+          "duration": 14
+        }
+      ],
+      "cold_measures": [
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 17,
+          "start": 306
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 23,
+          "start": 312
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 335
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 20,
+          "start": 322
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 342
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 47,
+          "start": 323
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 48,
+          "start": 323
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 370
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 371
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 36,
+          "start": 335
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 371
+        },
+        {
+          "name": "ncx.field.raster",
+          "ms": 7,
+          "start": 379
+        }
+      ],
+      "browser_closed_rss_kib": 786352,
+      "next_frame_ms": 62,
+      "unit_change_ms": 45,
+      "unit_change_reads": 0,
+      "warm_plot_ms": 256,
+      "server_peak_rss_kib": 16292
+    },
+    {
+      "version": "current",
+      "fixture": "field",
+      "run": 0,
+      "server_ready_ms": 22.86454999999978,
+      "cold_plot_ms": 355,
+      "cold_resources": [
+        {
+          "name": "/assets/app.js?v=c0677c078543060a",
+          "bytes": 543431,
+          "transfer": 543731,
+          "duration": 29
+        },
+        {
+          "name": "/assets/app.css?v=4f04fa0e1e8016ba",
+          "bytes": 54961,
+          "transfer": 55261,
+          "duration": 30
+        },
+        {
+          "name": "/favicon.ico",
+          "bytes": 455,
+          "transfer": 755,
+          "duration": 92
+        },
+        {
+          "name": "/fonts/gorton-400.woff2",
+          "bytes": 18488,
+          "transfer": 18788,
+          "duration": 3
+        },
+        {
+          "name": "/api/session",
+          "bytes": 74,
+          "transfer": 374,
+          "duration": 3
+        },
+        {
+          "name": "/fonts/gorton-600.woff2",
+          "bytes": 18780,
+          "transfer": 19080,
+          "duration": 3
+        },
+        {
+          "name": "/api/datasets",
+          "bytes": 161,
+          "transfer": 461,
+          "duration": 2
+        },
+        {
+          "name": "/api/meta?dataset=field",
+          "bytes": 2832,
+          "transfer": 3132,
+          "duration": 2
+        },
+        {
+          "name": "/fonts/commit-web-450.woff2",
+          "bytes": 48792,
+          "transfer": 49092,
+          "duration": 5
+        },
+        {
+          "name": "/fonts/commit-web-600.woff2",
+          "bytes": 48512,
+          "transfer": 48812,
+          "duration": 8
+        },
+        {
+          "name": "/fonts/cmmath.woff2",
+          "bytes": 47028,
+          "transfer": 47328,
+          "duration": 9
+        },
+        {
+          "name": "/fonts/nationalpark.woff2",
+          "bytes": 15124,
+          "transfer": 15424,
+          "duration": 9
+        },
+        {
+          "name": "/fonts/hershey-heavy.woff2",
+          "bytes": 6996,
+          "transfer": 7296,
+          "duration": 11
+        },
+        {
+          "name": "/fonts/commit-web-400.woff2",
+          "bytes": 47984,
+          "transfer": 48284,
+          "duration": 10
+        },
+        {
+          "name": "/fonts/hershey-medium.woff2",
+          "bytes": 6900,
+          "transfer": 7200,
+          "duration": 11
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%2C0&stride=1%2C1%2C1&dataset=field",
+          "bytes": 0,
+          "transfer": 300,
+          "duration": 14
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%3A256%2C0%3A256&stride=1%2C256%2C256&dataset=field",
+          "bytes": 4,
+          "transfer": 304,
+          "duration": 12
+        },
+        {
+          "name": "/assets/py-DFv_lSPZ.js",
+          "bytes": 693,
+          "transfer": 993,
+          "duration": 17
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A32&stride=1&dataset=field&wire=f64",
+          "bytes": 256,
+          "transfer": 556,
+          "duration": 18
+        },
+        {
+          "name": "/api/data?path=%2Flon&selection=0%3A256&stride=1&dataset=field&wire=f64",
+          "bytes": 2048,
+          "transfer": 2348,
+          "duration": 19
+        },
+        {
+          "name": "/api/data?path=%2Flat&selection=0%3A256&stride=1&dataset=field&wire=f64",
+          "bytes": 2048,
+          "transfer": 2348,
+          "duration": 19
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%3A256%2C0%3A256&stride=1%2C1%2C1&dataset=field",
+          "bytes": 262144,
+          "transfer": 262444,
+          "duration": 13
+        },
+        {
+          "name": "/assets/todo-DP7rq1XD.js",
+          "bytes": 236,
+          "transfer": 536,
+          "duration": 9
+        }
+      ],
+      "cold_measures": [
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 20,
+          "start": 184
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 24,
+          "start": 193
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 217
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 26,
+          "start": 204
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 26,
+          "start": 204
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 27,
+          "start": 204
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 230
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 230
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 231
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 32,
+          "start": 217
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 249
+        },
+        {
+          "name": "ncx.field.raster",
+          "ms": 7,
+          "start": 259
+        }
+      ],
+      "browser_closed_rss_kib": 790860,
+      "next_frame_ms": 89,
+      "unit_change_ms": 32,
+      "unit_change_reads": 0,
+      "warm_plot_ms": 243,
+      "browser_before_python_rss_kib": 861144,
+      "python_ready_ms": 4464,
+      "browser_python_rss_kib": 1114732,
+      "python_resources": [
+        {
+          "name": "/assets/py-DFv_lSPZ.js",
+          "bytes": 693,
+          "transfer": 0,
+          "duration": 6
+        },
+        {
+          "name": "/assets/worker-B1R-geuD.js",
+          "bytes": 60605,
+          "transfer": 60905,
+          "duration": 36
+        }
+      ],
+      "python_network": [
+        {
+          "name": "data:font/woff2;base64,d09GMgABAAAAAAScAAsAAAAACfAAAARNAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAABmAAhBIRCAqGMIRJATYCJAMsCxgABCAFhF4HaBsuCMgehXEsLOlXaXd7sgbPQ172fjLwdhYFM92mABaiTuRVdO5/mx9I5UJiJom3phLRQw/TSF2M/vo25+pNyWkNws81NrUDAAf0QOdfcf7nmPEyBPZtCbbZEDuosskKZG922ZhBenh05qcSXktf6s3Oy9dAkWsyDzMoM5QTKcwKNjFayUPSREGFhUMrdE8MJsH052qGcYNO3pbEaYIBoDTItIKGAqhDdKHRD0kkKg6QGSCWEfueTNr3P6OvYaIbDH/8ULEAbjQtUt+hT/qmX/SH/twwMLDqN4jxzXjy4PHtltSA6lINqkpRd7N7onVBP20y7YBWyDIHFEBjqKBFMmECfQcTZtD3MmEB/SATVtCPM2ED/TQTdtCfS0/pEsN4ySin3r8q8xHE+0D0XMg8gJi4YrNpNv3qetXuDyeo6OBNZrq5gi7ouC1zcmB2Fd+FewIhcUIfszpF1hzXhrmMCwxaznRyZjig6Y2W7+bBn2DL8fJu/2oHbWc6X80+LUTXcVzv8O3IOy4qKVyFw/DHaMtfzNQEi5gbFT/EDpiofbpkYq2dQui6WcpfxrVBEJ/KxbLA4ZroZoVx+iE+QeTIiI7oKuoUIk/a1ekEOoNFjozm0suYYUelq13/88K1c3PTH9O9Q0d5LZbu7+J2aT7XP23KyQs+34WTU7r8d/k0l6dLl98Dn+/BSUZc7U0mm7FqhSMO9EHV/j5FB4qYX4aXNaKwz/4RRfAWsW8xGW+hvr8PTAf6IP9mRpkDwwv7QFz9HRuOeGWfd8rkyYsWTVy4vpG/pgVNWzBx0aTeIgeq58XFVfZXVduwuOq51a77aT0XLVw4v1PBFjRsQzO+tVeVp3KIwqfKbd6sdjzGvFSuPMquGpMT29lkrhwbE5uz6cGHhIETB06oUk+6tHLJgfnu/3nVnJzYxiXNjQNjYqsu+vCgYKDla5uUOzTNDZg46eCBd3d3gSk9Kz/bFiv8hvOzCT5eqyjBGerT+EiG/JGqwbC+UQ6Bv9bmKGWMj8Yn+fPVRJxKBGqTFXQyM9DhHSlvEHmLVxyYjY/Fdd3hACfLyP3VVZLvVR7B0pxSsGIBqHhwT5sSMOMkRG0BJhpsWMkEO24KwE0pqp3tIYTWCIjJjuBiGNTKTj8JoBLKAn4TmPFnj9oywZwFGx4egp1g3oObeLHdwUO2pFcYTITZCa2c1GQbNg6RCsu9bpikThhAWnLaBi3LM8+5VbMU6rUn30owOC83ULcfBlClb5BBre46BinaWRal85SUvlCbUx1Nbyj2HWCxBTkEgWScQKzsTioJW0IanAYRZqET4mZLSKU2JABII9np01lQ7lOt3srtM1KAeqgQPhYJSMCZJRuAukRZB1CF35gB1MJBr4ilIPZchNyIlDkpRt+3s96cz9K8XKQvCdZfcqWxgtLoXZ2AoKAyVSRRxSRmsYjVOriP089q3z6gdMjE5KI7kzumWzpnAwAAAA==",
+          "bytes": 0,
+          "transfer": 0
+        },
+        {
+          "name": "/assets/worker-B1R-geuD.js",
+          "bytes": 60605,
+          "transfer": 60782
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%3A256%2C0%3A256&stride=1%2C2%2C1&dataset=field",
+          "bytes": 131072,
+          "transfer": 131311
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.mjs",
+          "bytes": 17931,
+          "transfer": 18108
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%3A256%2C0%3A256&stride=1%2C1%2C1&dataset=field",
+          "bytes": 262144,
+          "transfer": 262382
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide-lock.json",
+          "bytes": 119077,
+          "transfer": 119241
+        },
+        {
+          "name": "/assets/python-314.0.7/python_stdlib.zip",
+          "bytes": 2545637,
+          "transfer": 2545810
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.asm.mjs",
+          "bytes": 1250344,
+          "transfer": 1250523
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.asm.wasm",
+          "bytes": 9598218,
+          "transfer": 9598383
+        },
+        {
+          "name": "/assets/python-314.0.7/pyyaml-6.0.3-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
+          "bytes": 112901,
+          "transfer": 113073
+        },
+        {
+          "name": "/assets/python-314.0.7/numpy-2.4.6-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
+          "bytes": 2960568,
+          "transfer": 2960741
+        },
+        {
+          "name": "/assets/python-314.0.7/click-8.5.0-py3-none-any.whl?sha256=255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360",
+          "bytes": 125251,
+          "transfer": 125423
+        },
+        {
+          "name": "/assets/python-314.0.7/cloudpickle-3.1.2-py3-none-any.whl?sha256=9acb47f6afd73f60dc1df93bb801b472f05ff42fa6c84167d25cb206be1fbf4a",
+          "bytes": 22228,
+          "transfer": 22399
+        },
+        {
+          "name": "/assets/python-314.0.7/dask-2026.8.0-py3-none-any.whl?sha256=ccc0c83a189b0398602435189771d28dad7b5773b6089bb8dce14ae732dd782c",
+          "bytes": 1492182,
+          "transfer": 1492355
+        },
+        {
+          "name": "/assets/python-314.0.7/fsspec-2026.7.0-py3-none-any.whl?sha256=b57ddbafedfaef7018c1ecab32aa200a9d7ca26b77965f64e48b70061249d279",
+          "bytes": 206583,
+          "transfer": 206755
+        },
+        {
+          "name": "/assets/python-314.0.7/locket-1.0.0-py2.py3-none-any.whl?sha256=b6c819a722f7b6bd955b80781788e4a66a55628b858d347536b7e81325a3a5e3",
+          "bytes": 4398,
+          "transfer": 4568
+        },
+        {
+          "name": "/assets/python-314.0.7/packaging-26.3-py3-none-any.whl?sha256=d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c",
+          "bytes": 129956,
+          "transfer": 130128
+        },
+        {
+          "name": "/assets/python-314.0.7/partd-1.4.2-py3-none-any.whl?sha256=978e4ac767ec4ba5b86c6eaa52e5a2a3bc748a2ca839e8cc798f1cc6ce6efb0f",
+          "bytes": 18905,
+          "transfer": 19076
+        },
+        {
+          "name": "/assets/python-314.0.7/toolz-1.1.0-py3-none-any.whl?sha256=15ccc861ac51c53696de0a5d6d4607f99c210739caf987b5d2054f3efed429d8",
+          "bytes": 58093,
+          "transfer": 58264
+        }
+      ],
+      "convert_assignment_ms": 66,
+      "unit_after_assignment": "Pa",
+      "convert_show_ms": 103,
+      "convert_show_paint_ms": 109,
+      "unit_after_show": "hPa",
+      "append_field_ms": 84,
+      "append_field_paint_ms": 93,
+      "append_field_resources": [],
+      "editor_field_rasters": 0,
+      "metadata_after_show": "msl\nDATA TYPE\ndouble\nSHAPE\ntime=32 \u00d7 lat=256 \u00d7 lon=256\nVIEW HINT\nrectilinear\nUNITS\nhPa\nDIMENSIONS\nNAME\tLENGTH\tSCOPE\ntime\t32\t/time\nlat\t256\t/lat\nlon\t256\t/lon\nATTRIBUTES\nNAME\tTYPE\tVALUE\nlong_name\tchar\tmsl\nunits\tchar\thPa\nsource\tchar\tsources.s1[\"/msl\"]\nsource_unit\tchar\tPa\nexpression\tchar\tdivide(add(multiply(sources.s1['/msl'], 1), 0), 100)",
+      "browser_computed_rss_kib": 1000584,
+      "server_peak_rss_kib": 29344
+    },
+    {
+      "version": "baseline",
+      "fixture": "station",
+      "run": 0,
+      "server_ready_ms": 25.387233999999808,
+      "cold_plot_ms": 421,
+      "cold_resources": [
+        {
+          "name": "/assets/app.js?v=b0a9be82d0757475",
+          "bytes": 472192,
+          "transfer": 472492,
+          "duration": 32
+        },
+        {
+          "name": "/assets/app.css?v=f49daf14688c566b",
+          "bytes": 43431,
+          "transfer": 43731,
+          "duration": 33
+        },
+        {
+          "name": "/favicon.ico",
+          "bytes": 455,
+          "transfer": 755,
+          "duration": 93
+        },
+        {
+          "name": "/fonts/gorton-400.woff2",
+          "bytes": 18488,
+          "transfer": 18788,
+          "duration": 14
+        },
+        {
+          "name": "/api/session",
+          "bytes": 74,
+          "transfer": 374,
+          "duration": 4
+        },
+        {
+          "name": "/fonts/gorton-600.woff2",
+          "bytes": 18780,
+          "transfer": 19080,
+          "duration": 4
+        },
+        {
+          "name": "/api/datasets",
+          "bytes": 268,
+          "transfer": 568,
+          "duration": 3
+        },
+        {
+          "name": "/api/meta?dataset=normal",
+          "bytes": 1626,
+          "transfer": 1926,
+          "duration": 1
+        },
+        {
+          "name": "/fonts/commit-web-450.woff2",
+          "bytes": 48792,
+          "transfer": 49092,
+          "duration": 16
+        },
+        {
+          "name": "/fonts/nationalpark.woff2",
+          "bytes": 15124,
+          "transfer": 15424,
+          "duration": 13
+        },
+        {
+          "name": "/fonts/commit-web-600.woff2",
+          "bytes": 48512,
+          "transfer": 48812,
+          "duration": 13
+        },
+        {
+          "name": "/fonts/hershey-heavy.woff2",
+          "bytes": 6996,
+          "transfer": 7296,
+          "duration": 13
+        },
+        {
+          "name": "/fonts/hershey-medium.woff2",
+          "bytes": 6900,
+          "transfer": 7200,
+          "duration": 14
+        },
+        {
+          "name": "/fonts/commit-web-400.woff2",
+          "bytes": 47984,
+          "transfer": 48284,
+          "duration": 14
+        },
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=normal",
+          "bytes": 200000,
+          "transfer": 200300,
+          "duration": 24
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A50000&stride=1&dataset=normal&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 64
+        },
+        {
+          "name": "/api/meta?dataset=tide",
+          "bytes": 1620,
+          "transfer": 1920,
+          "duration": 21
+        },
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=tide",
+          "bytes": 200000,
+          "transfer": 200300,
+          "duration": 14
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A50000&stride=1&dataset=tide&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 17
+        }
+      ],
+      "cold_measures": [
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 31,
+          "start": 199
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 230
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 16,
+          "start": 227
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 243
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 27,
+          "start": 228
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 255
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 66,
+          "start": 200
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 266
+        }
+      ],
+      "browser_closed_rss_kib": 802304,
+      "curve_path_chars": 60555,
+      "resize_ms": 75,
+      "resize_reads": 0,
+      "host_anomaly_display_ms": 148,
+      "warm_plot_ms": 374,
+      "server_peak_rss_kib": 12964
+    },
+    {
+      "version": "current",
+      "fixture": "station",
+      "run": 0,
+      "server_ready_ms": 20.556084000001647,
+      "cold_plot_ms": 451,
+      "cold_resources": [
+        {
+          "name": "/assets/app.js?v=c0677c078543060a",
+          "bytes": 543431,
+          "transfer": 543731,
+          "duration": 30
+        },
+        {
+          "name": "/assets/app.css?v=4f04fa0e1e8016ba",
+          "bytes": 54961,
+          "transfer": 55261,
+          "duration": 31
+        },
+        {
+          "name": "/favicon.ico",
+          "bytes": 455,
+          "transfer": 755,
+          "duration": 97
+        },
+        {
+          "name": "/fonts/gorton-400.woff2",
+          "bytes": 18488,
+          "transfer": 18788,
+          "duration": 3
+        },
+        {
+          "name": "/fonts/gorton-600.woff2",
+          "bytes": 18780,
+          "transfer": 19080,
+          "duration": 6
+        },
+        {
+          "name": "/api/session",
+          "bytes": 74,
+          "transfer": 374,
+          "duration": 5
+        },
+        {
+          "name": "/api/datasets",
+          "bytes": 268,
+          "transfer": 568,
+          "duration": 10
+        },
+        {
+          "name": "/api/meta?dataset=normal",
+          "bytes": 1626,
+          "transfer": 1926,
+          "duration": 12
+        },
+        {
+          "name": "/fonts/commit-web-450.woff2",
+          "bytes": 48792,
+          "transfer": 49092,
+          "duration": 2
+        },
+        {
+          "name": "/fonts/commit-web-600.woff2",
+          "bytes": 48512,
+          "transfer": 48812,
+          "duration": 8
+        },
+        {
+          "name": "/fonts/nationalpark.woff2",
+          "bytes": 15124,
+          "transfer": 15424,
+          "duration": 8
+        },
+        {
+          "name": "/fonts/hershey-heavy.woff2",
+          "bytes": 6996,
+          "transfer": 7296,
+          "duration": 10
+        },
+        {
+          "name": "/fonts/hershey-medium.woff2",
+          "bytes": 6900,
+          "transfer": 7200,
+          "duration": 10
+        },
+        {
+          "name": "/fonts/commit-web-400.woff2",
+          "bytes": 47984,
+          "transfer": 48284,
+          "duration": 11
+        },
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=normal",
+          "bytes": 200000,
+          "transfer": 200300,
+          "duration": 19
+        },
+        {
+          "name": "/assets/py-DFv_lSPZ.js",
+          "bytes": 693,
+          "transfer": 993,
+          "duration": 19
+        },
+        {
+          "name": "/api/meta?dataset=tide",
+          "bytes": 1620,
+          "transfer": 1920,
+          "duration": 18
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A50000&stride=1&dataset=normal&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 21
+        },
+        {
+          "name": "/assets/todo-DP7rq1XD.js",
+          "bytes": 236,
+          "transfer": 536,
+          "duration": 3
+        },
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=tide",
+          "bytes": 200000,
+          "transfer": 200300,
+          "duration": 7
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A50000&stride=1&dataset=tide&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 9
+        }
+      ],
+      "cold_measures": [
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 23,
+          "start": 250
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 273
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 39,
+          "start": 254
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 293
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 19,
+          "start": 293
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 312
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 25,
+          "start": 293
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 318
+        }
+      ],
+      "browser_closed_rss_kib": 817084,
+      "curve_path_chars": 60346,
+      "resize_ms": 73,
+      "resize_reads": 0,
+      "host_anomaly_display_ms": 179,
+      "warm_plot_ms": 330,
+      "browser_before_python_rss_kib": 987352,
+      "python_ready_ms": 4566,
+      "browser_python_rss_kib": 1047692,
+      "python_resources": [
+        {
+          "name": "/assets/py-DFv_lSPZ.js",
+          "bytes": 693,
+          "transfer": 0,
+          "duration": 5
+        },
+        {
+          "name": "/assets/worker-B1R-geuD.js",
+          "bytes": 60605,
+          "transfer": 60905,
+          "duration": 22
+        }
+      ],
+      "python_network": [
+        {
+          "name": "/assets/worker-B1R-geuD.js",
+          "bytes": 60605,
+          "transfer": 60782
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.mjs",
+          "bytes": 17931,
+          "transfer": 18108
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide-lock.json",
+          "bytes": 119077,
+          "transfer": 119241
+        },
+        {
+          "name": "/assets/python-314.0.7/python_stdlib.zip",
+          "bytes": 2545637,
+          "transfer": 2545810
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.asm.mjs",
+          "bytes": 1250344,
+          "transfer": 1250523
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.asm.wasm",
+          "bytes": 9598218,
+          "transfer": 9598383
+        },
+        {
+          "name": "/assets/python-314.0.7/pyyaml-6.0.3-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
+          "bytes": 112901,
+          "transfer": 113073
+        },
+        {
+          "name": "/assets/python-314.0.7/numpy-2.4.6-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
+          "bytes": 2960568,
+          "transfer": 2960741
+        },
+        {
+          "name": "/assets/python-314.0.7/click-8.5.0-py3-none-any.whl?sha256=255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360",
+          "bytes": 125251,
+          "transfer": 125423
+        },
+        {
+          "name": "/assets/python-314.0.7/cloudpickle-3.1.2-py3-none-any.whl?sha256=9acb47f6afd73f60dc1df93bb801b472f05ff42fa6c84167d25cb206be1fbf4a",
+          "bytes": 22228,
+          "transfer": 22399
+        },
+        {
+          "name": "/assets/python-314.0.7/dask-2026.8.0-py3-none-any.whl?sha256=ccc0c83a189b0398602435189771d28dad7b5773b6089bb8dce14ae732dd782c",
+          "bytes": 1492182,
+          "transfer": 1492355
+        },
+        {
+          "name": "/assets/python-314.0.7/fsspec-2026.7.0-py3-none-any.whl?sha256=b57ddbafedfaef7018c1ecab32aa200a9d7ca26b77965f64e48b70061249d279",
+          "bytes": 206583,
+          "transfer": 206755
+        },
+        {
+          "name": "/assets/python-314.0.7/locket-1.0.0-py2.py3-none-any.whl?sha256=b6c819a722f7b6bd955b80781788e4a66a55628b858d347536b7e81325a3a5e3",
+          "bytes": 4398,
+          "transfer": 4568
+        },
+        {
+          "name": "/assets/python-314.0.7/packaging-26.3-py3-none-any.whl?sha256=d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c",
+          "bytes": 129956,
+          "transfer": 130128
+        },
+        {
+          "name": "/assets/python-314.0.7/partd-1.4.2-py3-none-any.whl?sha256=978e4ac767ec4ba5b86c6eaa52e5a2a3bc748a2ca839e8cc798f1cc6ce6efb0f",
+          "bytes": 18905,
+          "transfer": 19076
+        },
+        {
+          "name": "/assets/python-314.0.7/toolz-1.1.0-py3-none-any.whl?sha256=15ccc861ac51c53696de0a5d6d4607f99c210739caf987b5d2054f3efed429d8",
+          "bytes": 58093,
+          "transfer": 58264
+        }
+      ],
+      "match_ms": 65,
+      "anomaly_ms": 200,
+      "anomaly_paint_ms": 206,
+      "anomaly_resources": [
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=tide&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 6
+        },
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=normal&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 5
+        }
+      ],
+      "anomaly_zero_line": true,
+      "anomaly_repeat_ms": 83,
+      "anomaly_repeat_resources": [],
+      "append_curve_ms": 99,
+      "append_curve_resources": [],
+      "numeric_check_ms": 132,
+      "browser_computed_rss_kib": 1062828,
+      "server_peak_rss_kib": 31200
+    },
+    {
+      "version": "current",
+      "fixture": "field",
+      "run": 1,
+      "server_ready_ms": 31.189566000000923,
+      "cold_plot_ms": 406,
+      "cold_resources": [
+        {
+          "name": "/assets/app.css?v=4f04fa0e1e8016ba",
+          "bytes": 54961,
+          "transfer": 55261,
+          "duration": 33
+        },
+        {
+          "name": "/assets/app.js?v=c0677c078543060a",
+          "bytes": 543431,
+          "transfer": 543731,
+          "duration": 33
+        },
+        {
+          "name": "/favicon.ico",
+          "bytes": 455,
+          "transfer": 755,
+          "duration": 110
+        },
+        {
+          "name": "/fonts/gorton-400.woff2",
+          "bytes": 18488,
+          "transfer": 18788,
+          "duration": 1
+        },
+        {
+          "name": "/fonts/gorton-600.woff2",
+          "bytes": 18780,
+          "transfer": 19080,
+          "duration": 8
+        },
+        {
+          "name": "/api/session",
+          "bytes": 74,
+          "transfer": 374,
+          "duration": 7
+        },
+        {
+          "name": "/api/datasets",
+          "bytes": 161,
+          "transfer": 461,
+          "duration": 4
+        },
+        {
+          "name": "/api/meta?dataset=field",
+          "bytes": 2832,
+          "transfer": 3132,
+          "duration": 7
+        },
+        {
+          "name": "/fonts/commit-web-450.woff2",
+          "bytes": 48792,
+          "transfer": 49092,
+          "duration": 17
+        },
+        {
+          "name": "/fonts/commit-web-600.woff2",
+          "bytes": 48512,
+          "transfer": 48812,
+          "duration": 14
+        },
+        {
+          "name": "/fonts/cmmath.woff2",
+          "bytes": 47028,
+          "transfer": 47328,
+          "duration": 15
+        },
+        {
+          "name": "/fonts/nationalpark.woff2",
+          "bytes": 15124,
+          "transfer": 15424,
+          "duration": 16
+        },
+        {
+          "name": "/fonts/hershey-heavy.woff2",
+          "bytes": 6996,
+          "transfer": 7296,
+          "duration": 16
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%2C0&stride=1%2C1%2C1&dataset=field",
+          "bytes": 0,
+          "transfer": 0,
+          "duration": 0
+        },
+        {
+          "name": "/fonts/hershey-medium.woff2",
+          "bytes": 6900,
+          "transfer": 7200,
+          "duration": 16
+        },
+        {
+          "name": "/fonts/commit-web-400.woff2",
+          "bytes": 47984,
+          "transfer": 48284,
+          "duration": 17
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%3A256%2C0%3A256&stride=1%2C256%2C256&dataset=field",
+          "bytes": 4,
+          "transfer": 304,
+          "duration": 44
+        },
+        {
+          "name": "/assets/py-DFv_lSPZ.js",
+          "bytes": 693,
+          "transfer": 993,
+          "duration": 40
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A32&stride=1&dataset=field&wire=f64",
+          "bytes": 256,
+          "transfer": 556,
+          "duration": 40
+        },
+        {
+          "name": "/api/data?path=%2Flon&selection=0%3A256&stride=1&dataset=field&wire=f64",
+          "bytes": 2048,
+          "transfer": 2348,
+          "duration": 41
+        },
+        {
+          "name": "/api/data?path=%2Flat&selection=0%3A256&stride=1&dataset=field&wire=f64",
+          "bytes": 2048,
+          "transfer": 2348,
+          "duration": 41
+        },
+        {
+          "name": "/assets/todo-DP7rq1XD.js",
+          "bytes": 236,
+          "transfer": 536,
+          "duration": 5
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%3A256%2C0%3A256&stride=1%2C1%2C1&dataset=field",
+          "bytes": 262144,
+          "transfer": 262444,
+          "duration": 9
+        }
+      ],
+      "cold_measures": [
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 20,
+          "start": 212
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 68,
+          "start": 219
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 56,
+          "start": 231
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 56,
+          "start": 231
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 287
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 287
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 287
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 56,
+          "start": 232
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 288
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 15,
+          "start": 287
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 302
+        },
+        {
+          "name": "ncx.field.raster",
+          "ms": 10,
+          "start": 311
+        }
+      ],
+      "browser_closed_rss_kib": 786040,
+      "next_frame_ms": 72,
+      "unit_change_ms": 48,
+      "unit_change_reads": 0,
+      "warm_plot_ms": 245,
+      "browser_before_python_rss_kib": 850832,
+      "python_ready_ms": 4562,
+      "browser_python_rss_kib": 1110480,
+      "python_resources": [
+        {
+          "name": "/assets/py-DFv_lSPZ.js",
+          "bytes": 693,
+          "transfer": 0,
+          "duration": 27
+        },
+        {
+          "name": "/assets/worker-B1R-geuD.js",
+          "bytes": 60605,
+          "transfer": 60905,
+          "duration": 41
+        }
+      ],
+      "python_network": [
+        {
+          "name": "data:font/woff2;base64,d09GMgABAAAAAAScAAsAAAAACfAAAARNAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAABmAAhBIRCAqGMIRJATYCJAMsCxgABCAFhF4HaBsuCMgehXEsLOlXaXd7sgbPQ172fjLwdhYFM92mABaiTuRVdO5/mx9I5UJiJom3phLRQw/TSF2M/vo25+pNyWkNws81NrUDAAf0QOdfcf7nmPEyBPZtCbbZEDuosskKZG922ZhBenh05qcSXktf6s3Oy9dAkWsyDzMoM5QTKcwKNjFayUPSREGFhUMrdE8MJsH052qGcYNO3pbEaYIBoDTItIKGAqhDdKHRD0kkKg6QGSCWEfueTNr3P6OvYaIbDH/8ULEAbjQtUt+hT/qmX/SH/twwMLDqN4jxzXjy4PHtltSA6lINqkpRd7N7onVBP20y7YBWyDIHFEBjqKBFMmECfQcTZtD3MmEB/SATVtCPM2ED/TQTdtCfS0/pEsN4ySin3r8q8xHE+0D0XMg8gJi4YrNpNv3qetXuDyeo6OBNZrq5gi7ouC1zcmB2Fd+FewIhcUIfszpF1hzXhrmMCwxaznRyZjig6Y2W7+bBn2DL8fJu/2oHbWc6X80+LUTXcVzv8O3IOy4qKVyFw/DHaMtfzNQEi5gbFT/EDpiofbpkYq2dQui6WcpfxrVBEJ/KxbLA4ZroZoVx+iE+QeTIiI7oKuoUIk/a1ekEOoNFjozm0suYYUelq13/88K1c3PTH9O9Q0d5LZbu7+J2aT7XP23KyQs+34WTU7r8d/k0l6dLl98Dn+/BSUZc7U0mm7FqhSMO9EHV/j5FB4qYX4aXNaKwz/4RRfAWsW8xGW+hvr8PTAf6IP9mRpkDwwv7QFz9HRuOeGWfd8rkyYsWTVy4vpG/pgVNWzBx0aTeIgeq58XFVfZXVduwuOq51a77aT0XLVw4v1PBFjRsQzO+tVeVp3KIwqfKbd6sdjzGvFSuPMquGpMT29lkrhwbE5uz6cGHhIETB06oUk+6tHLJgfnu/3nVnJzYxiXNjQNjYqsu+vCgYKDla5uUOzTNDZg46eCBd3d3gSk9Kz/bFiv8hvOzCT5eqyjBGerT+EiG/JGqwbC+UQ6Bv9bmKGWMj8Yn+fPVRJxKBGqTFXQyM9DhHSlvEHmLVxyYjY/Fdd3hACfLyP3VVZLvVR7B0pxSsGIBqHhwT5sSMOMkRG0BJhpsWMkEO24KwE0pqp3tIYTWCIjJjuBiGNTKTj8JoBLKAn4TmPFnj9oywZwFGx4egp1g3oObeLHdwUO2pFcYTITZCa2c1GQbNg6RCsu9bpikThhAWnLaBi3LM8+5VbMU6rUn30owOC83ULcfBlClb5BBre46BinaWRal85SUvlCbUx1Nbyj2HWCxBTkEgWScQKzsTioJW0IanAYRZqET4mZLSKU2JABII9np01lQ7lOt3srtM1KAeqgQPhYJSMCZJRuAukRZB1CF35gB1MJBr4ilIPZchNyIlDkpRt+3s96cz9K8XKQvCdZfcqWxgtLoXZ2AoKAyVSRRxSRmsYjVOriP089q3z6gdMjE5KI7kzumWzpnAwAAAA==",
+          "bytes": 0,
+          "transfer": 0
+        },
+        {
+          "name": "/assets/worker-B1R-geuD.js",
+          "bytes": 60605,
+          "transfer": 60782
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%3A256%2C0%3A256&stride=1%2C2%2C1&dataset=field",
+          "bytes": 131072,
+          "transfer": 131311
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.mjs",
+          "bytes": 17931,
+          "transfer": 18108
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%3A256%2C0%3A256&stride=1%2C1%2C1&dataset=field",
+          "bytes": 262144,
+          "transfer": 262382
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide-lock.json",
+          "bytes": 119077,
+          "transfer": 119241
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.asm.mjs",
+          "bytes": 1250344,
+          "transfer": 1250523
+        },
+        {
+          "name": "/assets/python-314.0.7/python_stdlib.zip",
+          "bytes": 2545637,
+          "transfer": 2545810
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.asm.wasm",
+          "bytes": 9598218,
+          "transfer": 9598383
+        },
+        {
+          "name": "/assets/python-314.0.7/pyyaml-6.0.3-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
+          "bytes": 112901,
+          "transfer": 113073
+        },
+        {
+          "name": "/assets/python-314.0.7/numpy-2.4.6-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
+          "bytes": 2960568,
+          "transfer": 2960741
+        },
+        {
+          "name": "/assets/python-314.0.7/click-8.5.0-py3-none-any.whl?sha256=255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360",
+          "bytes": 125251,
+          "transfer": 125423
+        },
+        {
+          "name": "/assets/python-314.0.7/cloudpickle-3.1.2-py3-none-any.whl?sha256=9acb47f6afd73f60dc1df93bb801b472f05ff42fa6c84167d25cb206be1fbf4a",
+          "bytes": 22228,
+          "transfer": 22399
+        },
+        {
+          "name": "/assets/python-314.0.7/dask-2026.8.0-py3-none-any.whl?sha256=ccc0c83a189b0398602435189771d28dad7b5773b6089bb8dce14ae732dd782c",
+          "bytes": 1492182,
+          "transfer": 1492355
+        },
+        {
+          "name": "/assets/python-314.0.7/fsspec-2026.7.0-py3-none-any.whl?sha256=b57ddbafedfaef7018c1ecab32aa200a9d7ca26b77965f64e48b70061249d279",
+          "bytes": 206583,
+          "transfer": 206755
+        },
+        {
+          "name": "/assets/python-314.0.7/locket-1.0.0-py2.py3-none-any.whl?sha256=b6c819a722f7b6bd955b80781788e4a66a55628b858d347536b7e81325a3a5e3",
+          "bytes": 4398,
+          "transfer": 4568
+        },
+        {
+          "name": "/assets/python-314.0.7/packaging-26.3-py3-none-any.whl?sha256=d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c",
+          "bytes": 129956,
+          "transfer": 130128
+        },
+        {
+          "name": "/assets/python-314.0.7/partd-1.4.2-py3-none-any.whl?sha256=978e4ac767ec4ba5b86c6eaa52e5a2a3bc748a2ca839e8cc798f1cc6ce6efb0f",
+          "bytes": 18905,
+          "transfer": 19076
+        },
+        {
+          "name": "/assets/python-314.0.7/toolz-1.1.0-py3-none-any.whl?sha256=15ccc861ac51c53696de0a5d6d4607f99c210739caf987b5d2054f3efed429d8",
+          "bytes": 58093,
+          "transfer": 58264
+        }
+      ],
+      "convert_assignment_ms": 66,
+      "unit_after_assignment": "Pa",
+      "convert_show_ms": 108,
+      "convert_show_paint_ms": 113,
+      "unit_after_show": "hPa",
+      "append_field_ms": 83,
+      "append_field_paint_ms": 90,
+      "append_field_resources": [],
+      "editor_field_rasters": 0,
+      "metadata_after_show": "msl\nDATA TYPE\ndouble\nSHAPE\ntime=32 \u00d7 lat=256 \u00d7 lon=256\nVIEW HINT\nrectilinear\nUNITS\nhPa\nDIMENSIONS\nNAME\tLENGTH\tSCOPE\ntime\t32\t/time\nlat\t256\t/lat\nlon\t256\t/lon\nATTRIBUTES\nNAME\tTYPE\tVALUE\nlong_name\tchar\tmsl\nunits\tchar\thPa\nsource\tchar\tsources.s1[\"/msl\"]\nsource_unit\tchar\tPa\nexpression\tchar\tdivide(add(multiply(sources.s1['/msl'], 1), 0), 100)",
+      "browser_computed_rss_kib": 990164,
+      "server_peak_rss_kib": 29332
+    },
+    {
+      "version": "baseline",
+      "fixture": "field",
+      "run": 1,
+      "server_ready_ms": 26.678192999999737,
+      "cold_plot_ms": 425,
+      "cold_resources": [
+        {
+          "name": "/assets/app.css?v=f49daf14688c566b",
+          "bytes": 43431,
+          "transfer": 43731,
+          "duration": 29
+        },
+        {
+          "name": "/assets/app.js?v=b0a9be82d0757475",
+          "bytes": 472192,
+          "transfer": 472492,
+          "duration": 28
+        },
+        {
+          "name": "/favicon.ico",
+          "bytes": 455,
+          "transfer": 755,
+          "duration": 87
+        },
+        {
+          "name": "/fonts/gorton-400.woff2",
+          "bytes": 18488,
+          "transfer": 18788,
+          "duration": 2
+        },
+        {
+          "name": "/fonts/gorton-600.woff2",
+          "bytes": 18780,
+          "transfer": 19080,
+          "duration": 5
+        },
+        {
+          "name": "/api/session",
+          "bytes": 74,
+          "transfer": 374,
+          "duration": 4
+        },
+        {
+          "name": "/api/datasets",
+          "bytes": 161,
+          "transfer": 461,
+          "duration": 2
+        },
+        {
+          "name": "/api/meta?dataset=field",
+          "bytes": 2832,
+          "transfer": 3132,
+          "duration": 1
+        },
+        {
+          "name": "/fonts/commit-web-450.woff2",
+          "bytes": 48792,
+          "transfer": 49092,
+          "duration": 10
+        },
+        {
+          "name": "/fonts/commit-web-600.woff2",
+          "bytes": 48512,
+          "transfer": 48812,
+          "duration": 9
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%2C0&stride=1%2C1%2C1&dataset=field",
+          "bytes": 0,
+          "transfer": 300,
+          "duration": 15
+        },
+        {
+          "name": "/fonts/cmmath.woff2",
+          "bytes": 47028,
+          "transfer": 47328,
+          "duration": 8
+        },
+        {
+          "name": "/fonts/nationalpark.woff2",
+          "bytes": 15124,
+          "transfer": 15424,
+          "duration": 9
+        },
+        {
+          "name": "/fonts/hershey-heavy.woff2",
+          "bytes": 6996,
+          "transfer": 7296,
+          "duration": 9
+        },
+        {
+          "name": "/fonts/hershey-medium.woff2",
+          "bytes": 6900,
+          "transfer": 7200,
+          "duration": 8
+        },
+        {
+          "name": "/fonts/commit-web-400.woff2",
+          "bytes": 47984,
+          "transfer": 48284,
+          "duration": 10
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%3A256%2C0%3A256&stride=1%2C256%2C256&dataset=field",
+          "bytes": 4,
+          "transfer": 304,
+          "duration": 15
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A32&stride=1&dataset=field&wire=f64",
+          "bytes": 256,
+          "transfer": 556,
+          "duration": 8
+        },
+        {
+          "name": "/api/data?path=%2Flon&selection=0%3A256&stride=1&dataset=field&wire=f64",
+          "bytes": 2048,
+          "transfer": 2348,
+          "duration": 10
+        },
+        {
+          "name": "/api/data?path=%2Flat&selection=0%3A256&stride=1&dataset=field&wire=f64",
+          "bytes": 2048,
+          "transfer": 2348,
+          "duration": 11
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%3A256%2C0%3A256&stride=1%2C1%2C1&dataset=field",
+          "bytes": 262144,
+          "transfer": 262444,
+          "duration": 10
+        }
+      ],
+      "cold_measures": [
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 20,
+          "start": 267
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 21,
+          "start": 276
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 297
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 11,
+          "start": 287
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 298
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 32,
+          "start": 287
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 33,
+          "start": 287
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 319
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 320
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 23,
+          "start": 297
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 320
+        },
+        {
+          "name": "ncx.field.raster",
+          "ms": 8,
+          "start": 342
+        }
+      ],
+      "browser_closed_rss_kib": 783076,
+      "next_frame_ms": 91,
+      "unit_change_ms": 48,
+      "unit_change_reads": 0,
+      "warm_plot_ms": 225,
+      "server_peak_rss_kib": 16296
+    },
+    {
+      "version": "current",
+      "fixture": "station",
+      "run": 1,
+      "server_ready_ms": 22.840351999999257,
+      "cold_plot_ms": 499,
+      "cold_resources": [
+        {
+          "name": "/assets/app.js?v=c0677c078543060a",
+          "bytes": 543431,
+          "transfer": 543731,
+          "duration": 39
+        },
+        {
+          "name": "/assets/app.css?v=4f04fa0e1e8016ba",
+          "bytes": 54961,
+          "transfer": 55261,
+          "duration": 40
+        },
+        {
+          "name": "/favicon.ico",
+          "bytes": 455,
+          "transfer": 755,
+          "duration": 98
+        },
+        {
+          "name": "/fonts/gorton-400.woff2",
+          "bytes": 18488,
+          "transfer": 18788,
+          "duration": 5
+        },
+        {
+          "name": "/fonts/gorton-600.woff2",
+          "bytes": 18780,
+          "transfer": 19080,
+          "duration": 2
+        },
+        {
+          "name": "/api/session",
+          "bytes": 74,
+          "transfer": 374,
+          "duration": 2
+        },
+        {
+          "name": "/api/datasets",
+          "bytes": 268,
+          "transfer": 568,
+          "duration": 4
+        },
+        {
+          "name": "/api/meta?dataset=normal",
+          "bytes": 1626,
+          "transfer": 1926,
+          "duration": 2
+        },
+        {
+          "name": "/fonts/commit-web-450.woff2",
+          "bytes": 48792,
+          "transfer": 49092,
+          "duration": 6
+        },
+        {
+          "name": "/fonts/commit-web-600.woff2",
+          "bytes": 48512,
+          "transfer": 48812,
+          "duration": 22
+        },
+        {
+          "name": "/fonts/nationalpark.woff2",
+          "bytes": 15124,
+          "transfer": 15424,
+          "duration": 23
+        },
+        {
+          "name": "/fonts/hershey-heavy.woff2",
+          "bytes": 6996,
+          "transfer": 7296,
+          "duration": 23
+        },
+        {
+          "name": "/fonts/hershey-medium.woff2",
+          "bytes": 6900,
+          "transfer": 7200,
+          "duration": 24
+        },
+        {
+          "name": "/fonts/commit-web-400.woff2",
+          "bytes": 47984,
+          "transfer": 48284,
+          "duration": 24
+        },
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=normal",
+          "bytes": 200000,
+          "transfer": 200300,
+          "duration": 33
+        },
+        {
+          "name": "/assets/py-DFv_lSPZ.js",
+          "bytes": 693,
+          "transfer": 993,
+          "duration": 32
+        },
+        {
+          "name": "/api/meta?dataset=tide",
+          "bytes": 1620,
+          "transfer": 1920,
+          "duration": 32
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A50000&stride=1&dataset=normal&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 34
+        },
+        {
+          "name": "/assets/todo-DP7rq1XD.js",
+          "bytes": 236,
+          "transfer": 536,
+          "duration": 2
+        },
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=tide",
+          "bytes": 200000,
+          "transfer": 200300,
+          "duration": 7
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A50000&stride=1&dataset=tide&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 10
+        }
+      ],
+      "cold_measures": [
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 57,
+          "start": 238
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 296
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 68,
+          "start": 241
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 309
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 14,
+          "start": 309
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 323
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 21,
+          "start": 309
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 331
+        }
+      ],
+      "browser_closed_rss_kib": 810244,
+      "curve_path_chars": 60346,
+      "resize_ms": 54,
+      "resize_reads": 0,
+      "host_anomaly_display_ms": 175,
+      "warm_plot_ms": 452,
+      "browser_before_python_rss_kib": 991144,
+      "python_ready_ms": 4449,
+      "browser_python_rss_kib": 1177144,
+      "python_resources": [
+        {
+          "name": "/assets/py-DFv_lSPZ.js",
+          "bytes": 693,
+          "transfer": 0,
+          "duration": 23
+        },
+        {
+          "name": "/assets/worker-B1R-geuD.js",
+          "bytes": 60605,
+          "transfer": 60905,
+          "duration": 4
+        }
+      ],
+      "python_network": [
+        {
+          "name": "/assets/worker-B1R-geuD.js",
+          "bytes": 60605,
+          "transfer": 60782
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.mjs",
+          "bytes": 17931,
+          "transfer": 18108
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide-lock.json",
+          "bytes": 119077,
+          "transfer": 119241
+        },
+        {
+          "name": "/assets/python-314.0.7/python_stdlib.zip",
+          "bytes": 2545637,
+          "transfer": 2545810
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.asm.mjs",
+          "bytes": 1250344,
+          "transfer": 1250523
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.asm.wasm",
+          "bytes": 9598218,
+          "transfer": 9598383
+        },
+        {
+          "name": "/assets/python-314.0.7/pyyaml-6.0.3-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
+          "bytes": 112901,
+          "transfer": 113073
+        },
+        {
+          "name": "/assets/python-314.0.7/numpy-2.4.6-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
+          "bytes": 2960568,
+          "transfer": 2960741
+        },
+        {
+          "name": "/assets/python-314.0.7/click-8.5.0-py3-none-any.whl?sha256=255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360",
+          "bytes": 125251,
+          "transfer": 125423
+        },
+        {
+          "name": "/assets/python-314.0.7/cloudpickle-3.1.2-py3-none-any.whl?sha256=9acb47f6afd73f60dc1df93bb801b472f05ff42fa6c84167d25cb206be1fbf4a",
+          "bytes": 22228,
+          "transfer": 22399
+        },
+        {
+          "name": "/assets/python-314.0.7/dask-2026.8.0-py3-none-any.whl?sha256=ccc0c83a189b0398602435189771d28dad7b5773b6089bb8dce14ae732dd782c",
+          "bytes": 1492182,
+          "transfer": 1492355
+        },
+        {
+          "name": "/assets/python-314.0.7/fsspec-2026.7.0-py3-none-any.whl?sha256=b57ddbafedfaef7018c1ecab32aa200a9d7ca26b77965f64e48b70061249d279",
+          "bytes": 206583,
+          "transfer": 206755
+        },
+        {
+          "name": "/assets/python-314.0.7/locket-1.0.0-py2.py3-none-any.whl?sha256=b6c819a722f7b6bd955b80781788e4a66a55628b858d347536b7e81325a3a5e3",
+          "bytes": 4398,
+          "transfer": 4568
+        },
+        {
+          "name": "/assets/python-314.0.7/packaging-26.3-py3-none-any.whl?sha256=d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c",
+          "bytes": 129956,
+          "transfer": 130128
+        },
+        {
+          "name": "/assets/python-314.0.7/partd-1.4.2-py3-none-any.whl?sha256=978e4ac767ec4ba5b86c6eaa52e5a2a3bc748a2ca839e8cc798f1cc6ce6efb0f",
+          "bytes": 18905,
+          "transfer": 19076
+        },
+        {
+          "name": "/assets/python-314.0.7/toolz-1.1.0-py3-none-any.whl?sha256=15ccc861ac51c53696de0a5d6d4607f99c210739caf987b5d2054f3efed429d8",
+          "bytes": 58093,
+          "transfer": 58264
+        }
+      ],
+      "match_ms": 67,
+      "anomaly_ms": 235,
+      "anomaly_paint_ms": 241,
+      "anomaly_resources": [
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=tide&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 6
+        },
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=normal&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 4
+        }
+      ],
+      "anomaly_zero_line": true,
+      "anomaly_repeat_ms": 66,
+      "anomaly_repeat_resources": [],
+      "append_curve_ms": 83,
+      "append_curve_resources": [],
+      "numeric_check_ms": 133,
+      "browser_computed_rss_kib": 1054320,
+      "server_peak_rss_kib": 31444
+    },
+    {
+      "version": "baseline",
+      "fixture": "station",
+      "run": 1,
+      "server_ready_ms": 24.207542999996804,
+      "cold_plot_ms": 458,
+      "cold_resources": [
+        {
+          "name": "/assets/app.css?v=f49daf14688c566b",
+          "bytes": 43431,
+          "transfer": 43731,
+          "duration": 28
+        },
+        {
+          "name": "/assets/app.js?v=b0a9be82d0757475",
+          "bytes": 472192,
+          "transfer": 472492,
+          "duration": 28
+        },
+        {
+          "name": "/favicon.ico",
+          "bytes": 455,
+          "transfer": 755,
+          "duration": 105
+        },
+        {
+          "name": "/fonts/gorton-400.woff2",
+          "bytes": 18488,
+          "transfer": 18788,
+          "duration": 3
+        },
+        {
+          "name": "/fonts/gorton-600.woff2",
+          "bytes": 18780,
+          "transfer": 19080,
+          "duration": 16
+        },
+        {
+          "name": "/api/session",
+          "bytes": 74,
+          "transfer": 374,
+          "duration": 13
+        },
+        {
+          "name": "/api/datasets",
+          "bytes": 268,
+          "transfer": 568,
+          "duration": 5
+        },
+        {
+          "name": "/api/meta?dataset=normal",
+          "bytes": 1626,
+          "transfer": 1926,
+          "duration": 17
+        },
+        {
+          "name": "/fonts/commit-web-450.woff2",
+          "bytes": 48792,
+          "transfer": 49092,
+          "duration": 3
+        },
+        {
+          "name": "/fonts/nationalpark.woff2",
+          "bytes": 15124,
+          "transfer": 15424,
+          "duration": 6
+        },
+        {
+          "name": "/fonts/commit-web-600.woff2",
+          "bytes": 48512,
+          "transfer": 48812,
+          "duration": 6
+        },
+        {
+          "name": "/fonts/hershey-heavy.woff2",
+          "bytes": 6996,
+          "transfer": 7296,
+          "duration": 7
+        },
+        {
+          "name": "/fonts/hershey-medium.woff2",
+          "bytes": 6900,
+          "transfer": 7200,
+          "duration": 8
+        },
+        {
+          "name": "/fonts/commit-web-400.woff2",
+          "bytes": 47984,
+          "transfer": 48284,
+          "duration": 8
+        },
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=normal",
+          "bytes": 200000,
+          "transfer": 200300,
+          "duration": 15
+        },
+        {
+          "name": "/api/meta?dataset=tide",
+          "bytes": 1620,
+          "transfer": 1920,
+          "duration": 11
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A50000&stride=1&dataset=normal&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 15
+        },
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=tide",
+          "bytes": 200000,
+          "transfer": 200300,
+          "duration": 5
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A50000&stride=1&dataset=tide&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 8
+        }
+      ],
+      "cold_measures": [
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 19,
+          "start": 232
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 1,
+          "start": 251
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 35,
+          "start": 235
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 30,
+          "start": 249
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 270
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 280
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 35,
+          "start": 250
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 285
+        }
+      ],
+      "browser_closed_rss_kib": 790124,
+      "curve_path_chars": 60555,
+      "resize_ms": 80,
+      "resize_reads": 0,
+      "host_anomaly_display_ms": 182,
+      "warm_plot_ms": 344,
+      "server_peak_rss_kib": 12704
+    },
+    {
+      "version": "baseline",
+      "fixture": "field",
+      "run": 2,
+      "server_ready_ms": 31.215625000004366,
+      "cold_plot_ms": 429,
+      "cold_resources": [
+        {
+          "name": "/assets/app.js?v=b0a9be82d0757475",
+          "bytes": 472192,
+          "transfer": 472492,
+          "duration": 27
+        },
+        {
+          "name": "/assets/app.css?v=f49daf14688c566b",
+          "bytes": 43431,
+          "transfer": 43731,
+          "duration": 28
+        },
+        {
+          "name": "/favicon.ico",
+          "bytes": 455,
+          "transfer": 755,
+          "duration": 88
+        },
+        {
+          "name": "/fonts/gorton-400.woff2",
+          "bytes": 18488,
+          "transfer": 18788,
+          "duration": 2
+        },
+        {
+          "name": "/fonts/gorton-600.woff2",
+          "bytes": 18780,
+          "transfer": 19080,
+          "duration": 8
+        },
+        {
+          "name": "/api/session",
+          "bytes": 74,
+          "transfer": 374,
+          "duration": 7
+        },
+        {
+          "name": "/api/datasets",
+          "bytes": 161,
+          "transfer": 461,
+          "duration": 19
+        },
+        {
+          "name": "/api/meta?dataset=field",
+          "bytes": 2832,
+          "transfer": 3132,
+          "duration": 22
+        },
+        {
+          "name": "/fonts/commit-web-450.woff2",
+          "bytes": 48792,
+          "transfer": 49092,
+          "duration": 3
+        },
+        {
+          "name": "/fonts/commit-web-600.woff2",
+          "bytes": 48512,
+          "transfer": 48812,
+          "duration": 14
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%2C0&stride=1%2C1%2C1&dataset=field",
+          "bytes": 0,
+          "transfer": 0,
+          "duration": 0
+        },
+        {
+          "name": "/fonts/cmmath.woff2",
+          "bytes": 47028,
+          "transfer": 47328,
+          "duration": 13
+        },
+        {
+          "name": "/fonts/hershey-medium.woff2",
+          "bytes": 6900,
+          "transfer": 7200,
+          "duration": 13
+        },
+        {
+          "name": "/fonts/commit-web-400.woff2",
+          "bytes": 47984,
+          "transfer": 48284,
+          "duration": 15
+        },
+        {
+          "name": "/fonts/nationalpark.woff2",
+          "bytes": 15124,
+          "transfer": 15424,
+          "duration": 15
+        },
+        {
+          "name": "/fonts/hershey-heavy.woff2",
+          "bytes": 6996,
+          "transfer": 7296,
+          "duration": 15
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%3A256%2C0%3A256&stride=1%2C256%2C256&dataset=field",
+          "bytes": 4,
+          "transfer": 304,
+          "duration": 26
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A32&stride=1&dataset=field&wire=f64",
+          "bytes": 256,
+          "transfer": 556,
+          "duration": 27
+        },
+        {
+          "name": "/api/data?path=%2Flon&selection=0%3A256&stride=1&dataset=field&wire=f64",
+          "bytes": 2048,
+          "transfer": 2348,
+          "duration": 27
+        },
+        {
+          "name": "/api/data?path=%2Flat&selection=0%3A256&stride=1&dataset=field&wire=f64",
+          "bytes": 2048,
+          "transfer": 2348,
+          "duration": 28
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%3A256%2C0%3A256&stride=1%2C1%2C1&dataset=field",
+          "bytes": 262144,
+          "transfer": 262444,
+          "duration": 17
+        }
+      ],
+      "cold_measures": [
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 18,
+          "start": 240
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 32,
+          "start": 247
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 279
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 31,
+          "start": 257
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 288
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 65,
+          "start": 258
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 66,
+          "start": 258
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 45,
+          "start": 279
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 323
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 324
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 324
+        },
+        {
+          "name": "ncx.field.raster",
+          "ms": 9,
+          "start": 331
+        }
+      ],
+      "browser_closed_rss_kib": 788440,
+      "next_frame_ms": 85,
+      "unit_change_ms": 46,
+      "unit_change_reads": 0,
+      "warm_plot_ms": 406,
+      "server_peak_rss_kib": 16296
+    },
+    {
+      "version": "current",
+      "fixture": "field",
+      "run": 2,
+      "server_ready_ms": 29.507707000004302,
+      "cold_plot_ms": 498,
+      "cold_resources": [
+        {
+          "name": "/assets/app.js?v=c0677c078543060a",
+          "bytes": 543431,
+          "transfer": 543731,
+          "duration": 36
+        },
+        {
+          "name": "/assets/app.css?v=4f04fa0e1e8016ba",
+          "bytes": 54961,
+          "transfer": 55261,
+          "duration": 36
+        },
+        {
+          "name": "/favicon.ico",
+          "bytes": 455,
+          "transfer": 755,
+          "duration": 97
+        },
+        {
+          "name": "/fonts/gorton-400.woff2",
+          "bytes": 18488,
+          "transfer": 18788,
+          "duration": 4
+        },
+        {
+          "name": "/fonts/gorton-600.woff2",
+          "bytes": 18780,
+          "transfer": 19080,
+          "duration": 7
+        },
+        {
+          "name": "/api/session",
+          "bytes": 74,
+          "transfer": 374,
+          "duration": 7
+        },
+        {
+          "name": "/api/datasets",
+          "bytes": 161,
+          "transfer": 461,
+          "duration": 8
+        },
+        {
+          "name": "/api/meta?dataset=field",
+          "bytes": 2832,
+          "transfer": 3132,
+          "duration": 32
+        },
+        {
+          "name": "/fonts/commit-web-450.woff2",
+          "bytes": 48792,
+          "transfer": 49092,
+          "duration": 8
+        },
+        {
+          "name": "/fonts/commit-web-600.woff2",
+          "bytes": 48512,
+          "transfer": 48812,
+          "duration": 20
+        },
+        {
+          "name": "/fonts/cmmath.woff2",
+          "bytes": 47028,
+          "transfer": 47328,
+          "duration": 20
+        },
+        {
+          "name": "/fonts/nationalpark.woff2",
+          "bytes": 15124,
+          "transfer": 15424,
+          "duration": 24
+        },
+        {
+          "name": "/fonts/hershey-heavy.woff2",
+          "bytes": 6996,
+          "transfer": 7296,
+          "duration": 24
+        },
+        {
+          "name": "/fonts/hershey-medium.woff2",
+          "bytes": 6900,
+          "transfer": 7200,
+          "duration": 21
+        },
+        {
+          "name": "/fonts/commit-web-400.woff2",
+          "bytes": 47984,
+          "transfer": 48284,
+          "duration": 22
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%2C0&stride=1%2C1%2C1&dataset=field",
+          "bytes": 0,
+          "transfer": 0,
+          "duration": 0
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%3A256%2C0%3A256&stride=1%2C256%2C256&dataset=field",
+          "bytes": 4,
+          "transfer": 304,
+          "duration": 31
+        },
+        {
+          "name": "/assets/py-DFv_lSPZ.js",
+          "bytes": 693,
+          "transfer": 993,
+          "duration": 19
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A32&stride=1&dataset=field&wire=f64",
+          "bytes": 256,
+          "transfer": 556,
+          "duration": 17
+        },
+        {
+          "name": "/api/data?path=%2Flon&selection=0%3A256&stride=1&dataset=field&wire=f64",
+          "bytes": 2048,
+          "transfer": 2348,
+          "duration": 20
+        },
+        {
+          "name": "/api/data?path=%2Flat&selection=0%3A256&stride=1&dataset=field&wire=f64",
+          "bytes": 2048,
+          "transfer": 2348,
+          "duration": 20
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%3A256%2C0%3A256&stride=1%2C1%2C1&dataset=field",
+          "bytes": 262144,
+          "transfer": 262444,
+          "duration": 17
+        },
+        {
+          "name": "/assets/todo-DP7rq1XD.js",
+          "bytes": 236,
+          "transfer": 536,
+          "duration": 18
+        }
+      ],
+      "cold_measures": [
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 33,
+          "start": 302
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 39,
+          "start": 311
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 350
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 22,
+          "start": 335
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 357
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 54,
+          "start": 335
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 55,
+          "start": 335
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 40,
+          "start": 350
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 389
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 390
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 390
+        },
+        {
+          "name": "ncx.field.raster",
+          "ms": 9,
+          "start": 407
+        }
+      ],
+      "browser_closed_rss_kib": 794736,
+      "next_frame_ms": 88,
+      "unit_change_ms": 45,
+      "unit_change_reads": 0,
+      "warm_plot_ms": 343,
+      "browser_before_python_rss_kib": 868760,
+      "python_ready_ms": 4455,
+      "browser_python_rss_kib": 1113336,
+      "python_resources": [
+        {
+          "name": "/assets/py-DFv_lSPZ.js",
+          "bytes": 693,
+          "transfer": 0,
+          "duration": 14
+        },
+        {
+          "name": "/assets/worker-B1R-geuD.js",
+          "bytes": 60605,
+          "transfer": 60905,
+          "duration": 6
+        }
+      ],
+      "python_network": [
+        {
+          "name": "data:font/woff2;base64,d09GMgABAAAAAAScAAsAAAAACfAAAARNAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAABmAAhBIRCAqGMIRJATYCJAMsCxgABCAFhF4HaBsuCMgehXEsLOlXaXd7sgbPQ172fjLwdhYFM92mABaiTuRVdO5/mx9I5UJiJom3phLRQw/TSF2M/vo25+pNyWkNws81NrUDAAf0QOdfcf7nmPEyBPZtCbbZEDuosskKZG922ZhBenh05qcSXktf6s3Oy9dAkWsyDzMoM5QTKcwKNjFayUPSREGFhUMrdE8MJsH052qGcYNO3pbEaYIBoDTItIKGAqhDdKHRD0kkKg6QGSCWEfueTNr3P6OvYaIbDH/8ULEAbjQtUt+hT/qmX/SH/twwMLDqN4jxzXjy4PHtltSA6lINqkpRd7N7onVBP20y7YBWyDIHFEBjqKBFMmECfQcTZtD3MmEB/SATVtCPM2ED/TQTdtCfS0/pEsN4ySin3r8q8xHE+0D0XMg8gJi4YrNpNv3qetXuDyeo6OBNZrq5gi7ouC1zcmB2Fd+FewIhcUIfszpF1hzXhrmMCwxaznRyZjig6Y2W7+bBn2DL8fJu/2oHbWc6X80+LUTXcVzv8O3IOy4qKVyFw/DHaMtfzNQEi5gbFT/EDpiofbpkYq2dQui6WcpfxrVBEJ/KxbLA4ZroZoVx+iE+QeTIiI7oKuoUIk/a1ekEOoNFjozm0suYYUelq13/88K1c3PTH9O9Q0d5LZbu7+J2aT7XP23KyQs+34WTU7r8d/k0l6dLl98Dn+/BSUZc7U0mm7FqhSMO9EHV/j5FB4qYX4aXNaKwz/4RRfAWsW8xGW+hvr8PTAf6IP9mRpkDwwv7QFz9HRuOeGWfd8rkyYsWTVy4vpG/pgVNWzBx0aTeIgeq58XFVfZXVduwuOq51a77aT0XLVw4v1PBFjRsQzO+tVeVp3KIwqfKbd6sdjzGvFSuPMquGpMT29lkrhwbE5uz6cGHhIETB06oUk+6tHLJgfnu/3nVnJzYxiXNjQNjYqsu+vCgYKDla5uUOzTNDZg46eCBd3d3gSk9Kz/bFiv8hvOzCT5eqyjBGerT+EiG/JGqwbC+UQ6Bv9bmKGWMj8Yn+fPVRJxKBGqTFXQyM9DhHSlvEHmLVxyYjY/Fdd3hACfLyP3VVZLvVR7B0pxSsGIBqHhwT5sSMOMkRG0BJhpsWMkEO24KwE0pqp3tIYTWCIjJjuBiGNTKTj8JoBLKAn4TmPFnj9oywZwFGx4egp1g3oObeLHdwUO2pFcYTITZCa2c1GQbNg6RCsu9bpikThhAWnLaBi3LM8+5VbMU6rUn30owOC83ULcfBlClb5BBre46BinaWRal85SUvlCbUx1Nbyj2HWCxBTkEgWScQKzsTioJW0IanAYRZqET4mZLSKU2JABII9np01lQ7lOt3srtM1KAeqgQPhYJSMCZJRuAukRZB1CF35gB1MJBr4ilIPZchNyIlDkpRt+3s96cz9K8XKQvCdZfcqWxgtLoXZ2AoKAyVSRRxSRmsYjVOriP089q3z6gdMjE5KI7kzumWzpnAwAAAA==",
+          "bytes": 0,
+          "transfer": 0
+        },
+        {
+          "name": "/assets/worker-B1R-geuD.js",
+          "bytes": 60605,
+          "transfer": 60782
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.mjs",
+          "bytes": 17931,
+          "transfer": 18108
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%3A256%2C0%3A256&stride=1%2C2%2C1&dataset=field",
+          "bytes": 131072,
+          "transfer": 131311
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%3A256%2C0%3A256&stride=1%2C1%2C1&dataset=field",
+          "bytes": 262144,
+          "transfer": 262382
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide-lock.json",
+          "bytes": 119077,
+          "transfer": 119241
+        },
+        {
+          "name": "/assets/python-314.0.7/python_stdlib.zip",
+          "bytes": 2545637,
+          "transfer": 2545810
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.asm.mjs",
+          "bytes": 1250344,
+          "transfer": 1250523
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.asm.wasm",
+          "bytes": 9598218,
+          "transfer": 9598383
+        },
+        {
+          "name": "/assets/python-314.0.7/pyyaml-6.0.3-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
+          "bytes": 112901,
+          "transfer": 113073
+        },
+        {
+          "name": "/assets/python-314.0.7/numpy-2.4.6-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
+          "bytes": 2960568,
+          "transfer": 2960741
+        },
+        {
+          "name": "/assets/python-314.0.7/click-8.5.0-py3-none-any.whl?sha256=255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360",
+          "bytes": 125251,
+          "transfer": 125423
+        },
+        {
+          "name": "/assets/python-314.0.7/cloudpickle-3.1.2-py3-none-any.whl?sha256=9acb47f6afd73f60dc1df93bb801b472f05ff42fa6c84167d25cb206be1fbf4a",
+          "bytes": 22228,
+          "transfer": 22399
+        },
+        {
+          "name": "/assets/python-314.0.7/dask-2026.8.0-py3-none-any.whl?sha256=ccc0c83a189b0398602435189771d28dad7b5773b6089bb8dce14ae732dd782c",
+          "bytes": 1492182,
+          "transfer": 1492355
+        },
+        {
+          "name": "/assets/python-314.0.7/fsspec-2026.7.0-py3-none-any.whl?sha256=b57ddbafedfaef7018c1ecab32aa200a9d7ca26b77965f64e48b70061249d279",
+          "bytes": 206583,
+          "transfer": 206755
+        },
+        {
+          "name": "/assets/python-314.0.7/locket-1.0.0-py2.py3-none-any.whl?sha256=b6c819a722f7b6bd955b80781788e4a66a55628b858d347536b7e81325a3a5e3",
+          "bytes": 4398,
+          "transfer": 4568
+        },
+        {
+          "name": "/assets/python-314.0.7/packaging-26.3-py3-none-any.whl?sha256=d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c",
+          "bytes": 129956,
+          "transfer": 130128
+        },
+        {
+          "name": "/assets/python-314.0.7/partd-1.4.2-py3-none-any.whl?sha256=978e4ac767ec4ba5b86c6eaa52e5a2a3bc748a2ca839e8cc798f1cc6ce6efb0f",
+          "bytes": 18905,
+          "transfer": 19076
+        },
+        {
+          "name": "/assets/python-314.0.7/toolz-1.1.0-py3-none-any.whl?sha256=15ccc861ac51c53696de0a5d6d4607f99c210739caf987b5d2054f3efed429d8",
+          "bytes": 58093,
+          "transfer": 58264
+        }
+      ],
+      "convert_assignment_ms": 66,
+      "unit_after_assignment": "Pa",
+      "convert_show_ms": 133,
+      "convert_show_paint_ms": 140,
+      "unit_after_show": "hPa",
+      "append_field_ms": 84,
+      "append_field_paint_ms": 92,
+      "append_field_resources": [],
+      "editor_field_rasters": 0,
+      "metadata_after_show": "msl\nDATA TYPE\ndouble\nSHAPE\ntime=32 \u00d7 lat=256 \u00d7 lon=256\nVIEW HINT\nrectilinear\nUNITS\nhPa\nDIMENSIONS\nNAME\tLENGTH\tSCOPE\ntime\t32\t/time\nlat\t256\t/lat\nlon\t256\t/lon\nATTRIBUTES\nNAME\tTYPE\tVALUE\nlong_name\tchar\tmsl\nunits\tchar\thPa\nsource\tchar\tsources.s1[\"/msl\"]\nsource_unit\tchar\tPa\nexpression\tchar\tdivide(add(multiply(sources.s1['/msl'], 1), 0), 100)",
+      "browser_computed_rss_kib": 1002836,
+      "server_peak_rss_kib": 29600
+    },
+    {
+      "version": "baseline",
+      "fixture": "station",
+      "run": 2,
+      "server_ready_ms": 26.503548000000592,
+      "cold_plot_ms": 420,
+      "cold_resources": [
+        {
+          "name": "/assets/app.js?v=b0a9be82d0757475",
+          "bytes": 472192,
+          "transfer": 472492,
+          "duration": 29
+        },
+        {
+          "name": "/assets/app.css?v=f49daf14688c566b",
+          "bytes": 43431,
+          "transfer": 43731,
+          "duration": 30
+        },
+        {
+          "name": "/favicon.ico",
+          "bytes": 455,
+          "transfer": 755,
+          "duration": 88
+        },
+        {
+          "name": "/fonts/gorton-400.woff2",
+          "bytes": 18488,
+          "transfer": 18788,
+          "duration": 5
+        },
+        {
+          "name": "/fonts/gorton-600.woff2",
+          "bytes": 18780,
+          "transfer": 19080,
+          "duration": 13
+        },
+        {
+          "name": "/api/session",
+          "bytes": 74,
+          "transfer": 374,
+          "duration": 12
+        },
+        {
+          "name": "/api/datasets",
+          "bytes": 268,
+          "transfer": 568,
+          "duration": 4
+        },
+        {
+          "name": "/api/meta?dataset=normal",
+          "bytes": 1626,
+          "transfer": 1926,
+          "duration": 3
+        },
+        {
+          "name": "/fonts/commit-web-450.woff2",
+          "bytes": 48792,
+          "transfer": 49092,
+          "duration": 9
+        },
+        {
+          "name": "/fonts/nationalpark.woff2",
+          "bytes": 15124,
+          "transfer": 15424,
+          "duration": 9
+        },
+        {
+          "name": "/fonts/commit-web-600.woff2",
+          "bytes": 48512,
+          "transfer": 48812,
+          "duration": 9
+        },
+        {
+          "name": "/fonts/hershey-heavy.woff2",
+          "bytes": 6996,
+          "transfer": 7296,
+          "duration": 9
+        },
+        {
+          "name": "/fonts/hershey-medium.woff2",
+          "bytes": 6900,
+          "transfer": 7200,
+          "duration": 9
+        },
+        {
+          "name": "/fonts/commit-web-400.woff2",
+          "bytes": 47984,
+          "transfer": 48284,
+          "duration": 10
+        },
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=normal",
+          "bytes": 200000,
+          "transfer": 200300,
+          "duration": 21
+        },
+        {
+          "name": "/api/meta?dataset=tide",
+          "bytes": 1620,
+          "transfer": 1920,
+          "duration": 20
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A50000&stride=1&dataset=normal&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 22
+        },
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=tide",
+          "bytes": 200000,
+          "transfer": 200300,
+          "duration": 7
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A50000&stride=1&dataset=tide&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 10
+        }
+      ],
+      "cold_measures": [
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 25,
+          "start": 202
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 227
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 47,
+          "start": 204
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 251
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 9,
+          "start": 250
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 259
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 15,
+          "start": 251
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 266
+        }
+      ],
+      "browser_closed_rss_kib": 796908,
+      "curve_path_chars": 60555,
+      "resize_ms": 78,
+      "resize_reads": 0,
+      "host_anomaly_display_ms": 155,
+      "warm_plot_ms": 390,
+      "server_peak_rss_kib": 12684
+    },
+    {
+      "version": "current",
+      "fixture": "station",
+      "run": 2,
+      "server_ready_ms": 16.07634500000131,
+      "cold_plot_ms": 502,
+      "cold_resources": [
+        {
+          "name": "/assets/app.js?v=c0677c078543060a",
+          "bytes": 543431,
+          "transfer": 543731,
+          "duration": 34
+        },
+        {
+          "name": "/assets/app.css?v=4f04fa0e1e8016ba",
+          "bytes": 54961,
+          "transfer": 55261,
+          "duration": 34
+        },
+        {
+          "name": "/favicon.ico",
+          "bytes": 455,
+          "transfer": 755,
+          "duration": 112
+        },
+        {
+          "name": "/fonts/gorton-400.woff2",
+          "bytes": 18488,
+          "transfer": 18788,
+          "duration": 15
+        },
+        {
+          "name": "/fonts/gorton-600.woff2",
+          "bytes": 18780,
+          "transfer": 19080,
+          "duration": 2
+        },
+        {
+          "name": "/api/session",
+          "bytes": 74,
+          "transfer": 374,
+          "duration": 5
+        },
+        {
+          "name": "/api/datasets",
+          "bytes": 268,
+          "transfer": 568,
+          "duration": 5
+        },
+        {
+          "name": "/api/meta?dataset=normal",
+          "bytes": 1626,
+          "transfer": 1926,
+          "duration": 1
+        },
+        {
+          "name": "/fonts/commit-web-450.woff2",
+          "bytes": 48792,
+          "transfer": 49092,
+          "duration": 2
+        },
+        {
+          "name": "/fonts/commit-web-600.woff2",
+          "bytes": 48512,
+          "transfer": 48812,
+          "duration": 3
+        },
+        {
+          "name": "/fonts/nationalpark.woff2",
+          "bytes": 15124,
+          "transfer": 15424,
+          "duration": 3
+        },
+        {
+          "name": "/fonts/hershey-heavy.woff2",
+          "bytes": 6996,
+          "transfer": 7296,
+          "duration": 7
+        },
+        {
+          "name": "/fonts/hershey-medium.woff2",
+          "bytes": 6900,
+          "transfer": 7200,
+          "duration": 7
+        },
+        {
+          "name": "/fonts/commit-web-400.woff2",
+          "bytes": 47984,
+          "transfer": 48284,
+          "duration": 7
+        },
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=normal",
+          "bytes": 200000,
+          "transfer": 200300,
+          "duration": 8
+        },
+        {
+          "name": "/api/meta?dataset=tide",
+          "bytes": 1620,
+          "transfer": 1920,
+          "duration": 4
+        },
+        {
+          "name": "/assets/py-DFv_lSPZ.js",
+          "bytes": 693,
+          "transfer": 993,
+          "duration": 5
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A50000&stride=1&dataset=normal&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 7
+        },
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=tide",
+          "bytes": 200000,
+          "transfer": 200300,
+          "duration": 2
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A50000&stride=1&dataset=tide&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 3
+        },
+        {
+          "name": "/assets/todo-DP7rq1XD.js",
+          "bytes": 236,
+          "transfer": 536,
+          "duration": 12
+        }
+      ],
+      "cold_measures": [
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 14,
+          "start": 284
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 298
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 26,
+          "start": 288
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 314
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 18,
+          "start": 307
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 31,
+          "start": 307
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 325
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 338
+        }
+      ],
+      "browser_closed_rss_kib": 811740,
+      "curve_path_chars": 60346,
+      "resize_ms": 76,
+      "resize_reads": 0,
+      "host_anomaly_display_ms": 166,
+      "warm_plot_ms": 363,
+      "browser_before_python_rss_kib": 991060,
+      "python_ready_ms": 4489,
+      "browser_python_rss_kib": 1056668,
+      "python_resources": [
+        {
+          "name": "/assets/py-DFv_lSPZ.js",
+          "bytes": 693,
+          "transfer": 0,
+          "duration": 5
+        },
+        {
+          "name": "/assets/worker-B1R-geuD.js",
+          "bytes": 60605,
+          "transfer": 60905,
+          "duration": 7
+        }
+      ],
+      "python_network": [
+        {
+          "name": "/assets/worker-B1R-geuD.js",
+          "bytes": 60605,
+          "transfer": 60782
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.mjs",
+          "bytes": 17931,
+          "transfer": 18108
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide-lock.json",
+          "bytes": 119077,
+          "transfer": 119241
+        },
+        {
+          "name": "/assets/python-314.0.7/python_stdlib.zip",
+          "bytes": 2545637,
+          "transfer": 2545810
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.asm.mjs",
+          "bytes": 1250344,
+          "transfer": 1250523
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.asm.wasm",
+          "bytes": 9598218,
+          "transfer": 9598383
+        },
+        {
+          "name": "/assets/python-314.0.7/pyyaml-6.0.3-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
+          "bytes": 112901,
+          "transfer": 113073
+        },
+        {
+          "name": "/assets/python-314.0.7/numpy-2.4.6-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
+          "bytes": 2960568,
+          "transfer": 2960741
+        },
+        {
+          "name": "/assets/python-314.0.7/click-8.5.0-py3-none-any.whl?sha256=255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360",
+          "bytes": 125251,
+          "transfer": 125423
+        },
+        {
+          "name": "/assets/python-314.0.7/cloudpickle-3.1.2-py3-none-any.whl?sha256=9acb47f6afd73f60dc1df93bb801b472f05ff42fa6c84167d25cb206be1fbf4a",
+          "bytes": 22228,
+          "transfer": 22399
+        },
+        {
+          "name": "/assets/python-314.0.7/dask-2026.8.0-py3-none-any.whl?sha256=ccc0c83a189b0398602435189771d28dad7b5773b6089bb8dce14ae732dd782c",
+          "bytes": 1492182,
+          "transfer": 1492355
+        },
+        {
+          "name": "/assets/python-314.0.7/fsspec-2026.7.0-py3-none-any.whl?sha256=b57ddbafedfaef7018c1ecab32aa200a9d7ca26b77965f64e48b70061249d279",
+          "bytes": 206583,
+          "transfer": 206755
+        },
+        {
+          "name": "/assets/python-314.0.7/locket-1.0.0-py2.py3-none-any.whl?sha256=b6c819a722f7b6bd955b80781788e4a66a55628b858d347536b7e81325a3a5e3",
+          "bytes": 4398,
+          "transfer": 4568
+        },
+        {
+          "name": "/assets/python-314.0.7/packaging-26.3-py3-none-any.whl?sha256=d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c",
+          "bytes": 129956,
+          "transfer": 130128
+        },
+        {
+          "name": "/assets/python-314.0.7/partd-1.4.2-py3-none-any.whl?sha256=978e4ac767ec4ba5b86c6eaa52e5a2a3bc748a2ca839e8cc798f1cc6ce6efb0f",
+          "bytes": 18905,
+          "transfer": 19076
+        },
+        {
+          "name": "/assets/python-314.0.7/toolz-1.1.0-py3-none-any.whl?sha256=15ccc861ac51c53696de0a5d6d4607f99c210739caf987b5d2054f3efed429d8",
+          "bytes": 58093,
+          "transfer": 58264
+        }
+      ],
+      "match_ms": 67,
+      "anomaly_ms": 216,
+      "anomaly_paint_ms": 223,
+      "anomaly_resources": [
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=tide&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 7
+        },
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=normal&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 4
+        }
+      ],
+      "anomaly_zero_line": true,
+      "anomaly_repeat_ms": 68,
+      "anomaly_repeat_resources": [],
+      "append_curve_ms": 83,
+      "append_curve_resources": [],
+      "numeric_check_ms": 133,
+      "browser_computed_rss_kib": 1066368,
+      "server_peak_rss_kib": 31176
+    },
+    {
+      "version": "current",
+      "fixture": "field",
+      "run": 3,
+      "server_ready_ms": 29.810964000003878,
+      "cold_plot_ms": 506,
+      "cold_resources": [
+        {
+          "name": "/assets/app.js?v=c0677c078543060a",
+          "bytes": 543431,
+          "transfer": 543731,
+          "duration": 36
+        },
+        {
+          "name": "/assets/app.css?v=4f04fa0e1e8016ba",
+          "bytes": 54961,
+          "transfer": 55261,
+          "duration": 35
+        },
+        {
+          "name": "/favicon.ico",
+          "bytes": 455,
+          "transfer": 755,
+          "duration": 164
+        },
+        {
+          "name": "/fonts/gorton-400.woff2",
+          "bytes": 18488,
+          "transfer": 18788,
+          "duration": 3
+        },
+        {
+          "name": "/fonts/gorton-600.woff2",
+          "bytes": 18780,
+          "transfer": 19080,
+          "duration": 22
+        },
+        {
+          "name": "/api/session",
+          "bytes": 74,
+          "transfer": 374,
+          "duration": 19
+        },
+        {
+          "name": "/api/datasets",
+          "bytes": 161,
+          "transfer": 461,
+          "duration": 11
+        },
+        {
+          "name": "/api/meta?dataset=field",
+          "bytes": 2832,
+          "transfer": 3132,
+          "duration": 30
+        },
+        {
+          "name": "/fonts/commit-web-450.woff2",
+          "bytes": 48792,
+          "transfer": 49092,
+          "duration": 9
+        },
+        {
+          "name": "/fonts/commit-web-600.woff2",
+          "bytes": 48512,
+          "transfer": 48812,
+          "duration": 7
+        },
+        {
+          "name": "/fonts/cmmath.woff2",
+          "bytes": 47028,
+          "transfer": 47328,
+          "duration": 6
+        },
+        {
+          "name": "/fonts/nationalpark.woff2",
+          "bytes": 15124,
+          "transfer": 15424,
+          "duration": 7
+        },
+        {
+          "name": "/fonts/hershey-heavy.woff2",
+          "bytes": 6996,
+          "transfer": 7296,
+          "duration": 7
+        },
+        {
+          "name": "/fonts/hershey-medium.woff2",
+          "bytes": 6900,
+          "transfer": 7200,
+          "duration": 8
+        },
+        {
+          "name": "/fonts/commit-web-400.woff2",
+          "bytes": 47984,
+          "transfer": 48284,
+          "duration": 14
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%2C0&stride=1%2C1%2C1&dataset=field",
+          "bytes": 0,
+          "transfer": 300,
+          "duration": 11
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%3A256%2C0%3A256&stride=1%2C256%2C256&dataset=field",
+          "bytes": 4,
+          "transfer": 304,
+          "duration": 11
+        },
+        {
+          "name": "/assets/py-DFv_lSPZ.js",
+          "bytes": 693,
+          "transfer": 993,
+          "duration": 8
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A32&stride=1&dataset=field&wire=f64",
+          "bytes": 256,
+          "transfer": 556,
+          "duration": 8
+        },
+        {
+          "name": "/api/data?path=%2Flon&selection=0%3A256&stride=1&dataset=field&wire=f64",
+          "bytes": 2048,
+          "transfer": 2348,
+          "duration": 8
+        },
+        {
+          "name": "/api/data?path=%2Flat&selection=0%3A256&stride=1&dataset=field&wire=f64",
+          "bytes": 2048,
+          "transfer": 2348,
+          "duration": 9
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%3A256%2C0%3A256&stride=1%2C1%2C1&dataset=field",
+          "bytes": 262144,
+          "transfer": 262444,
+          "duration": 10
+        },
+        {
+          "name": "/assets/todo-DP7rq1XD.js",
+          "bytes": 236,
+          "transfer": 536,
+          "duration": 4
+        }
+      ],
+      "cold_measures": [
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 23,
+          "start": 335
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 23,
+          "start": 345
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 368
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 18,
+          "start": 357
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 17,
+          "start": 358
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 18,
+          "start": 358
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 375
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 375
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 376
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 25,
+          "start": 368
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 393
+        },
+        {
+          "name": "ncx.field.raster",
+          "ms": 9,
+          "start": 412
+        }
+      ],
+      "browser_closed_rss_kib": 796740,
+      "next_frame_ms": 66,
+      "unit_change_ms": 46,
+      "unit_change_reads": 0,
+      "warm_plot_ms": 405,
+      "browser_before_python_rss_kib": 869820,
+      "python_ready_ms": 4499,
+      "browser_python_rss_kib": 1105596,
+      "python_resources": [
+        {
+          "name": "/assets/py-DFv_lSPZ.js",
+          "bytes": 693,
+          "transfer": 0,
+          "duration": 66
+        },
+        {
+          "name": "/assets/worker-B1R-geuD.js",
+          "bytes": 60605,
+          "transfer": 60905,
+          "duration": 3
+        }
+      ],
+      "python_network": [
+        {
+          "name": "data:font/woff2;base64,d09GMgABAAAAAAScAAsAAAAACfAAAARNAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAABmAAhBIRCAqGMIRJATYCJAMsCxgABCAFhF4HaBsuCMgehXEsLOlXaXd7sgbPQ172fjLwdhYFM92mABaiTuRVdO5/mx9I5UJiJom3phLRQw/TSF2M/vo25+pNyWkNws81NrUDAAf0QOdfcf7nmPEyBPZtCbbZEDuosskKZG922ZhBenh05qcSXktf6s3Oy9dAkWsyDzMoM5QTKcwKNjFayUPSREGFhUMrdE8MJsH052qGcYNO3pbEaYIBoDTItIKGAqhDdKHRD0kkKg6QGSCWEfueTNr3P6OvYaIbDH/8ULEAbjQtUt+hT/qmX/SH/twwMLDqN4jxzXjy4PHtltSA6lINqkpRd7N7onVBP20y7YBWyDIHFEBjqKBFMmECfQcTZtD3MmEB/SATVtCPM2ED/TQTdtCfS0/pEsN4ySin3r8q8xHE+0D0XMg8gJi4YrNpNv3qetXuDyeo6OBNZrq5gi7ouC1zcmB2Fd+FewIhcUIfszpF1hzXhrmMCwxaznRyZjig6Y2W7+bBn2DL8fJu/2oHbWc6X80+LUTXcVzv8O3IOy4qKVyFw/DHaMtfzNQEi5gbFT/EDpiofbpkYq2dQui6WcpfxrVBEJ/KxbLA4ZroZoVx+iE+QeTIiI7oKuoUIk/a1ekEOoNFjozm0suYYUelq13/88K1c3PTH9O9Q0d5LZbu7+J2aT7XP23KyQs+34WTU7r8d/k0l6dLl98Dn+/BSUZc7U0mm7FqhSMO9EHV/j5FB4qYX4aXNaKwz/4RRfAWsW8xGW+hvr8PTAf6IP9mRpkDwwv7QFz9HRuOeGWfd8rkyYsWTVy4vpG/pgVNWzBx0aTeIgeq58XFVfZXVduwuOq51a77aT0XLVw4v1PBFjRsQzO+tVeVp3KIwqfKbd6sdjzGvFSuPMquGpMT29lkrhwbE5uz6cGHhIETB06oUk+6tHLJgfnu/3nVnJzYxiXNjQNjYqsu+vCgYKDla5uUOzTNDZg46eCBd3d3gSk9Kz/bFiv8hvOzCT5eqyjBGerT+EiG/JGqwbC+UQ6Bv9bmKGWMj8Yn+fPVRJxKBGqTFXQyM9DhHSlvEHmLVxyYjY/Fdd3hACfLyP3VVZLvVR7B0pxSsGIBqHhwT5sSMOMkRG0BJhpsWMkEO24KwE0pqp3tIYTWCIjJjuBiGNTKTj8JoBLKAn4TmPFnj9oywZwFGx4egp1g3oObeLHdwUO2pFcYTITZCa2c1GQbNg6RCsu9bpikThhAWnLaBi3LM8+5VbMU6rUn30owOC83ULcfBlClb5BBre46BinaWRal85SUvlCbUx1Nbyj2HWCxBTkEgWScQKzsTioJW0IanAYRZqET4mZLSKU2JABII9np01lQ7lOt3srtM1KAeqgQPhYJSMCZJRuAukRZB1CF35gB1MJBr4ilIPZchNyIlDkpRt+3s96cz9K8XKQvCdZfcqWxgtLoXZ2AoKAyVSRRxSRmsYjVOriP089q3z6gdMjE5KI7kzumWzpnAwAAAA==",
+          "bytes": 0,
+          "transfer": 0
+        },
+        {
+          "name": "/assets/worker-B1R-geuD.js",
+          "bytes": 60605,
+          "transfer": 60782
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.mjs",
+          "bytes": 17931,
+          "transfer": 18108
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide-lock.json",
+          "bytes": 119077,
+          "transfer": 119241
+        },
+        {
+          "name": "/assets/python-314.0.7/python_stdlib.zip",
+          "bytes": 2545637,
+          "transfer": 2545810
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.asm.mjs",
+          "bytes": 1250344,
+          "transfer": 1250523
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.asm.wasm",
+          "bytes": 9598218,
+          "transfer": 9598383
+        },
+        {
+          "name": "/assets/python-314.0.7/pyyaml-6.0.3-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
+          "bytes": 112901,
+          "transfer": 113073
+        },
+        {
+          "name": "/assets/python-314.0.7/numpy-2.4.6-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
+          "bytes": 2960568,
+          "transfer": 2960741
+        },
+        {
+          "name": "/assets/python-314.0.7/click-8.5.0-py3-none-any.whl?sha256=255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360",
+          "bytes": 125251,
+          "transfer": 125423
+        },
+        {
+          "name": "/assets/python-314.0.7/cloudpickle-3.1.2-py3-none-any.whl?sha256=9acb47f6afd73f60dc1df93bb801b472f05ff42fa6c84167d25cb206be1fbf4a",
+          "bytes": 22228,
+          "transfer": 22399
+        },
+        {
+          "name": "/assets/python-314.0.7/dask-2026.8.0-py3-none-any.whl?sha256=ccc0c83a189b0398602435189771d28dad7b5773b6089bb8dce14ae732dd782c",
+          "bytes": 1492182,
+          "transfer": 1492355
+        },
+        {
+          "name": "/assets/python-314.0.7/fsspec-2026.7.0-py3-none-any.whl?sha256=b57ddbafedfaef7018c1ecab32aa200a9d7ca26b77965f64e48b70061249d279",
+          "bytes": 206583,
+          "transfer": 206755
+        },
+        {
+          "name": "/assets/python-314.0.7/locket-1.0.0-py2.py3-none-any.whl?sha256=b6c819a722f7b6bd955b80781788e4a66a55628b858d347536b7e81325a3a5e3",
+          "bytes": 4398,
+          "transfer": 4568
+        },
+        {
+          "name": "/assets/python-314.0.7/packaging-26.3-py3-none-any.whl?sha256=d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c",
+          "bytes": 129956,
+          "transfer": 130128
+        },
+        {
+          "name": "/assets/python-314.0.7/partd-1.4.2-py3-none-any.whl?sha256=978e4ac767ec4ba5b86c6eaa52e5a2a3bc748a2ca839e8cc798f1cc6ce6efb0f",
+          "bytes": 18905,
+          "transfer": 19076
+        },
+        {
+          "name": "/assets/python-314.0.7/toolz-1.1.0-py3-none-any.whl?sha256=15ccc861ac51c53696de0a5d6d4607f99c210739caf987b5d2054f3efed429d8",
+          "bytes": 58093,
+          "transfer": 58264
+        }
+      ],
+      "convert_assignment_ms": 66,
+      "unit_after_assignment": "Pa",
+      "convert_show_ms": 133,
+      "convert_show_paint_ms": 147,
+      "unit_after_show": "hPa",
+      "append_field_ms": 82,
+      "append_field_paint_ms": 89,
+      "append_field_resources": [],
+      "editor_field_rasters": 0,
+      "metadata_after_show": "msl\nDATA TYPE\ndouble\nSHAPE\ntime=32 \u00d7 lat=256 \u00d7 lon=256\nVIEW HINT\nrectilinear\nUNITS\nhPa\nDIMENSIONS\nNAME\tLENGTH\tSCOPE\ntime\t32\t/time\nlat\t256\t/lat\nlon\t256\t/lon\nATTRIBUTES\nNAME\tTYPE\tVALUE\nlong_name\tchar\tmsl\nunits\tchar\thPa\nsource\tchar\tsources.s1[\"/msl\"]\nsource_unit\tchar\tPa\nexpression\tchar\tdivide(add(multiply(sources.s1['/msl'], 1), 0), 100)",
+      "browser_computed_rss_kib": 990948,
+      "server_peak_rss_kib": 29344
+    },
+    {
+      "version": "baseline",
+      "fixture": "field",
+      "run": 3,
+      "server_ready_ms": 24.343974999996135,
+      "cold_plot_ms": 361,
+      "cold_resources": [
+        {
+          "name": "/assets/app.js?v=b0a9be82d0757475",
+          "bytes": 472192,
+          "transfer": 472492,
+          "duration": 29
+        },
+        {
+          "name": "/assets/app.css?v=f49daf14688c566b",
+          "bytes": 43431,
+          "transfer": 43731,
+          "duration": 30
+        },
+        {
+          "name": "/favicon.ico",
+          "bytes": 455,
+          "transfer": 755,
+          "duration": 95
+        },
+        {
+          "name": "/fonts/gorton-400.woff2",
+          "bytes": 18488,
+          "transfer": 18788,
+          "duration": 3
+        },
+        {
+          "name": "/fonts/gorton-600.woff2",
+          "bytes": 18780,
+          "transfer": 19080,
+          "duration": 10
+        },
+        {
+          "name": "/api/session",
+          "bytes": 74,
+          "transfer": 374,
+          "duration": 10
+        },
+        {
+          "name": "/api/datasets",
+          "bytes": 161,
+          "transfer": 461,
+          "duration": 2
+        },
+        {
+          "name": "/api/meta?dataset=field",
+          "bytes": 2832,
+          "transfer": 3132,
+          "duration": 3
+        },
+        {
+          "name": "/fonts/commit-web-450.woff2",
+          "bytes": 48792,
+          "transfer": 49092,
+          "duration": 6
+        },
+        {
+          "name": "/fonts/commit-web-600.woff2",
+          "bytes": 48512,
+          "transfer": 48812,
+          "duration": 9
+        },
+        {
+          "name": "/fonts/cmmath.woff2",
+          "bytes": 47028,
+          "transfer": 47328,
+          "duration": 10
+        },
+        {
+          "name": "/fonts/nationalpark.woff2",
+          "bytes": 15124,
+          "transfer": 15424,
+          "duration": 10
+        },
+        {
+          "name": "/fonts/hershey-heavy.woff2",
+          "bytes": 6996,
+          "transfer": 7296,
+          "duration": 16
+        },
+        {
+          "name": "/fonts/hershey-medium.woff2",
+          "bytes": 6900,
+          "transfer": 7200,
+          "duration": 17
+        },
+        {
+          "name": "/fonts/commit-web-400.woff2",
+          "bytes": 47984,
+          "transfer": 48284,
+          "duration": 17
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%2C0&stride=1%2C1%2C1&dataset=field",
+          "bytes": 0,
+          "transfer": 0,
+          "duration": 0
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%3A256%2C0%3A256&stride=1%2C256%2C256&dataset=field",
+          "bytes": 4,
+          "transfer": 304,
+          "duration": 24
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A32&stride=1&dataset=field&wire=f64",
+          "bytes": 256,
+          "transfer": 556,
+          "duration": 19
+        },
+        {
+          "name": "/api/data?path=%2Flon&selection=0%3A256&stride=1&dataset=field&wire=f64",
+          "bytes": 2048,
+          "transfer": 2348,
+          "duration": 20
+        },
+        {
+          "name": "/api/data?path=%2Flat&selection=0%3A256&stride=1&dataset=field&wire=f64",
+          "bytes": 2048,
+          "transfer": 2348,
+          "duration": 21
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%3A256%2C0%3A256&stride=1%2C1%2C1&dataset=field",
+          "bytes": 262144,
+          "transfer": 262444,
+          "duration": 8
+        }
+      ],
+      "cold_measures": [
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 18,
+          "start": 212
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 42,
+          "start": 220
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 32,
+          "start": 230
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 33,
+          "start": 230
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 33,
+          "start": 230
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 262
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 262
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 263
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 263
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 27,
+          "start": 262
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 289
+        },
+        {
+          "name": "ncx.field.raster",
+          "ms": 8,
+          "start": 295
+        }
+      ],
+      "browser_closed_rss_kib": 793772,
+      "next_frame_ms": 102,
+      "unit_change_ms": 47,
+      "unit_change_reads": 0,
+      "warm_plot_ms": 340,
+      "server_peak_rss_kib": 16296
+    },
+    {
+      "version": "current",
+      "fixture": "station",
+      "run": 3,
+      "server_ready_ms": 21.40216800000053,
+      "cold_plot_ms": 470,
+      "cold_resources": [
+        {
+          "name": "/assets/app.js?v=c0677c078543060a",
+          "bytes": 543431,
+          "transfer": 543731,
+          "duration": 31
+        },
+        {
+          "name": "/assets/app.css?v=4f04fa0e1e8016ba",
+          "bytes": 54961,
+          "transfer": 55261,
+          "duration": 31
+        },
+        {
+          "name": "/favicon.ico",
+          "bytes": 455,
+          "transfer": 755,
+          "duration": 104
+        },
+        {
+          "name": "/fonts/gorton-400.woff2",
+          "bytes": 18488,
+          "transfer": 18788,
+          "duration": 6
+        },
+        {
+          "name": "/fonts/gorton-600.woff2",
+          "bytes": 18780,
+          "transfer": 19080,
+          "duration": 11
+        },
+        {
+          "name": "/api/session",
+          "bytes": 74,
+          "transfer": 374,
+          "duration": 10
+        },
+        {
+          "name": "/api/datasets",
+          "bytes": 268,
+          "transfer": 568,
+          "duration": 3
+        },
+        {
+          "name": "/api/meta?dataset=normal",
+          "bytes": 1626,
+          "transfer": 1926,
+          "duration": 16
+        },
+        {
+          "name": "/fonts/commit-web-450.woff2",
+          "bytes": 48792,
+          "transfer": 49092,
+          "duration": 3
+        },
+        {
+          "name": "/fonts/commit-web-600.woff2",
+          "bytes": 48512,
+          "transfer": 48812,
+          "duration": 7
+        },
+        {
+          "name": "/fonts/nationalpark.woff2",
+          "bytes": 15124,
+          "transfer": 15424,
+          "duration": 7
+        },
+        {
+          "name": "/fonts/hershey-heavy.woff2",
+          "bytes": 6996,
+          "transfer": 7296,
+          "duration": 7
+        },
+        {
+          "name": "/fonts/hershey-medium.woff2",
+          "bytes": 6900,
+          "transfer": 7200,
+          "duration": 8
+        },
+        {
+          "name": "/fonts/commit-web-400.woff2",
+          "bytes": 47984,
+          "transfer": 48284,
+          "duration": 8
+        },
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=normal",
+          "bytes": 200000,
+          "transfer": 200300,
+          "duration": 15
+        },
+        {
+          "name": "/assets/py-DFv_lSPZ.js",
+          "bytes": 693,
+          "transfer": 993,
+          "duration": 10
+        },
+        {
+          "name": "/api/meta?dataset=tide",
+          "bytes": 1620,
+          "transfer": 1920,
+          "duration": 10
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A50000&stride=1&dataset=normal&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 16
+        },
+        {
+          "name": "/assets/todo-DP7rq1XD.js",
+          "bytes": 236,
+          "transfer": 536,
+          "duration": 2
+        },
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=tide",
+          "bytes": 200000,
+          "transfer": 200300,
+          "duration": 3
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A50000&stride=1&dataset=tide&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 5
+        }
+      ],
+      "cold_measures": [
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 35,
+          "start": 241
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 38,
+          "start": 244
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 276
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 282
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 32,
+          "start": 275
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 38,
+          "start": 276
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 307
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 314
+        }
+      ],
+      "browser_closed_rss_kib": 817132,
+      "curve_path_chars": 60346,
+      "resize_ms": 80,
+      "resize_reads": 0,
+      "host_anomaly_display_ms": 152,
+      "warm_plot_ms": 442,
+      "browser_before_python_rss_kib": 1049188,
+      "python_ready_ms": 4413,
+      "browser_python_rss_kib": 1058384,
+      "python_resources": [
+        {
+          "name": "/assets/py-DFv_lSPZ.js",
+          "bytes": 693,
+          "transfer": 0,
+          "duration": 5
+        },
+        {
+          "name": "/assets/worker-B1R-geuD.js",
+          "bytes": 60605,
+          "transfer": 60905,
+          "duration": 5
+        }
+      ],
+      "python_network": [
+        {
+          "name": "/assets/worker-B1R-geuD.js",
+          "bytes": 60605,
+          "transfer": 60782
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.mjs",
+          "bytes": 17931,
+          "transfer": 18108
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide-lock.json",
+          "bytes": 119077,
+          "transfer": 119241
+        },
+        {
+          "name": "/assets/python-314.0.7/python_stdlib.zip",
+          "bytes": 2545637,
+          "transfer": 2545810
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.asm.mjs",
+          "bytes": 1250344,
+          "transfer": 1250523
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.asm.wasm",
+          "bytes": 9598218,
+          "transfer": 9598383
+        },
+        {
+          "name": "/assets/python-314.0.7/pyyaml-6.0.3-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
+          "bytes": 112901,
+          "transfer": 113073
+        },
+        {
+          "name": "/assets/python-314.0.7/numpy-2.4.6-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
+          "bytes": 2960568,
+          "transfer": 2960741
+        },
+        {
+          "name": "/assets/python-314.0.7/click-8.5.0-py3-none-any.whl?sha256=255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360",
+          "bytes": 125251,
+          "transfer": 125423
+        },
+        {
+          "name": "/assets/python-314.0.7/cloudpickle-3.1.2-py3-none-any.whl?sha256=9acb47f6afd73f60dc1df93bb801b472f05ff42fa6c84167d25cb206be1fbf4a",
+          "bytes": 22228,
+          "transfer": 22399
+        },
+        {
+          "name": "/assets/python-314.0.7/dask-2026.8.0-py3-none-any.whl?sha256=ccc0c83a189b0398602435189771d28dad7b5773b6089bb8dce14ae732dd782c",
+          "bytes": 1492182,
+          "transfer": 1492355
+        },
+        {
+          "name": "/assets/python-314.0.7/fsspec-2026.7.0-py3-none-any.whl?sha256=b57ddbafedfaef7018c1ecab32aa200a9d7ca26b77965f64e48b70061249d279",
+          "bytes": 206583,
+          "transfer": 206755
+        },
+        {
+          "name": "/assets/python-314.0.7/locket-1.0.0-py2.py3-none-any.whl?sha256=b6c819a722f7b6bd955b80781788e4a66a55628b858d347536b7e81325a3a5e3",
+          "bytes": 4398,
+          "transfer": 4568
+        },
+        {
+          "name": "/assets/python-314.0.7/packaging-26.3-py3-none-any.whl?sha256=d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c",
+          "bytes": 129956,
+          "transfer": 130128
+        },
+        {
+          "name": "/assets/python-314.0.7/partd-1.4.2-py3-none-any.whl?sha256=978e4ac767ec4ba5b86c6eaa52e5a2a3bc748a2ca839e8cc798f1cc6ce6efb0f",
+          "bytes": 18905,
+          "transfer": 19076
+        },
+        {
+          "name": "/assets/python-314.0.7/toolz-1.1.0-py3-none-any.whl?sha256=15ccc861ac51c53696de0a5d6d4607f99c210739caf987b5d2054f3efed429d8",
+          "bytes": 58093,
+          "transfer": 58264
+        }
+      ],
+      "match_ms": 65,
+      "anomaly_ms": 198,
+      "anomaly_paint_ms": 201,
+      "anomaly_resources": [
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=tide&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 6
+        },
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=normal&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 4
+        }
+      ],
+      "anomaly_zero_line": true,
+      "anomaly_repeat_ms": 67,
+      "anomaly_repeat_resources": [],
+      "append_curve_ms": 84,
+      "append_curve_resources": [],
+      "numeric_check_ms": 134,
+      "browser_computed_rss_kib": 1068924,
+      "server_peak_rss_kib": 31200
+    },
+    {
+      "version": "baseline",
+      "fixture": "station",
+      "run": 3,
+      "server_ready_ms": 16.475920999990194,
+      "cold_plot_ms": 455,
+      "cold_resources": [
+        {
+          "name": "/assets/app.js?v=b0a9be82d0757475",
+          "bytes": 472192,
+          "transfer": 472492,
+          "duration": 31
+        },
+        {
+          "name": "/assets/app.css?v=f49daf14688c566b",
+          "bytes": 43431,
+          "transfer": 43731,
+          "duration": 32
+        },
+        {
+          "name": "/favicon.ico",
+          "bytes": 455,
+          "transfer": 755,
+          "duration": 97
+        },
+        {
+          "name": "/fonts/gorton-400.woff2",
+          "bytes": 18488,
+          "transfer": 18788,
+          "duration": 2
+        },
+        {
+          "name": "/fonts/gorton-600.woff2",
+          "bytes": 18780,
+          "transfer": 19080,
+          "duration": 8
+        },
+        {
+          "name": "/api/session",
+          "bytes": 74,
+          "transfer": 374,
+          "duration": 5
+        },
+        {
+          "name": "/api/datasets",
+          "bytes": 268,
+          "transfer": 568,
+          "duration": 16
+        },
+        {
+          "name": "/api/meta?dataset=normal",
+          "bytes": 1626,
+          "transfer": 1926,
+          "duration": 3
+        },
+        {
+          "name": "/fonts/commit-web-450.woff2",
+          "bytes": 48792,
+          "transfer": 49092,
+          "duration": 3
+        },
+        {
+          "name": "/fonts/nationalpark.woff2",
+          "bytes": 15124,
+          "transfer": 15424,
+          "duration": 8
+        },
+        {
+          "name": "/fonts/commit-web-600.woff2",
+          "bytes": 48512,
+          "transfer": 48812,
+          "duration": 9
+        },
+        {
+          "name": "/fonts/hershey-heavy.woff2",
+          "bytes": 6996,
+          "transfer": 7296,
+          "duration": 9
+        },
+        {
+          "name": "/fonts/hershey-medium.woff2",
+          "bytes": 6900,
+          "transfer": 7200,
+          "duration": 10
+        },
+        {
+          "name": "/fonts/commit-web-400.woff2",
+          "bytes": 47984,
+          "transfer": 48284,
+          "duration": 12
+        },
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=normal",
+          "bytes": 200000,
+          "transfer": 200300,
+          "duration": 28
+        },
+        {
+          "name": "/api/meta?dataset=tide",
+          "bytes": 1620,
+          "transfer": 1920,
+          "duration": 25
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A50000&stride=1&dataset=normal&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 27
+        },
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=tide",
+          "bytes": 200000,
+          "transfer": 200300,
+          "duration": 6
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A50000&stride=1&dataset=tide&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 7
+        }
+      ],
+      "cold_measures": [
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 34,
+          "start": 238
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 1,
+          "start": 272
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 15,
+          "start": 272
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 287
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 52,
+          "start": 240
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 24,
+          "start": 272
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 292
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 296
+        }
+      ],
+      "browser_closed_rss_kib": 807428,
+      "curve_path_chars": 60555,
+      "resize_ms": 69,
+      "resize_reads": 0,
+      "host_anomaly_display_ms": 156,
+      "warm_plot_ms": 343,
+      "server_peak_rss_kib": 12968
+    },
+    {
+      "version": "baseline",
+      "fixture": "field",
+      "run": 4,
+      "server_ready_ms": 21.678377999996883,
+      "cold_plot_ms": 412,
+      "cold_resources": [
+        {
+          "name": "/assets/app.js?v=b0a9be82d0757475",
+          "bytes": 472192,
+          "transfer": 472492,
+          "duration": 35
+        },
+        {
+          "name": "/assets/app.css?v=f49daf14688c566b",
+          "bytes": 43431,
+          "transfer": 43731,
+          "duration": 35
+        },
+        {
+          "name": "/favicon.ico",
+          "bytes": 455,
+          "transfer": 755,
+          "duration": 91
+        },
+        {
+          "name": "/fonts/gorton-400.woff2",
+          "bytes": 18488,
+          "transfer": 18788,
+          "duration": 5
+        },
+        {
+          "name": "/fonts/gorton-600.woff2",
+          "bytes": 18780,
+          "transfer": 19080,
+          "duration": 13
+        },
+        {
+          "name": "/api/session",
+          "bytes": 74,
+          "transfer": 374,
+          "duration": 12
+        },
+        {
+          "name": "/api/datasets",
+          "bytes": 161,
+          "transfer": 461,
+          "duration": 3
+        },
+        {
+          "name": "/api/meta?dataset=field",
+          "bytes": 2832,
+          "transfer": 3132,
+          "duration": 5
+        },
+        {
+          "name": "/fonts/commit-web-450.woff2",
+          "bytes": 48792,
+          "transfer": 49092,
+          "duration": 4
+        },
+        {
+          "name": "/fonts/commit-web-600.woff2",
+          "bytes": 48512,
+          "transfer": 48812,
+          "duration": 7
+        },
+        {
+          "name": "/fonts/cmmath.woff2",
+          "bytes": 47028,
+          "transfer": 47328,
+          "duration": 8
+        },
+        {
+          "name": "/fonts/nationalpark.woff2",
+          "bytes": 15124,
+          "transfer": 15424,
+          "duration": 9
+        },
+        {
+          "name": "/fonts/hershey-heavy.woff2",
+          "bytes": 6996,
+          "transfer": 7296,
+          "duration": 10
+        },
+        {
+          "name": "/fonts/commit-web-400.woff2",
+          "bytes": 47984,
+          "transfer": 48284,
+          "duration": 9
+        },
+        {
+          "name": "/fonts/hershey-medium.woff2",
+          "bytes": 6900,
+          "transfer": 7200,
+          "duration": 9
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%2C0&stride=1%2C1%2C1&dataset=field",
+          "bytes": 0,
+          "transfer": 0,
+          "duration": 0
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%3A256%2C0%3A256&stride=1%2C256%2C256&dataset=field",
+          "bytes": 4,
+          "transfer": 304,
+          "duration": 23
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A32&stride=1&dataset=field&wire=f64",
+          "bytes": 256,
+          "transfer": 556,
+          "duration": 15
+        },
+        {
+          "name": "/api/data?path=%2Flon&selection=0%3A256&stride=1&dataset=field&wire=f64",
+          "bytes": 2048,
+          "transfer": 2348,
+          "duration": 16
+        },
+        {
+          "name": "/api/data?path=%2Flat&selection=0%3A256&stride=1&dataset=field&wire=f64",
+          "bytes": 2048,
+          "transfer": 2348,
+          "duration": 17
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%3A256%2C0%3A256&stride=1%2C1%2C1&dataset=field",
+          "bytes": 262144,
+          "transfer": 262444,
+          "duration": 8
+        }
+      ],
+      "cold_measures": [
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 17,
+          "start": 265
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 28,
+          "start": 272
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 301
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 20,
+          "start": 282
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 302
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 45,
+          "start": 282
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 45,
+          "start": 282
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 26,
+          "start": 301
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 327
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 327
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 327
+        },
+        {
+          "name": "ncx.field.raster",
+          "ms": 8,
+          "start": 338
+        }
+      ],
+      "browser_closed_rss_kib": 781680,
+      "next_frame_ms": 97,
+      "unit_change_ms": 62,
+      "unit_change_reads": 0,
+      "warm_plot_ms": 369,
+      "server_peak_rss_kib": 16292
+    },
+    {
+      "version": "current",
+      "fixture": "field",
+      "run": 4,
+      "server_ready_ms": 29.940411999996286,
+      "cold_plot_ms": 387,
+      "cold_resources": [
+        {
+          "name": "/assets/app.js?v=c0677c078543060a",
+          "bytes": 543431,
+          "transfer": 543731,
+          "duration": 34
+        },
+        {
+          "name": "/assets/app.css?v=4f04fa0e1e8016ba",
+          "bytes": 54961,
+          "transfer": 55261,
+          "duration": 35
+        },
+        {
+          "name": "/favicon.ico",
+          "bytes": 455,
+          "transfer": 755,
+          "duration": 118
+        },
+        {
+          "name": "/fonts/gorton-400.woff2",
+          "bytes": 18488,
+          "transfer": 18788,
+          "duration": 2
+        },
+        {
+          "name": "/fonts/gorton-600.woff2",
+          "bytes": 18780,
+          "transfer": 19080,
+          "duration": 3
+        },
+        {
+          "name": "/api/session",
+          "bytes": 74,
+          "transfer": 374,
+          "duration": 5
+        },
+        {
+          "name": "/api/datasets",
+          "bytes": 161,
+          "transfer": 461,
+          "duration": 6
+        },
+        {
+          "name": "/api/meta?dataset=field",
+          "bytes": 2832,
+          "transfer": 3132,
+          "duration": 2
+        },
+        {
+          "name": "/fonts/commit-web-450.woff2",
+          "bytes": 48792,
+          "transfer": 49092,
+          "duration": 4
+        },
+        {
+          "name": "/fonts/commit-web-600.woff2",
+          "bytes": 48512,
+          "transfer": 48812,
+          "duration": 14
+        },
+        {
+          "name": "/fonts/cmmath.woff2",
+          "bytes": 47028,
+          "transfer": 47328,
+          "duration": 15
+        },
+        {
+          "name": "/fonts/nationalpark.woff2",
+          "bytes": 15124,
+          "transfer": 15424,
+          "duration": 15
+        },
+        {
+          "name": "/fonts/hershey-heavy.woff2",
+          "bytes": 6996,
+          "transfer": 7296,
+          "duration": 17
+        },
+        {
+          "name": "/fonts/hershey-medium.woff2",
+          "bytes": 6900,
+          "transfer": 7200,
+          "duration": 17
+        },
+        {
+          "name": "/fonts/commit-web-400.woff2",
+          "bytes": 47984,
+          "transfer": 48284,
+          "duration": 16
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%2C0&stride=1%2C1%2C1&dataset=field",
+          "bytes": 0,
+          "transfer": 0,
+          "duration": 0
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%3A256%2C0%3A256&stride=1%2C256%2C256&dataset=field",
+          "bytes": 4,
+          "transfer": 304,
+          "duration": 17
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A32&stride=1&dataset=field&wire=f64",
+          "bytes": 256,
+          "transfer": 556,
+          "duration": 15
+        },
+        {
+          "name": "/assets/py-DFv_lSPZ.js",
+          "bytes": 693,
+          "transfer": 993,
+          "duration": 15
+        },
+        {
+          "name": "/api/data?path=%2Flon&selection=0%3A256&stride=1&dataset=field&wire=f64",
+          "bytes": 2048,
+          "transfer": 2348,
+          "duration": 16
+        },
+        {
+          "name": "/api/data?path=%2Flat&selection=0%3A256&stride=1&dataset=field&wire=f64",
+          "bytes": 2048,
+          "transfer": 2348,
+          "duration": 16
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%3A256%2C0%3A256&stride=1%2C1%2C1&dataset=field",
+          "bytes": 262144,
+          "transfer": 262444,
+          "duration": 12
+        },
+        {
+          "name": "/assets/todo-DP7rq1XD.js",
+          "bytes": 236,
+          "transfer": 536,
+          "duration": 2
+        }
+      ],
+      "cold_measures": [
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 20,
+          "start": 220
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 22,
+          "start": 228
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 250
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 19,
+          "start": 239
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 258
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 43,
+          "start": 239
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 43,
+          "start": 239
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 32,
+          "start": 250
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 282
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 282
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 282
+        },
+        {
+          "name": "ncx.field.raster",
+          "ms": 8,
+          "start": 293
+        }
+      ],
+      "browser_closed_rss_kib": 795816,
+      "next_frame_ms": 66,
+      "unit_change_ms": 45,
+      "unit_change_reads": 0,
+      "warm_plot_ms": 342,
+      "browser_before_python_rss_kib": 864676,
+      "python_ready_ms": 4397,
+      "browser_python_rss_kib": 1105368,
+      "python_resources": [
+        {
+          "name": "/assets/py-DFv_lSPZ.js",
+          "bytes": 693,
+          "transfer": 0,
+          "duration": 10
+        },
+        {
+          "name": "/assets/worker-B1R-geuD.js",
+          "bytes": 60605,
+          "transfer": 60905,
+          "duration": 2
+        }
+      ],
+      "python_network": [
+        {
+          "name": "data:font/woff2;base64,d09GMgABAAAAAAScAAsAAAAACfAAAARNAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAABmAAhBIRCAqGMIRJATYCJAMsCxgABCAFhF4HaBsuCMgehXEsLOlXaXd7sgbPQ172fjLwdhYFM92mABaiTuRVdO5/mx9I5UJiJom3phLRQw/TSF2M/vo25+pNyWkNws81NrUDAAf0QOdfcf7nmPEyBPZtCbbZEDuosskKZG922ZhBenh05qcSXktf6s3Oy9dAkWsyDzMoM5QTKcwKNjFayUPSREGFhUMrdE8MJsH052qGcYNO3pbEaYIBoDTItIKGAqhDdKHRD0kkKg6QGSCWEfueTNr3P6OvYaIbDH/8ULEAbjQtUt+hT/qmX/SH/twwMLDqN4jxzXjy4PHtltSA6lINqkpRd7N7onVBP20y7YBWyDIHFEBjqKBFMmECfQcTZtD3MmEB/SATVtCPM2ED/TQTdtCfS0/pEsN4ySin3r8q8xHE+0D0XMg8gJi4YrNpNv3qetXuDyeo6OBNZrq5gi7ouC1zcmB2Fd+FewIhcUIfszpF1hzXhrmMCwxaznRyZjig6Y2W7+bBn2DL8fJu/2oHbWc6X80+LUTXcVzv8O3IOy4qKVyFw/DHaMtfzNQEi5gbFT/EDpiofbpkYq2dQui6WcpfxrVBEJ/KxbLA4ZroZoVx+iE+QeTIiI7oKuoUIk/a1ekEOoNFjozm0suYYUelq13/88K1c3PTH9O9Q0d5LZbu7+J2aT7XP23KyQs+34WTU7r8d/k0l6dLl98Dn+/BSUZc7U0mm7FqhSMO9EHV/j5FB4qYX4aXNaKwz/4RRfAWsW8xGW+hvr8PTAf6IP9mRpkDwwv7QFz9HRuOeGWfd8rkyYsWTVy4vpG/pgVNWzBx0aTeIgeq58XFVfZXVduwuOq51a77aT0XLVw4v1PBFjRsQzO+tVeVp3KIwqfKbd6sdjzGvFSuPMquGpMT29lkrhwbE5uz6cGHhIETB06oUk+6tHLJgfnu/3nVnJzYxiXNjQNjYqsu+vCgYKDla5uUOzTNDZg46eCBd3d3gSk9Kz/bFiv8hvOzCT5eqyjBGerT+EiG/JGqwbC+UQ6Bv9bmKGWMj8Yn+fPVRJxKBGqTFXQyM9DhHSlvEHmLVxyYjY/Fdd3hACfLyP3VVZLvVR7B0pxSsGIBqHhwT5sSMOMkRG0BJhpsWMkEO24KwE0pqp3tIYTWCIjJjuBiGNTKTj8JoBLKAn4TmPFnj9oywZwFGx4egp1g3oObeLHdwUO2pFcYTITZCa2c1GQbNg6RCsu9bpikThhAWnLaBi3LM8+5VbMU6rUn30owOC83ULcfBlClb5BBre46BinaWRal85SUvlCbUx1Nbyj2HWCxBTkEgWScQKzsTioJW0IanAYRZqET4mZLSKU2JABII9np01lQ7lOt3srtM1KAeqgQPhYJSMCZJRuAukRZB1CF35gB1MJBr4ilIPZchNyIlDkpRt+3s96cz9K8XKQvCdZfcqWxgtLoXZ2AoKAyVSRRxSRmsYjVOriP089q3z6gdMjE5KI7kzumWzpnAwAAAA==",
+          "bytes": 0,
+          "transfer": 0
+        },
+        {
+          "name": "/assets/worker-B1R-geuD.js",
+          "bytes": 60605,
+          "transfer": 60782
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.mjs",
+          "bytes": 17931,
+          "transfer": 18108
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%3A256%2C0%3A256&stride=1%2C2%2C1&dataset=field",
+          "bytes": 131072,
+          "transfer": 131311
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide-lock.json",
+          "bytes": 119077,
+          "transfer": 119241
+        },
+        {
+          "name": "/api/data?path=%2Fmsl&selection=0%2C0%3A256%2C0%3A256&stride=1%2C1%2C1&dataset=field",
+          "bytes": 262144,
+          "transfer": 262382
+        },
+        {
+          "name": "/assets/python-314.0.7/python_stdlib.zip",
+          "bytes": 2545637,
+          "transfer": 2545810
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.asm.mjs",
+          "bytes": 1250344,
+          "transfer": 1250523
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.asm.wasm",
+          "bytes": 9598218,
+          "transfer": 9598383
+        },
+        {
+          "name": "/assets/python-314.0.7/pyyaml-6.0.3-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
+          "bytes": 112901,
+          "transfer": 113073
+        },
+        {
+          "name": "/assets/python-314.0.7/numpy-2.4.6-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
+          "bytes": 2960568,
+          "transfer": 2960741
+        },
+        {
+          "name": "/assets/python-314.0.7/click-8.5.0-py3-none-any.whl?sha256=255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360",
+          "bytes": 125251,
+          "transfer": 125423
+        },
+        {
+          "name": "/assets/python-314.0.7/cloudpickle-3.1.2-py3-none-any.whl?sha256=9acb47f6afd73f60dc1df93bb801b472f05ff42fa6c84167d25cb206be1fbf4a",
+          "bytes": 22228,
+          "transfer": 22399
+        },
+        {
+          "name": "/assets/python-314.0.7/dask-2026.8.0-py3-none-any.whl?sha256=ccc0c83a189b0398602435189771d28dad7b5773b6089bb8dce14ae732dd782c",
+          "bytes": 1492182,
+          "transfer": 1492355
+        },
+        {
+          "name": "/assets/python-314.0.7/fsspec-2026.7.0-py3-none-any.whl?sha256=b57ddbafedfaef7018c1ecab32aa200a9d7ca26b77965f64e48b70061249d279",
+          "bytes": 206583,
+          "transfer": 206755
+        },
+        {
+          "name": "/assets/python-314.0.7/locket-1.0.0-py2.py3-none-any.whl?sha256=b6c819a722f7b6bd955b80781788e4a66a55628b858d347536b7e81325a3a5e3",
+          "bytes": 4398,
+          "transfer": 4568
+        },
+        {
+          "name": "/assets/python-314.0.7/packaging-26.3-py3-none-any.whl?sha256=d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c",
+          "bytes": 129956,
+          "transfer": 130128
+        },
+        {
+          "name": "/assets/python-314.0.7/partd-1.4.2-py3-none-any.whl?sha256=978e4ac767ec4ba5b86c6eaa52e5a2a3bc748a2ca839e8cc798f1cc6ce6efb0f",
+          "bytes": 18905,
+          "transfer": 19076
+        },
+        {
+          "name": "/assets/python-314.0.7/toolz-1.1.0-py3-none-any.whl?sha256=15ccc861ac51c53696de0a5d6d4607f99c210739caf987b5d2054f3efed429d8",
+          "bytes": 58093,
+          "transfer": 58264
+        }
+      ],
+      "convert_assignment_ms": 65,
+      "unit_after_assignment": "Pa",
+      "convert_show_ms": 99,
+      "convert_show_paint_ms": 105,
+      "unit_after_show": "hPa",
+      "append_field_ms": 80,
+      "append_field_paint_ms": 86,
+      "append_field_resources": [],
+      "editor_field_rasters": 0,
+      "metadata_after_show": "msl\nDATA TYPE\ndouble\nSHAPE\ntime=32 \u00d7 lat=256 \u00d7 lon=256\nVIEW HINT\nrectilinear\nUNITS\nhPa\nDIMENSIONS\nNAME\tLENGTH\tSCOPE\ntime\t32\t/time\nlat\t256\t/lat\nlon\t256\t/lon\nATTRIBUTES\nNAME\tTYPE\tVALUE\nlong_name\tchar\tmsl\nunits\tchar\thPa\nsource\tchar\tsources.s1[\"/msl\"]\nsource_unit\tchar\tPa\nexpression\tchar\tdivide(add(multiply(sources.s1['/msl'], 1), 0), 100)",
+      "browser_computed_rss_kib": 990572,
+      "server_peak_rss_kib": 29316
+    },
+    {
+      "version": "baseline",
+      "fixture": "station",
+      "run": 4,
+      "server_ready_ms": 26.12294000000111,
+      "cold_plot_ms": 452,
+      "cold_resources": [
+        {
+          "name": "/assets/app.js?v=b0a9be82d0757475",
+          "bytes": 472192,
+          "transfer": 472492,
+          "duration": 33
+        },
+        {
+          "name": "/assets/app.css?v=f49daf14688c566b",
+          "bytes": 43431,
+          "transfer": 43731,
+          "duration": 34
+        },
+        {
+          "name": "/favicon.ico",
+          "bytes": 455,
+          "transfer": 755,
+          "duration": 90
+        },
+        {
+          "name": "/fonts/gorton-400.woff2",
+          "bytes": 18488,
+          "transfer": 18788,
+          "duration": 3
+        },
+        {
+          "name": "/fonts/gorton-600.woff2",
+          "bytes": 18780,
+          "transfer": 19080,
+          "duration": 6
+        },
+        {
+          "name": "/api/session",
+          "bytes": 74,
+          "transfer": 374,
+          "duration": 5
+        },
+        {
+          "name": "/api/datasets",
+          "bytes": 268,
+          "transfer": 568,
+          "duration": 2
+        },
+        {
+          "name": "/api/meta?dataset=normal",
+          "bytes": 1626,
+          "transfer": 1926,
+          "duration": 2
+        },
+        {
+          "name": "/fonts/commit-web-450.woff2",
+          "bytes": 48792,
+          "transfer": 49092,
+          "duration": 25
+        },
+        {
+          "name": "/fonts/nationalpark.woff2",
+          "bytes": 15124,
+          "transfer": 15424,
+          "duration": 33
+        },
+        {
+          "name": "/fonts/commit-web-600.woff2",
+          "bytes": 48512,
+          "transfer": 48812,
+          "duration": 34
+        },
+        {
+          "name": "/fonts/hershey-heavy.woff2",
+          "bytes": 6996,
+          "transfer": 7296,
+          "duration": 34
+        },
+        {
+          "name": "/fonts/hershey-medium.woff2",
+          "bytes": 6900,
+          "transfer": 7200,
+          "duration": 36
+        },
+        {
+          "name": "/fonts/commit-web-400.woff2",
+          "bytes": 47984,
+          "transfer": 48284,
+          "duration": 35
+        },
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=normal",
+          "bytes": 200000,
+          "transfer": 200300,
+          "duration": 34
+        },
+        {
+          "name": "/api/meta?dataset=tide",
+          "bytes": 1620,
+          "transfer": 1920,
+          "duration": 31
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A50000&stride=1&dataset=normal&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 34
+        },
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=tide",
+          "bytes": 200000,
+          "transfer": 200300,
+          "duration": 25
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A50000&stride=1&dataset=tide&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 29
+        }
+      ],
+      "cold_measures": [
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 47,
+          "start": 215
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 262
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 57,
+          "start": 217
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 274
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 28,
+          "start": 261
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 289
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 39,
+          "start": 262
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 301
+        }
+      ],
+      "browser_closed_rss_kib": 795656,
+      "curve_path_chars": 60555,
+      "resize_ms": 69,
+      "resize_reads": 0,
+      "host_anomaly_display_ms": 203,
+      "warm_plot_ms": 270,
+      "server_peak_rss_kib": 12696
+    },
+    {
+      "version": "current",
+      "fixture": "station",
+      "run": 4,
+      "server_ready_ms": 16.302447999987635,
+      "cold_plot_ms": 467,
+      "cold_resources": [
+        {
+          "name": "/assets/app.js?v=c0677c078543060a",
+          "bytes": 543431,
+          "transfer": 543731,
+          "duration": 33
+        },
+        {
+          "name": "/assets/app.css?v=4f04fa0e1e8016ba",
+          "bytes": 54961,
+          "transfer": 55261,
+          "duration": 33
+        },
+        {
+          "name": "/favicon.ico",
+          "bytes": 455,
+          "transfer": 755,
+          "duration": 127
+        },
+        {
+          "name": "/fonts/gorton-400.woff2",
+          "bytes": 18488,
+          "transfer": 18788,
+          "duration": 4
+        },
+        {
+          "name": "/fonts/gorton-600.woff2",
+          "bytes": 18780,
+          "transfer": 19080,
+          "duration": 12
+        },
+        {
+          "name": "/api/session",
+          "bytes": 74,
+          "transfer": 374,
+          "duration": 10
+        },
+        {
+          "name": "/api/datasets",
+          "bytes": 268,
+          "transfer": 568,
+          "duration": 8
+        },
+        {
+          "name": "/api/meta?dataset=normal",
+          "bytes": 1626,
+          "transfer": 1926,
+          "duration": 2
+        },
+        {
+          "name": "/fonts/commit-web-450.woff2",
+          "bytes": 48792,
+          "transfer": 49092,
+          "duration": 3
+        },
+        {
+          "name": "/fonts/commit-web-600.woff2",
+          "bytes": 48512,
+          "transfer": 48812,
+          "duration": 7
+        },
+        {
+          "name": "/fonts/nationalpark.woff2",
+          "bytes": 15124,
+          "transfer": 15424,
+          "duration": 7
+        },
+        {
+          "name": "/fonts/hershey-heavy.woff2",
+          "bytes": 6996,
+          "transfer": 7296,
+          "duration": 8
+        },
+        {
+          "name": "/fonts/hershey-medium.woff2",
+          "bytes": 6900,
+          "transfer": 7200,
+          "duration": 8
+        },
+        {
+          "name": "/fonts/commit-web-400.woff2",
+          "bytes": 47984,
+          "transfer": 48284,
+          "duration": 7
+        },
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=normal",
+          "bytes": 200000,
+          "transfer": 200300,
+          "duration": 14
+        },
+        {
+          "name": "/api/meta?dataset=tide",
+          "bytes": 1620,
+          "transfer": 1920,
+          "duration": 9
+        },
+        {
+          "name": "/assets/py-DFv_lSPZ.js",
+          "bytes": 693,
+          "transfer": 993,
+          "duration": 9
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A50000&stride=1&dataset=normal&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 14
+        },
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=tide",
+          "bytes": 200000,
+          "transfer": 200300,
+          "duration": 10
+        },
+        {
+          "name": "/api/data?path=%2Ftime&selection=0%3A50000&stride=1&dataset=tide&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 12
+        },
+        {
+          "name": "/assets/todo-DP7rq1XD.js",
+          "bytes": 236,
+          "transfer": 536,
+          "duration": 16
+        }
+      ],
+      "cold_measures": [
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 25,
+          "start": 251
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 31,
+          "start": 255
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 276
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 286
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 42,
+          "start": 266
+        },
+        {
+          "name": "ncx.slice.fetch",
+          "ms": 45,
+          "start": 267
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 308
+        },
+        {
+          "name": "ncx.slice.decode",
+          "ms": 0,
+          "start": 312
+        }
+      ],
+      "browser_closed_rss_kib": 801968,
+      "curve_path_chars": 60346,
+      "resize_ms": 61,
+      "resize_reads": 0,
+      "host_anomaly_display_ms": 171,
+      "warm_plot_ms": 378,
+      "browser_before_python_rss_kib": 982032,
+      "python_ready_ms": 4594,
+      "browser_python_rss_kib": 1053868,
+      "python_resources": [
+        {
+          "name": "/assets/py-DFv_lSPZ.js",
+          "bytes": 693,
+          "transfer": 0,
+          "duration": 5
+        },
+        {
+          "name": "/assets/worker-B1R-geuD.js",
+          "bytes": 60605,
+          "transfer": 60905,
+          "duration": 14
+        }
+      ],
+      "python_network": [
+        {
+          "name": "/assets/worker-B1R-geuD.js",
+          "bytes": 60605,
+          "transfer": 60782
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.mjs",
+          "bytes": 17931,
+          "transfer": 18108
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide-lock.json",
+          "bytes": 119077,
+          "transfer": 119241
+        },
+        {
+          "name": "/assets/python-314.0.7/python_stdlib.zip",
+          "bytes": 2545637,
+          "transfer": 2545810
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.asm.mjs",
+          "bytes": 1250344,
+          "transfer": 1250523
+        },
+        {
+          "name": "/assets/python-314.0.7/pyodide.asm.wasm",
+          "bytes": 9598218,
+          "transfer": 9598383
+        },
+        {
+          "name": "/assets/python-314.0.7/pyyaml-6.0.3-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
+          "bytes": 112901,
+          "transfer": 113073
+        },
+        {
+          "name": "/assets/python-314.0.7/numpy-2.4.6-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
+          "bytes": 2960568,
+          "transfer": 2960741
+        },
+        {
+          "name": "/assets/python-314.0.7/click-8.5.0-py3-none-any.whl?sha256=255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360",
+          "bytes": 125251,
+          "transfer": 125423
+        },
+        {
+          "name": "/assets/python-314.0.7/cloudpickle-3.1.2-py3-none-any.whl?sha256=9acb47f6afd73f60dc1df93bb801b472f05ff42fa6c84167d25cb206be1fbf4a",
+          "bytes": 22228,
+          "transfer": 22399
+        },
+        {
+          "name": "/assets/python-314.0.7/dask-2026.8.0-py3-none-any.whl?sha256=ccc0c83a189b0398602435189771d28dad7b5773b6089bb8dce14ae732dd782c",
+          "bytes": 1492182,
+          "transfer": 1492355
+        },
+        {
+          "name": "/assets/python-314.0.7/fsspec-2026.7.0-py3-none-any.whl?sha256=b57ddbafedfaef7018c1ecab32aa200a9d7ca26b77965f64e48b70061249d279",
+          "bytes": 206583,
+          "transfer": 206755
+        },
+        {
+          "name": "/assets/python-314.0.7/locket-1.0.0-py2.py3-none-any.whl?sha256=b6c819a722f7b6bd955b80781788e4a66a55628b858d347536b7e81325a3a5e3",
+          "bytes": 4398,
+          "transfer": 4568
+        },
+        {
+          "name": "/assets/python-314.0.7/packaging-26.3-py3-none-any.whl?sha256=d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c",
+          "bytes": 129956,
+          "transfer": 130128
+        },
+        {
+          "name": "/assets/python-314.0.7/partd-1.4.2-py3-none-any.whl?sha256=978e4ac767ec4ba5b86c6eaa52e5a2a3bc748a2ca839e8cc798f1cc6ce6efb0f",
+          "bytes": 18905,
+          "transfer": 19076
+        },
+        {
+          "name": "/assets/python-314.0.7/toolz-1.1.0-py3-none-any.whl?sha256=15ccc861ac51c53696de0a5d6d4607f99c210739caf987b5d2054f3efed429d8",
+          "bytes": 58093,
+          "transfer": 58264
+        }
+      ],
+      "match_ms": 68,
+      "anomaly_ms": 202,
+      "anomaly_paint_ms": 207,
+      "anomaly_resources": [
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=tide&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 7
+        },
+        {
+          "name": "/api/data?path=%2FTPK&selection=0%3A50000&stride=1&dataset=normal&wire=f64",
+          "bytes": 400000,
+          "transfer": 400300,
+          "duration": 5
+        }
+      ],
+      "anomaly_zero_line": true,
+      "anomaly_repeat_ms": 83,
+      "anomaly_repeat_resources": [],
+      "append_curve_ms": 82,
+      "append_curve_resources": [],
+      "numeric_check_ms": 132,
+      "browser_computed_rss_kib": 1067240,
+      "server_peak_rss_kib": 31188
+    }
+  ],
+  "geometry_check": {
+    "mesh_ms": 110.60860200000002,
+    "curve_ms": 126.64291100000003,
+    "peak_rss_kib": 107020
+  }
+}

@@ -1,10 +1,11 @@
+import { loadRectilinearAxis } from "./fieldGeometry";
 import { paintFieldSource, drawFieldRaster, fieldSliceBounds } from "./structured";
 import { useSlice } from "../data/useSlice";
 import { PlotStatus } from "./PlotStatus";
 import { displayValue, convertedLabel, unitChoice } from "../data/units";
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 
-import { fetchCoordinate, fetchSlice, fetchStaticSlice } from "../data/api";
+import { fetchSlice } from "../data/api";
 import {
   finiteRange,
   formatNumber,
@@ -27,7 +28,7 @@ import { useFieldInteraction } from "./useFieldInteraction";
 import { useElementSize } from "./useElementSize";
 import { fieldMargin, plotType } from "./plotgeom";
 import { PERFORMANCE_MEASURE, measurePerformance } from "../data/performance";
-import { buildRectilinearAxis, type RectilinearAxis } from "./rectilinear";
+import { type RectilinearAxis } from "./rectilinear";
 import { CoastlineOverlay } from "./CoastlineOverlay";
 import { FieldOverlays } from "./FieldOverlays";
 import { FieldControls } from "./OverlayLegend";
@@ -83,7 +84,8 @@ export function FieldView(props: FieldViewProps) {
     }
   };
   const type = plotType(frame.current);
-  const margin = fieldMargin(type, reserve?.bottom);
+  const exportingFrame = Boolean(frame.current?.closest(".steering-frame[data-export]"));
+  const margin = fieldMargin(type, exportingFrame ? 0 : reserve?.bottom, exportingFrame || props.compact);
   const availablePlot = {
     left: margin.left,
     top: margin.top,
@@ -378,9 +380,9 @@ export function FieldView(props: FieldViewProps) {
           />
           <svg className="plot-svg" width={frameSize.width} height={frameSize.height} aria-hidden="true">
             {(props.wind || props.pressure || props.mapSource === "coastline") && layout && <FieldOverlays
-              metadata={props.metadata} variable={props.variable} wind={props.wind} pressure={props.pressure}
+              metadata={props.overlaySource?.metadata ?? props.metadata} variable={props.overlaySource?.variable ?? props.variable} wind={props.wind} pressure={props.pressure}
           settings={props.fieldSettings}
-              indices={props.indices} bounds={{ minimumX: xDomain[0], maximumX: xDomain[1], minimumY: yDomain[0], maximumY: yDomain[1] }}
+              indices={props.overlaySource?.indices ?? props.indices} bounds={{ minimumX: xDomain[0], maximumX: xDomain[1], minimumY: yDomain[0], maximumY: yDomain[1] }}
               plot={plot} labelSize={type.tick} reserve={reserve}
               onStatus={props.onStatus}>
               {props.mapSource === "coastline" && <CoastlineOverlay
@@ -411,7 +413,7 @@ export function FieldView(props: FieldViewProps) {
               y: plot.top + probePosition.y * plot.height,
             }} />
           </svg>
-          <FieldControls overlays={props.overlays} onReserve={setReserve}
+          <FieldControls overlays={props.overlays} onReserve={setReserve} compact={props.compact}
               onZoomIn={() => changeView(zoomBounds(view, FULL_FIELD, 0.75))}
               onZoomOut={() => changeView(zoomBounds(view, FULL_FIELD, 4 / 3))}
               onReset={() => changeView(FULL_FIELD)}
@@ -436,46 +438,6 @@ export function FieldView(props: FieldViewProps) {
   );
 }
 
-async function loadRectilinearAxis(metadata: Metadata, variable: Variable) {
-  const values = await fetchCoordinate(variable);
-  const boundsReference = variable.capabilities.references.bounds?.[0];
-  if (!boundsReference) {
-    const result = buildRectilinearAxis(values);
-    return { values, ...result };
-  }
-
-  const boundsPath = boundsReference;
-  const boundsVariable = metadata.variables.find((candidate) => candidate.path === boundsPath);
-  if (!boundsVariable) {
-    const result = buildRectilinearAxis(values);
-    return {
-      values,
-      ...result,
-      warning: `${variable.path} bounds variable ${boundsPath} is missing; using midpoint edges`,
-    };
-  }
-
-  try {
-    const bounds = await fetchStaticSlice(boundsVariable, "f64");
-    if (!(bounds.values instanceof Float64Array)) {
-      throw new Error(`${boundsPath} is not numeric`);
-    }
-    const result = buildRectilinearAxis(values, { values: bounds.values, shape: bounds.shape });
-    return {
-      values,
-      ...result,
-      warning: result.warning ? `${variable.path}: ${result.warning}` : undefined,
-    };
-  } catch (cause: unknown) {
-    const result = buildRectilinearAxis(values);
-    const message = cause instanceof Error ? cause.message : String(cause);
-    return {
-      values,
-      ...result,
-      warning: `${variable.path} bounds are unavailable (${message}); using midpoint edges`,
-    };
-  }
-}
 
 function fieldLayout(
   variable: Variable,

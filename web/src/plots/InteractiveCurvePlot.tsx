@@ -17,7 +17,7 @@ import { formatTimestamp, timeInZone, type DisplayTimeZone } from "../data/time"
 export function InteractiveCurvePlot({
   series, legend, dimension, variableName, valueLabel, timeZone, log, yRange, xRange, onXRange,
   wind, windEnabled = false, windKnots = false, step = false,
-  cursor, onCursor, selectionRange, onSelectionRange, linkedXRange, zeroLine = false, onDisplayRange,
+  cursor, onCursor, selectionRange, onSelectionRange, linkedXRange, zeroLine = false, onDisplayRange, currentTime,
 }: {
   series: CurveSeries[];
   wind?: WindSamples;
@@ -33,6 +33,7 @@ export function InteractiveCurvePlot({
   yRange?: ColorRange;
   xRange?: CurveRange;
   onXRange: (range?: CurveRange) => void;
+  currentTime?: number;
   cursor?: number;
   onCursor: (value?: number) => void;
   selectionRange?: CurveRange;
@@ -167,6 +168,9 @@ export function InteractiveCurvePlot({
         <CurveDrawing geometries={geometries} clip={clip} dimension={dimension}
           valueLabel={valueLabel} time={time} step={step} wind={wind}
           windEnabled={windEnabled} windKnots={windKnots} timeZone={timeZone} onWindTrack={setHoverX} zeroLine={zeroLine} />
+        {time && currentTime !== undefined && currentTime >= geometry.xMinimum && currentTime <= geometry.xMaximum &&
+          <line className="curve-current-time" aria-label="Selected time" pointerEvents="none"
+            x1={pixelX(currentTime)} x2={pixelX(currentTime)} y1={geometry.plot.top} y2={geometry.plot.top + geometry.plot.height} />}
         {selection && <rect className="zoom-box curve-zoom-box" x={Math.min(selection.start, selection.end)}
           y={geometry.plot.top} width={Math.abs(selection.end - selection.start)} height={geometry.plot.height} />}
         {hoverX !== undefined && <g className="curve-tracker">

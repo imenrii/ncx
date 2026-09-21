@@ -41,24 +41,31 @@ fn main() {
     let script = root.join("web/scripts/subset-fonts.py");
 
     println!("cargo::rerun-if-changed=web/dist/assets");
-    let mut assets = fs::read_dir(root.join("web/dist/assets"))
-        .expect("build frontend assets first")
-        .map(|entry| entry.expect("read frontend asset").path())
-        .filter(|path| {
-            path.is_file()
-                && !matches!(
-                    path.file_name().and_then(|name| name.to_str()),
-                    Some("app.js" | "app.css")
-                )
-        })
-        .collect::<Vec<_>>();
+    fn asset_files(path: &Path, files: &mut Vec<PathBuf>) {
+        for entry in fs::read_dir(path).expect("build frontend assets first") {
+            let path = entry.expect("read frontend asset").path();
+            if path.is_dir() {
+                asset_files(&path, files);
+            } else if !matches!(
+                path.file_name().and_then(|name| name.to_str()),
+                Some("app.js" | "app.css")
+            ) {
+                files.push(path);
+            }
+        }
+    }
+    let mut assets = Vec::new();
+    asset_files(&root.join("web/dist/assets"), &mut assets);
     assets.sort();
     let entries = assets
         .iter()
         .map(|path| {
             format!(
                 "({:?}, include_bytes!({:?})),",
-                path.file_name().unwrap().to_str().unwrap(),
+                path.strip_prefix(root.join("web/dist/assets"))
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
                 path.to_str().unwrap()
             )
         })

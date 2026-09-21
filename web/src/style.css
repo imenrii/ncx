@@ -1078,6 +1078,65 @@ button:disabled {
   background: var(--paper);
 }
 
+.steering-primary, .steering-primary > .steering-pane {
+  height: 100%;
+  min-height: 0;
+}
+.steering-panel-body { height: 100%; min-height: 0; }
+.steering-pane[hidden] { display: none; }
+
+.figure.steering-frame {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: none;
+  grid-auto-rows: minmax(22rem, 1fr);
+  gap: var(--plot-panel-gap);
+  padding: var(--plot-panel-gap);
+  overflow: auto;
+  align-content: start;
+  font-size: var(--plot-tick-size);
+}
+
+.steering-frame:not([data-fields="0"]):not([data-fields="1"]) {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.steering-frame > .steering-pane[data-kind="curve"] { grid-column: 1 / -1; }
+
+.steering-pane { min-width: 0; min-height: 0; position: relative; }
+.steering-pane-actions {
+  position: absolute;
+  right: 4px;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: var(--size-micro)/1.5 var(--mono);
+  color: var(--ink-medium);
+  background: var(--paper);
+}
+.steering-pane-actions button { min-width: var(--hit); min-height: var(--hit); padding: 0; border: 0; }
+.steering-frame[data-export] .figure {
+  --plot-tick-size: inherit;
+  --plot-axis-size: inherit;
+  --plot-title-size: inherit;
+  --plot-subtitle-size: inherit;
+}
+.steering-frame[data-export] .steering-pane-actions,
+.steering-frame[data-export] .steering-selection { display: none; }
+.steering-frame[data-export] .corner-stack { display: none; }
+.steering-frame[data-export] .steering-field > .plot-frame { min-height: 0; }
+.steering-frame[data-export] .single-curve > .plot-frame { flex: 1 1 0; min-height: 0; }
+.steering-frame[data-export] .steering-field { grid-template-rows: auto minmax(0, 1fr); }
+.steering-pane:has(.steering-pane-actions) > .figure > .figure-head,
+.steering-pane:has(.steering-pane-actions) .curve-head { padding-right: 9rem; }
+.steering-frame[data-export] .figure-head { padding-right: 12px; }
+
+@media (max-width: 900px) {
+  .steering-frame:not([data-fields="0"]):not([data-fields="1"]) { grid-template-columns: minmax(0, 1fr); }
+}
+
 .figure {
   /* Fluid between a floor and a ceiling, both taken from the type ladder and
      both in rem: the panel scales the figure with the window, and the reader's
@@ -1736,7 +1795,8 @@ input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
   stroke-linecap: round;
 }
 
-.hover-crosshair {
+.hover-crosshair,
+.curve-current-time {
   vector-effect: non-scaling-stroke;
   stroke: var(--ink-medium);
   stroke-width: var(--stroke-spine);
@@ -2575,8 +2635,7 @@ i .value {
   }
 }
 
-.hub-open-panel .dialog-actions button,
-.hub-session-actions button {
+.hub-open-panel .dialog-actions button {
   min-height: calc(10 * var(--u));
   padding: var(--u) calc(4 * var(--u));
   border: var(--stroke-spine) solid var(--ink);
@@ -2588,8 +2647,7 @@ i .value {
   font-weight: var(--mono-strong);
 }
 
-.hub-open-panel .dialog-actions,
-.hub-session-actions {
+.hub-open-panel .dialog-actions {
   display: flex;
   justify-content: flex-end;
   gap: calc(2 * var(--u));
@@ -2659,13 +2717,6 @@ i .value {
   border-color: var(--ink);
   background: var(--amber);
   font-weight: var(--mono-strong);
-}
-
-.hub-session-actions {
-  position: fixed;
-  z-index: 30;
-  top: 0.5rem;
-  right: 0.75rem;
 }
 
 .hub-active-error {
@@ -2775,3 +2826,554 @@ i .value {
 .curve-zero { stroke: var(--ink-quiet); stroke-width: 1; stroke-dasharray: 3 3; }
 
 .hub-mode { margin-left: 12px; font-family: var(--mono); font-size: var(--size-micro); }
+
+/* Steering shares the shell's sidebar width and leaves renderer buffers private. */
+.shell {
+  grid-template-rows: var(--topbar-height) minmax(0, 1fr) auto var(--status-height);
+}
+
+.shell > .statusbar {
+  grid-row: 4;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  padding: 0 8px;
+  flex: none;
+}
+
+.toolbar-actions:empty {
+  display: none;
+}
+
+.topbar-actions button {
+  min-height: 24px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.steering-toggle {
+  box-shadow: 0 2px 0 var(--ink);
+}
+
+.steering-toggle[aria-pressed="true"] {
+  box-shadow: none;
+  transform: translateY(2px);
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--dither-strong), var(--paper);
+}
+
+.steering[hidden] {
+  display: none;
+}
+
+.steering {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  grid-template-rows: 5px minmax(0, 1fr);
+  min-height: 0;
+}
+
+.steering-resize {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--ink-medium);
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.steering-resize:focus-visible, .steering-resize:hover {
+  background: var(--accent-pale);
+}
+
+.steering-outline, .steering-terminal {
+  min-height: 0;
+  min-width: 0;
+  font-family: "Commit Mono Web", ui-monospace, monospace;
+  font-size: var(--size-tick);
+  font-weight: 400;
+  line-height: 1.5;
+  font-feature-settings: var(--mono-literal-features);
+  font-variant-ligatures: none;
+  font-synthesis: none;
+  letter-spacing: normal;
+  word-spacing: normal;
+}
+
+.steering :is(button, textarea, pre) {
+  font: inherit;
+  font-feature-settings: inherit;
+  font-variant-ligatures: none;
+  letter-spacing: normal;
+  word-spacing: normal;
+}
+
+.steering-outline {
+  background: var(--stock);
+  border-right: 1px solid var(--stock-edge);
+  overflow: auto;
+}
+
+.steering-outline h2 {
+  margin: 0;
+  min-height: 25px;
+  padding: 3px 12px;
+  font: var(--size-micro)/1.5 var(--label-face);
+  text-transform: uppercase;
+  letter-spacing: var(--track-caps);
+  border-bottom: 1px solid var(--stock-edge);
+}
+
+.steering-group {
+  padding: 2px 0;
+  border-bottom: 1px solid var(--stock-edge);
+}
+
+.steering-group summary {
+  cursor: pointer;
+  min-height: 24px;
+  padding: 2px 12px;
+}
+
+.steering-group button {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  min-height: 24px;
+  padding: 2px 12px 2px 28px;
+  border: 0;
+  text-align: left;
+  background: transparent;
+  overflow-wrap: anywhere;
+}
+
+.steering-group button::before {
+  content: '>';
+  color: var(--ink-quiet);
+}
+
+.steering-group button:hover {
+  background: var(--dither), transparent;
+}
+
+.steering-terminal {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  background: var(--paper);
+}
+
+.steering-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-height: 25px;
+  padding: 0 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.steering-head button {
+  min-height: 24px;
+  padding: 0 8px;
+}
+
+.steering-state {
+  color: var(--ink-quiet);
+}
+
+.steering-menu {
+  position: relative;
+}
+
+.steering-head .steering-help-toggle {
+  display: grid;
+  place-items: center;
+  min-width: 24px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.steering-help {
+  width: 42rem;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  padding: 20px 24px;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  background: var(--stock);
+  color: var(--ink);
+  font: 400 var(--size-body)/1.5 var(--label-face);
+  font-synthesis: none;
+  letter-spacing: normal;
+  word-spacing: normal;
+}
+
+.steering-help::backdrop {
+  background: rgb(16 20 24 / 38%);
+}
+
+.steering-help header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.steering-help h2 {
+  margin: 0;
+  font: 400 1.125rem/1.3 var(--label-face);
+  letter-spacing: normal;
+}
+
+.steering-help h3 {
+  margin: 16px 0 6px;
+  font: 400 var(--size-micro)/1.5 var(--label-face);
+  text-transform: uppercase;
+  letter-spacing: var(--track-caps);
+}
+
+.steering-help p {
+  margin: 12px 0;
+}
+
+.steering-help :is(pre, code, kbd) {
+  font: 400 var(--size-tick)/1.5 var(--mono);
+  font-feature-settings: var(--mono-literal-features);
+  font-variant-ligatures: none;
+  letter-spacing: normal;
+  word-spacing: normal;
+}
+
+.steering-help-examples {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.steering-help-examples h3 {
+  margin-top: 0;
+}
+
+.steering-help pre {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--paper);
+  border: 1px solid var(--stock-edge);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.steering-help dl {
+  margin: 0;
+}
+
+.steering-help > details { padding: 6px 0; border-top: 1px solid var(--stock-edge); }
+.steering-help > details > summary { min-height: var(--hit); cursor: pointer; }
+.steering-help > details[open] > summary { margin-bottom: 8px; }
+
+.steering-help dl > div {
+  display: grid;
+  grid-template-columns: 15rem minmax(0, 1fr);
+  gap: 12px;
+  padding: 3px 0;
+}
+
+.steering-help dd {
+  margin: 0;
+}
+
+.steering-help .steering-help-footer {
+  margin-bottom: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--stock-edge);
+  color: var(--ink-medium);
+}
+
+@media (max-width: 600px) {
+  .steering-help { padding: 16px; }
+  .steering-help-examples { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .steering-help dl > div { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 4px 0; }
+}
+
+@media (pointer: coarse) {
+  .steering-head .steering-help-toggle, .steering-help button { min-width: 44px; min-height: 44px; }
+}
+
+.steering-menu summary {
+  cursor: pointer;
+  list-style: none;
+  min-height: 24px;
+  min-width: 24px;
+  display: grid;
+  place-items: center;
+}
+
+.steering-menu summary::marker {
+  content: '';
+}
+
+.steering-menu > div {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 30;
+  width: max-content;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  padding: 4px;
+}
+
+.steering-menu button {
+  display: block;
+  width: 100%;
+  border: 0;
+  text-align: left;
+}
+
+.steering-log {
+  overflow: auto;
+  padding: 4px 0;
+}
+
+.steering-entry {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  padding: 1px 12px 1px 0;
+}
+
+.steering-entry > span {
+  text-align: center;
+  color: var(--accent);
+}
+
+.steering-entry pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.steering-entry.error {
+  color: var(--error-ink);
+}
+
+.steering-command {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: start;
+  padding: 3px 12px 3px 0;
+  border-top: 1px solid var(--line);
+  max-height: 120px;
+  overflow: auto;
+}
+
+.steering-command > label {
+  color: var(--accent);
+  text-align: center;
+  padding-top: 2px;
+}
+
+.steering-input-stack {
+  display: grid;
+  min-width: 0;
+}
+
+.steering-input-stack :is(pre, textarea) {
+  grid-area: 1 / 1;
+  margin: 0;
+  padding: 2px 0;
+  border: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 4;
+  min-height: 24px;
+}
+
+.steering-input-stack pre {
+  pointer-events: none;
+}
+
+.steering-input-stack textarea {
+  width: 100%;
+  resize: none;
+  color: transparent;
+  caret-color: var(--ink);
+  background: transparent;
+  overflow: hidden;
+  outline-offset: 2px;
+}
+
+.steering-input-stack textarea::selection {
+  background: var(--accent-pale);
+  color: var(--ink);
+}
+
+.steering .shj-syn-str {
+  color: #28633d;
+}
+
+.steering :is(.shj-syn-kwd, .shj-syn-bool) {
+  color: #75449a;
+}
+
+.steering .shj-syn-num {
+  color: #925216;
+}
+
+.steering :is(.shj-syn-func, .shj-syn-class) {
+  color: #175e8c;
+}
+
+.steering .shj-syn-oper {
+  color: #555f68;
+}
+
+.steering .shj-syn-cmnt {
+  color: var(--ink-quiet);
+}
+
+.steering-selection {
+  display: flex;
+  gap: 12px;
+  padding: 4px 12px;
+  font: var(--size-tick)/1.5 var(--mono);
+}
+
+.steering-selection label { display: flex; align-items: center; gap: 6px; }
+
+.steering-selection input {
+  width: 5rem;
+}
+
+.steering-field {
+  display: flex;
+  flex-direction: column;
+}
+
+.steering-field > .plot-frame {
+  flex: 1;
+  min-height: 200px;
+}
+
+@media (max-width: 900px) {
+  .topbar-identity .path {
+    display: none;
+  }
+  .topbar-actions {
+    gap: 4px;
+  }
+  .topbar-actions button {
+    padding-inline: 4px;
+    font-size: var(--size-micro);
+  }
+}
+
+@media (pointer: coarse) {
+  .steering button, .steering summary, .topbar-actions button {
+    min-height: 44px;
+  }
+}
+
+@media (forced-colors: active) {
+  .steering-input-stack textarea {
+    color: CanvasText;
+  }
+  .steering-input-stack pre {
+    visibility: hidden;
+  }
+}
+
+.steering-curves {
+  overflow-y: auto;
+}
+
+.steering-curves > .plot-frame {
+  flex: 1 0 14rem;
+  min-height: 14rem;
+}
+
+.toolbar[data-pinned="true"] [aria-label="Curve Wind"],
+.toolbar[data-pinned="true"] [aria-label="Reference layer"] {
+  display: none;
+}
+
+.steering-input-area { position: relative; min-width: 0; }
+.steering-completion,
+.steering-history {
+  position: absolute;
+  bottom: 100%;
+  left: 36px;
+  right: 12px;
+  max-width: 38rem;
+  background: var(--paper);
+  border: 1px solid var(--ink-medium);
+  box-shadow: 0 2px 8px var(--shadow);
+  z-index: 40;
+}
+.steering-completion [role="listbox"],
+.steering-history [role="listbox"] { max-height: min(12rem, 30vh); overflow: auto; }
+.steering-completion button,
+.steering-history button {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  width: 100%;
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 0;
+  text-align: left;
+  background: transparent;
+}
+.steering-completion button[aria-selected="true"],
+.steering-history button[aria-selected="true"] {
+  background: var(--accent-pale);
+  box-shadow: inset 3px 0 var(--accent);
+}
+.steering-completion small {
+  margin-left: auto;
+  font: inherit;
+  color: var(--ink-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.steering-signature {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--line);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.steering-history > input { width: 100%; padding: 4px 8px; border: 0; border-bottom: 1px solid var(--line); }
+.steering-history pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.steering-history > span { display: block; padding: 4px 8px; color: var(--ink-quiet); }
+.steering-result { min-width: 0; }
+.steering-result summary { cursor: pointer; min-height: 24px; overflow-wrap: anywhere; }
+.steering-result summary > small { margin-left: 12px; font: inherit; color: var(--ink-quiet); }
+.steering-result dl { margin: 4px 0 8px 12px; }
+.steering-result dl > div { display: grid; grid-template-columns: minmax(5rem, 8rem) minmax(0, 1fr); gap: 12px; padding: 2px 0; }
+.steering-result dt { color: var(--ink-medium); }
+.steering-result dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.steering-error { min-width: 0; }
+.steering-error > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: 12px; }
+.steering-error strong { font-weight: 600; overflow-wrap: anywhere; }
+.steering-error button { min-height: 24px; padding: 0 8px; color: var(--ink); }
+.steering-error-source { display: flex; gap: 12px; margin: 4px 0 !important; }
+.steering-error-source > span { color: var(--ink-quiet); }
+.steering-error-source code { font: inherit; }
+.steering-error-source mark { background: var(--error-bg); color: inherit; border-bottom: 2px solid var(--error-ink); }
+.steering-error details { color: var(--ink-medium); margin-top: 4px; }
+.steering-error summary { cursor: pointer; min-height: 24px; }
+.steering-error details pre { padding: 4px 0 8px 12px; }
+.steering-displays details { padding-left: 12px; }
+@media (pointer: coarse) {
+  .steering-completion button, .steering-history button, .steering-result summary, .steering-error summary, .steering-error button { min-height: 44px; }
+}

@@ -1,0 +1,34 @@
+[
+  {
+    "file": "click-8.5.0-py3-none-any.whl",
+    "sha256": "255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360"
+  },
+  {
+    "file": "cloudpickle-3.1.2-py3-none-any.whl",
+    "sha256": "9acb47f6afd73f60dc1df93bb801b472f05ff42fa6c84167d25cb206be1fbf4a"
+  },
+  {
+    "file": "dask-2026.8.0-py3-none-any.whl",
+    "sha256": "ccc0c83a189b0398602435189771d28dad7b5773b6089bb8dce14ae732dd782c"
+  },
+  {
+    "file": "fsspec-2026.7.0-py3-none-any.whl",
+    "sha256": "b57ddbafedfaef7018c1ecab32aa200a9d7ca26b77965f64e48b70061249d279"
+  },
+  {
+    "file": "locket-1.0.0-py2.py3-none-any.whl",
+    "sha256": "b6c819a722f7b6bd955b80781788e4a66a55628b858d347536b7e81325a3a5e3"
+  },
+  {
+    "file": "packaging-26.3-py3-none-any.whl",
+    "sha256": "d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c"
+  },
+  {
+    "file": "partd-1.4.2-py3-none-any.whl",
+    "sha256": "978e4ac767ec4ba5b86c6eaa52e5a2a3bc748a2ca839e8cc798f1cc6ce6efb0f"
+  },
+  {
+    "file": "toolz-1.1.0-py3-none-any.whl",
+    "sha256": "15ccc861ac51c53696de0a5d6d4607f99c210739caf987b5d2054f3efed429d8"
+  }
+]

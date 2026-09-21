@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run style:check && tsc --noEmit && vite build",
+    "build": "npm run style:check && tsc --noEmit && vite build && node scripts/copy-python.mjs",
     "test": "npm run style:check && node --test 'src/**/*.test.ts'",
     "style:sync": "node scripts/sync-plot-style.mjs",
     "style:check": "node scripts/sync-plot-style.mjs --check"
   },
   "dependencies": {
+    "@speed-highlight/core": "2.1.0",
+    "pyodide": "314.0.7",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },

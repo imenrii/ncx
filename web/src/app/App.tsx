@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useSyncExternalStore } from "react";
+import { useEffect, useState, useRef, useSyncExternalStore, type ReactNode } from "react";
 import { unitAssignments } from "../data/unitAssignments";
 import { fetchDatasets, fetchMetadata } from "../data/api";
 import { defaultVariable, type DatasetSummary, type Metadata } from "../data/model";
@@ -7,7 +7,7 @@ import { sourceFeed } from "../data/sourceFeed";
 import { Viewer } from "./Viewer";
 
 /** Dataset selection stays mounted while the viewer changes variables and plots. */
-export function App({ allowComparison = true }: { allowComparison?: boolean }) {
+export function App({ allowComparison = true, sessionActions }: { allowComparison?: boolean; sessionActions?: ReactNode }) {
   const [metadata, setMetadata] = useState<Metadata>();
   useSyncExternalStore(unitAssignments.subscribe, unitAssignments.getSnapshot);
   const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
@@ -24,6 +24,7 @@ export function App({ allowComparison = true }: { allowComparison?: boolean }) {
     dataset.id === id ? { id: dataset.id, label: dataset.label, state: "unavailable", error } : dataset));
 
   useEffect(() => {
+    sourceFeed.reset();
     fetchDatasets()
       .then(({ datasets: nextDatasets, collection: nextCollection }) => {
         sourceFeed.configure(nextDatasets);
@@ -79,6 +80,7 @@ export function App({ allowComparison = true }: { allowComparison?: boolean }) {
   sourceFeed.configure(datasets);
 
   return <Viewer
+    sessionActions={sessionActions}
     allowComparison={allowComparison}
     metadata={metadata && unitAssignments.apply(metadata)} datasets={datasets} collection={collection}
     selectedDataset={selectedDataset} selectedPath={selectedPath}

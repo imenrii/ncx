@@ -15,6 +15,7 @@ export interface CurveSeries {
   units: string;
   quantity: string;
   datum?: string;
+  difference?: boolean;
   color: string;
   dash: string;
 }

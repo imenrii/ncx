@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { fetchCoordinate, fetchMetadata, fetchSlice } from "../data/api";
 import { convertedLabel, convert, convertValues, findUnit, unitChoice, unitRule, type Unit } from "../data/units";
-import { windPair, type WindSamples } from "../data/wind";
+import { windPair, type WindSamples, type WindComponents } from "../data/wind";
 import { loadWindCurve } from "../data/windLoad";
 import { unitAssignments } from "../data/unitAssignments";
 import { findCompatibleVariable, matchesSeries, locationIdentity, verticalDatum } from "../data/comparison";
@@ -25,17 +25,21 @@ interface Props {
   range: ColorRange;
   rangeLocked: boolean;
   wind: boolean;
+  windComponents?: WindComponents;
   targetUnit?: Unit | "Bft";
   subtitle: string;
   curveDimension: number;
   indices: Record<string, number>;
   average?: Probe["average"];
   timeZone: DisplayTimeZone;
+  currentTime?: number;
   sources: Source[];
   resolvedSources: ResolvedSource[];
   offsets: Record<string, number>;
   inlineAvailable: boolean;
   secondary?: SecondaryCurve;
+  publishedSecondary?: CurveSeries[];
+  linkedRange?: CurvePresentation["xRange"];
   onExtent: (extent?: { start_ms: number; end_ms: number }) => void;
   presentation: CurvePresentation;
   onPresentation: Dispatch<SetStateAction<CurvePresentation>>;
@@ -51,8 +55,8 @@ export function CurveView(props: Props) {
   const selectionKey = JSON.stringify([unitAssignments.getSnapshot(), props.metadata.dataset_id, props.variable.path,
     props.curveDimension, props.indices, props.average]);
   const fallbackWindUnit = props.targetUnit === "Bft" ? "Bft" : props.targetUnit?.id;
-  const windMatch = windPair(props.metadata, props.variable, fallbackWindUnit);
-  const windUnitsKey = JSON.stringify([windMatch.pair?.uUnit.id, windMatch.pair?.vUnit.id]);
+  const windMatch = windPair(props.metadata, props.variable, fallbackWindUnit, props.windComponents);
+  const windUnitsKey = JSON.stringify([windMatch.pair?.u.path, windMatch.pair?.v.path, windMatch.pair?.uUnit.id, windMatch.pair?.vUnit.id]);
   const loadKey = `${selectionKey}:${sourceKey}`;
   useEffect(() => {
     const controller = new AbortController();
@@ -175,7 +179,7 @@ export function CurveView(props: Props) {
     return { series, errors };
   }, [currentSeries, props.offsets, sourceUnit, props.targetUnit]);
   const displayed = presentation.series;
-  const lower = useMemo(() => (props.secondary?.sources ?? []).flatMap((source, index): CurveSeries[] => {
+  const lower = useMemo(() => props.publishedSecondary ?? (props.secondary?.sources ?? []).flatMap((source, index): CurveSeries[] => {
     const item = source.series;
     if (item.location_id !== location) return [];
     const family = unitRule(props.variable).rule?.family;
@@ -188,15 +192,15 @@ export function CurveView(props: Props) {
       units: unit && target ? target.label : item.y_units,
       color: source.color ?? SERIES_COLORS[index % SERIES_COLORS.length],
       dash: source.dash ?? SERIES_DASHES[index % SERIES_DASHES.length] }];
-  }), [props.secondary, props.targetUnit, location, quantity, props.variable]);
+  }), [props.secondary, props.publishedSecondary, props.targetUnit, location, quantity, props.variable]);
   const linkedXRange = useMemo(() => {
-    if (!props.secondary) return undefined;
-    let minimum = Infinity, maximum = -Infinity;
+    if (!props.secondary && !props.linkedRange) return undefined;
+    let minimum = props.linkedRange?.minimum ?? Infinity, maximum = props.linkedRange?.maximum ?? -Infinity;
     for (const item of [...displayed, ...lower]) for (const x of item.x) {
       minimum = Math.min(minimum, x); maximum = Math.max(maximum, x);
     }
     return minimum < maximum ? { minimum, maximum } : undefined;
-  }, [displayed, lower, props.secondary]);
+  }, [displayed, lower, props.secondary, props.linkedRange]);
   const lowerRange = useMemo(() => {
     let minimum = props.secondary?.difference ? 0 : Infinity;
     let maximum = props.secondary?.difference ? 0 : -Infinity;
@@ -223,7 +227,7 @@ export function CurveView(props: Props) {
     if (!windEligible) return;
     const controller = new AbortController();
     void loadWindCurve(props.metadata, props.variable, props.curveDimension, props.indices, props.average, controller.signal,
-      primary ? { path: props.variable.path, values: primary.y } : undefined, fallbackWindUnit)
+      primary ? { path: props.variable.path, values: primary.y } : undefined, fallbackWindUnit, props.windComponents)
       .then(data => { if (!controller.signal.aborted) setWindState({ key: windKey, data }); })
       .catch(error => { if (!controller.signal.aborted) setWindState({ key: windKey, error: message(error) }); });
     return () => controller.abort();
@@ -246,7 +250,7 @@ export function CurveView(props: Props) {
     {presentation.errors.length > 0 && <div className="comparison-warning" role="status">{presentation.errors.join(" · ")}</div>}
     {windError && <div className="comparison-warning" role="status">Wind: {windError}. Turn Wind off and on to retry.</div>}
     {loaded?.key === loadKey && loaded.errors.length > 0 && <div className="comparison-warning" role="status">{loaded.errors.join(" · ")}</div>}
-    <InteractiveCurvePlot series={displayed} legend={legend} variableName={props.variable.name}
+    <InteractiveCurvePlot currentTime={props.currentTime} series={displayed} legend={legend} variableName={props.variable.name}
       dimension={props.variable.dimensions[props.curveDimension]?.name ?? "index"}
       valueLabel={`${props.secondary ? `${props.variable.name} (${unitLabel ?? units ?? ""})` :
         unitLabel ? convertedLabel(props.variable, unitLabel) : quantityLabel(props.variable)}${hasOffset && !props.secondary ? "; display offsets" : ""}`}
@@ -263,7 +267,7 @@ export function CurveView(props: Props) {
     {props.secondary && <>
       <header className="figure-head curve-head secondary-curve-head"><h1>{props.secondary.label}</h1></header>
       {props.secondary.error && <div className="comparison-warning" role="status">{props.secondary.error}</div>}
-      <InteractiveCurvePlot series={lower} legend={lower.map(item => ({
+      <InteractiveCurvePlot currentTime={props.currentTime} series={lower} legend={lower.map(item => ({
         description: item.label, color: item.color, dash: item.dash,
       }))} variableName={props.secondary.label} dimension={props.variable.dimensions[props.curveDimension]?.name ?? "time"}
         valueLabel={`${props.secondary.label} (${lower[0]?.units ?? units ?? ""})`}

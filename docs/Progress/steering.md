@@ -1,6 +1,7 @@
 # Steering interface proposal
 
-Status: proposed, not implemented. Revised 2026-09-17. This revision replaces
+Status: design record. The manual implementation and current limits are in
+[the Steering contract](../steering.md). Revised 2026-09-17. This revision replaces
 view-buffer-only Steering with source-backed variables and explicit reads.
 Names below describe the proposed interface, not available commands.
 Workflow and migration: [comparison plan](comparison-plan.md).
@@ -474,7 +475,7 @@ These are implementation checks, not measurements completed by this proposal.
 | Oversized read/result/geometry or integer overflow | Reject before allocation/copy; no silent stride or partial publication |
 | Change colour or pan during Run | No Python rerun; compatible current presentation survives commit |
 | Change probe during Run | Pending publication rejected; captured arrays do not change |
-| Edit one explicit field's time selector | Only its binding changes; stored NumPy values do not change |
+| Move the global time slider | All time-dependent fields match the exact timestamp; stored Variables do not change |
 | Show, then mutate array; show, then raise | First case freezes show-time values; second commits nothing |
 | Remove/reorder/replace source; reuse alias | Stable identity; late read rejected; no accidental alias reassignment |
 | Host refresh after show/clear/reset | User intent preserved; reset restores latest valid default |

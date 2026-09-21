@@ -13,8 +13,13 @@ Plans describe proposed work. A plan does not change a shipped contract.
 | --- | --- | --- |
 | [Improvement plan](improvement-plan.md) | Required fixes, module ownership, delivery order, and acceptance checks | Planned |
 | [Comparison through Steering](comparison-plan.md) | Add-only sources, clean viewer UI, and cuSURGE migration | Revised proposal |
-| [Steering interface](steering.md) | Source-backed variables, bounded reads, terminal layout, and plot ownership | Proposed contract |
+| [Steering interface](steering.md) | Source-backed variables, bounded reads, terminal layout, and plot ownership | Design record; manual implementation in [Steering](../steering.md) |
 | [Steering runtime research](steering-runtime-research.md) | First-party GitHub evidence for runtime and execution choices | Research |
+| [Steering profile](steering-profile.md) | Pre-Steering performance comparison, metadata ownership, and panel 2 anomalies | Measured investigation and proposals |
+| [Paired panel performance](steering-panel-performance.md) | Global time, editable probes, and comparison with pre-Steering | Measured 2026-09-21 |
+| [Frame performance](steering-frame-performance.md) | Implemented probes/panels, shared reads, and release measurements | Measured 2026-09-21 |
+| [Variables, probes, and dynamic panels](steering-bindings.md) | Shared plot ownership, probe semantics, frame API, and reuse priorities | Implemented core; remaining proposals marked |
+| [Paired panel views](steering-panel-views.md) | One data binding with Field/Curve views, global time/overlays, independent probes | Implemented |
 | [Domain vocabulary](steering-context.md) | Variables, selections, plot bindings, and revision identities | Proposed vocabulary |
 | [Steering UI draft](draft.html) | Topbar toggle, aligned living variables, log, and command input | Interactive layout; sample data, no Python execution |
 | [Browser plot style](plot-style.md) | Current plot style ownership and recorded decisions | Current |

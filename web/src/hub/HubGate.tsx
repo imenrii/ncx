@@ -257,7 +257,7 @@ export function HubGate() {
   if (state === "active") {
     return (
       <div className="hub-active">
-        <div className="hub-session-actions">
+        <App allowComparison={false} sessionActions={<>
           <button
             className="hub-open-another"
             onClick={() => {
@@ -270,11 +270,10 @@ export function HubGate() {
           >
             Open another address
           </button>
-          <button className="hub-close" onClick={close}>Close session</button>
+          <button className="hub-close" onClick={close}>Close Session</button>
           {modeLabel}
-        </div>
+        </>} />
         {activeError && <p className="hub-error hub-active-error" role="alert">{activeError}</p>}
-        <App allowComparison={false} />
       </div>
     );
   }

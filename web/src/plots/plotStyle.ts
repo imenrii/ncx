@@ -180,6 +180,14 @@ export const PLOT_STYLE = {
   },
 
   exportDpi: 400,
+  panels: {
+    screenGap: 0.7, // Tick-height units; web adaptation of the construction grid.
+    printGap: 2, // Style/plotstyle/grid.py GUTTER, in tick-height units.
+    printTickPt: 8, // Style/plotstyle/rc.py journal scale base.
+    printAxisRatio: 4 / 3, // Style/plotstyle/grid.py STACK.title.
+    printTitleRatio: Math.SQRT2, // Journal scale title, two half steps.
+    aspect: Math.SQRT2, // ISO 216 landscape cell ratio.
+  },
 };
 
 // Plot font assets. Commit Mono Web has its own generated UI font stylesheet.
@@ -250,6 +258,7 @@ ${fonts.join("\n")}
   --plot-face: ${PLOT_STYLE.face};
   --plot-weight-normal: ${PLOT_STYLE.weight.normal};
   --plot-weight-strong: ${PLOT_STYLE.weight.strong};
+  --plot-panel-gap: ${PLOT_STYLE.panels.screenGap}em;
 ${strokes.join("\n")}
 }
 .figure {

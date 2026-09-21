@@ -26,3 +26,12 @@ ncx. No general remote-origin permission is needed.
 After a shared interface change, rebuild ncx web assets, rebuild Rust, and run
 cuSURGE's `tests/web/embedding-smoke.mjs` against that exact binary. See
 [checks](checks.md) for the sibling checkout commands.
+
+## Steering worker
+
+Steering needs `worker-src 'self'` and `script-src 'self' 'wasm-unsafe-eval'`
+on the viewer response. It loads pinned Python/NumPy assets from the viewer's
+own asset routes. General JavaScript `unsafe-eval` is not needed. The current
+cuSURGE viewer policy must add the WebAssembly permission before Steering can
+start. Its console policy and host calculations need no change. See
+[Steering](steering.md) for the worker's authority and limits.

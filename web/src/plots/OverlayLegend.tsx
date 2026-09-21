@@ -50,8 +50,9 @@ export function OverlayLegend({ pressure, wind, windStyle, pressureReason, windR
   </div>;
 }
 
-export function FieldControls({ overlays, onReserve, ...view }: ComponentProps<typeof ViewControls> & {
+export function FieldControls({ overlays, onReserve, compact, ...view }: ComponentProps<typeof ViewControls> & {
   overlays?: OverlayToggles;
+  compact?: boolean;
   onReserve: (box: ContourBox) => void;
 }) {
   const [element, size] = useElementSize<HTMLDivElement>();
@@ -65,8 +66,8 @@ export function FieldControls({ overlays, onReserve, ...view }: ComponentProps<t
   return <div className="corner-stack" ref={element}>
     <ViewControls {...view} />
     {/* Equal headroom keeps comparison panes at the same map resolution. */}
-    <OverlayLegend hidden={!overlays} {...(overlays ?? {
+    {(!compact || overlays) && <OverlayLegend hidden={!overlays} {...(overlays ?? {
       pressure: false, wind: false, onPressure: () => {}, onWind: () => {},
-    })} />
+    })} />}
   </div>;
 }

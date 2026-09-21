@@ -1,4 +1,9 @@
-import { useCallback, useEffect, useLayoutEffect, useSyncExternalStore, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useSyncExternalStore, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
+import { SteeringSession } from "../steering/session";
+import { SteeringPanel } from "../steering/SteeringPanel";
+import { PanelView, type PanelViewSettings } from "../steering/SteeredPlot";
+import { hasField } from "../steering/panelData";
+import { currentHubCacheKey } from "../hub/hub";
 import { initialVariableState, reduceVariableState, savedSelection, saveSelection } from "./viewerState";
 import { PlotBoundary } from "./PlotBoundary";
 
@@ -8,7 +13,7 @@ import { unitAssignments } from "../data/unitAssignments";
 import { windPair, fieldWindReason } from "../data/wind";
 import { selectedPressureVariable, pressureReason } from "../data/pressure";
 import { CollectionBrowser, DatasetBrowser } from "./DatasetBrowser";
-import type { CurvePresentation } from "../plots/curveSeries";
+import { compatibleCurveAxis, type CurvePresentation, type CurveSeries } from "../plots/curveSeries";
 import { sourceFeed } from "../data/sourceFeed";
 import { locationIdentity, primaryFirst } from "../data/comparison";
 import { ComparisonFieldView } from "../plots/ComparisonFieldView";
@@ -59,10 +64,11 @@ import {
 import type { ViewBounds } from "../plots/view";
 
 export function Viewer({
-  allowComparison, metadata, datasets, collection, selectedDataset, selectedPath, startupError, status,
+  allowComparison, sessionActions, metadata, datasets, collection, selectedDataset, selectedPath, startupError, status,
   onStatus: updateStatus, onSelectDataset, onSelectVariable, onDatasetReady, onDatasetUnavailable,
 }: {
   allowComparison: boolean;
+  sessionActions?: ReactNode;
   metadata: Metadata | undefined;
   datasets: DatasetSummary[];
   collection: boolean;
@@ -82,7 +88,7 @@ export function Viewer({
   const zone = query.get("display_zone");
   const displayTimeZone = useMemo(() => parseDisplayTimeZone(zone) ?? UTC_TIME_ZONE, [zone]);
   const [selection, updateSelection] = useReducer(reduceVariableState, undefined, () => initialVariableState());
-  const { display, indices, view: requestedView, probe, colormap,
+  const { display, indices, view: requestedView, colormap,
     colorRange, rangeLocked, coordinatePaths, curveAlong } = selection;
   const playDirection = selection.playback.kind === "playing" ? selection.playback.direction : 0;
   const frameReady = selection.frame === "ready";
@@ -92,9 +98,13 @@ export function Viewer({
   const [settingsOpen, setSettingsOpen] = useState<FieldDimensions>();
   const shell = useRef<HTMLDivElement>(null);
   const [fieldSettings, setFieldSettings] = useState(DEFAULT_FIELD_SETTINGS);
-  const [timelineValues, setTimelineValues] = useState<Float64Array>();
+  const [timelineData, setTimelineData] = useState<{ coordinate: Variable; values: Float64Array }>();
   const [mapSource, setMapSource] = useState<"none" | "coastline">("none");
   const [saving, setSaving] = useState(false);
+  const [steering] = useState(() => new SteeringSession());
+  const [steeringOpen, setSteeringOpen] = useState(false);
+  useSyncExternalStore(steering.subscribe, steering.getSnapshot);
+  useEffect(() => () => steering.dispose(), [steering]);
   const [wind, setWind] = useState(false);
   const [pressureContours, setPressureContours] = useState(false);
   const [unitId, setUnitId] = useState("");
@@ -122,6 +132,9 @@ export function Viewer({
     return () => { window.removeEventListener("keydown", toggle); };
   }, []);
 
+  const primaryPanel = steering.panels[0];
+  const probe = primaryPanel.probe;
+
   const rawMetadata = metadata && unitAssignments.original(metadata);
   const unitRevision = unitAssignments.getSnapshot();
   const previousUnitRevision = useRef(unitRevision);
@@ -138,24 +151,33 @@ export function Viewer({
   const pressureSource = metadata && variable
     ? selectedPressureVariable(metadata, variable, fieldSettings.pressureComponents[metadata.dataset_id!]) : undefined;
   const view = requestedView;
-  const units = useMemo(() => variable ? unitChoice(variable) : undefined, [variable]);
+  const activeIntent = steering.intents[view === "field" ? "field" : "curve"];
+  const presentationVariable = activeIntent.kind === "data" ? activeIntent.binding?.variable ?? variable : variable;
+  const delta = presentationVariable?.value_kind === "delta";
+  const units = useMemo(() => presentationVariable ? unitChoice(presentationVariable) : undefined, [presentationVariable]);
   const sourceUnit = units?.source;
+  const presentationUnits = JSON.stringify([presentationVariable && attributeText(presentationVariable, "units"), presentationVariable?.value_kind ?? "absolute"]);
+  useEffect(() => {
+    setCurveLocked(false);
+    setScale("linear");
+    updateSelection({ type: "range/locked", locked: false });
+  }, [presentationUnits]);
   const targetUnit = units?.choices.find(item => item.id === unitId) ?? sourceUnit;
   const useBeaufort = Boolean(view === "curve" && units?.beaufort && unitId === "Bft");
   const windUnit = useBeaufort ? "Bft" : targetUnit?.id;
   const windMatch = useMemo(() => metadata && variable
-    ? windPair(metadata, variable, view === "curve" ? windUnit : undefined) : {},
-  [metadata, variable, view, windUnit]);
+    ? windPair(metadata, variable, view === "curve" ? windUnit : undefined, fieldSettings.components[metadata.dataset_id!]) : {},
+  [metadata, variable, view, windUnit, fieldSettings.components]);
   const nativeRange = view === "curve" ? curveRange : colorRange;
   const shownRange = useBeaufort ? beaufortRange : sourceUnit && targetUnit
-    ? { minimum: convert(nativeRange.minimum, sourceUnit, targetUnit), maximum: convert(nativeRange.maximum, sourceUnit, targetUnit) } : nativeRange;
+    ? { minimum: convert(nativeRange.minimum, sourceUnit, targetUnit, delta), maximum: convert(nativeRange.maximum, sourceUnit, targetUnit, delta) } : nativeRange;
   const shownLocked = view === "curve" ? curveLocked : rangeLocked;
   const changeCurveRange = useCallback((range: ColorRange) => {
     if (useBeaufort) setBeaufortRange(range);
     else setCurveRange(sourceUnit && targetUnit ? {
-      minimum: convert(range.minimum, targetUnit, sourceUnit), maximum: convert(range.maximum, targetUnit, sourceUnit),
+      minimum: convert(range.minimum, targetUnit, sourceUnit, delta), maximum: convert(range.maximum, targetUnit, sourceUnit, delta),
     } : range);
-  }, [sourceUnit, targetUnit, useBeaufort]);
+  }, [sourceUnit, targetUnit, useBeaufort, delta]);
   useEffect(() => {
     setUnitId(""); setCurveLocked(false);
     setCurveRange({ minimum: 0, maximum: 1 });
@@ -207,28 +229,57 @@ export function Viewer({
   const curveDimension = variable
     ? curveAlong ?? defaultCurveDimension(variable, fieldSelectors[0]?.index, isTimeDimension)
     : 0;
+  const curveCoordinate = metadata?.variables.find(v => v.path === variable?.dimensions[curveDimension]?.path);
+  const curveAxis = {
+    absoluteTime: Boolean(curveCoordinate?.capabilities.time),
+    xUnit: curveCoordinate?.capabilities.time ? "time" : curveCoordinate && attributeText(curveCoordinate, "units"),
+    calendar: curveCoordinate?.capabilities.calendar,
+  };
+  const curveAxisKey = JSON.stringify([curveAxis.absoluteTime, curveAxis.xUnit, curveAxis.calendar]);
+  useEffect(() => { setCurvePresentation({}); }, [curveAxisKey]);
   const selectorDimensions = useMemo(() => {
     if (view === "metadata" || view === "curve" && probe) return [];
     return view === "curve" ? (variable?.dimensions ?? [])
       .map((dimension, index) => ({ dimension, index }))
       .filter(({ index }) => index !== curveDimension) : fieldSelectors;
   }, [view, probe, variable, curveDimension, fieldSelectors]);
-  const timeline = selectorDimensions[0];
+  const timeDimension = variable?.dimensions.findIndex(d => isTimeDimension(d.path)) ?? -1;
+  const timeline = timeDimension >= 0 && variable
+    ? { dimension: variable.dimensions[timeDimension], index: timeDimension }
+    : selectorDimensions[0];
   const timelineVariable = metadata?.variables.find(candidate =>
     candidate.path === timeline?.dimension.path && candidate.dimensions.length === 1 &&
     candidate.dimensions[0].path === timeline.dimension.path,
   );
+  const timelineValues = timelineData?.coordinate === timelineVariable ? timelineData?.values : undefined;
   const timelineTime = timeInZone(describeTime(timelineVariable), displayTimeZone);
-  const curveIndices = useMemo(() => Object.fromEntries(Object.entries(probe?.indices ?? indices)
-    .filter(([path]) => path !== variable?.dimensions[curveDimension]?.path)),
-  [probe, indices, variable, curveDimension]);
+  const curveIndices = useMemo(() => {
+    const spatial = [display.x, display.y].flatMap(axis => axis === undefined ? [] : [variable?.dimensions[axis]?.path]);
+    const selected = { ...indices, ...Object.fromEntries(Object.entries(probe?.indices ?? {}).filter(([path]) => spatial.includes(path))) };
+    return Object.fromEntries(Object.entries(selected).filter(([path]) => path !== variable?.dimensions[curveDimension]?.path));
+  }, [probe, indices, variable, curveDimension, display]);
   const offsetKey = JSON.stringify([selectedDataset, selectedPath, curveDimension,
     curveIndices, probe?.average,
     variable && attributeText(variable, "standard_name"), variable && attributeText(variable, "units")]);
+  const fieldVariable = useMemo(
+    () => metadata && variable
+      ? variableWithCoordinates(metadata, variable, display, coordinatePaths)
+      : variable,
+    [metadata, variable, display, coordinatePaths],
+  );
   const scientificKey = JSON.stringify([selectedDataset, selectedPath, view, sourceKey, unitRevision,
     curveDimension, curveIndices, probe?.average, display, coordinatePaths,
     view === "field" ? indices : undefined]);
+  useLayoutEffect(() => {
+    steering.configure(sources, unitRevision, currentHubCacheKey(), variable ? {
+      dataset: selectedDataset, path: selectedPath, kind: view, display,
+      indices: view === "curve" ? curveIndices : indices, along: curveDimension, average: probe?.average, probe: probe && { indices: curveIndices, average: probe.average },
+    } : undefined, metadata && fieldVariable ? { metadata, variable: fieldVariable } : undefined);
+  }, [steering, sources, unitRevision, scientificKey, metadata, fieldVariable]);
   const [rawExtent, setRawExtent] = useState<{ key: string; start_ms: number; end_ms: number }>();
+  const timestamp = timelineTime && timelineValues && timeline
+    ? timelineTime.originMs + timelineValues[indices[timeline.dimension.path] ?? 0] * timelineTime.multiplierMs : undefined;
+  steering.timestamp = timestamp;
   const reportExtent = useCallback((extent?: { start_ms: number; end_ms: number }) => {
     setRawExtent(current => {
       const next = extent ? { key: scientificKey, ...extent } : undefined;
@@ -250,15 +301,15 @@ export function Viewer({
   useEffect(() => {
     let active = true;
     if (!timelineVariable) {
-      setTimelineValues(undefined);
+      setTimelineData(undefined);
       return;
     }
     fetchCoordinate(timelineVariable)
       .then((values) => {
-        if (active) setTimelineValues(values);
+        if (active) setTimelineData({ coordinate: timelineVariable, values });
       })
       .catch(() => {
-        if (active) setTimelineValues(undefined);
+        if (active) setTimelineData(undefined);
       });
     return () => {
       active = false;
@@ -266,25 +317,19 @@ export function Viewer({
   }, [timelineVariable]);
 
   useEffect(() => {
-    if (!timeline || playDirection === 0 || !frameReady) return;
+    if (!timeline || playDirection === 0 || view === "field" && (!frameReady || !steering.fieldsReady)) return;
     const timer = window.setTimeout(() => {
       updateSelection({ type: "playback/ticked" });
     }, 180);
     return () => window.clearTimeout(timer);
-  }, [timeline, playDirection, frameReady]);
+  }, [timeline, playDirection, frameReady, view, timestamp, steering.getSnapshot()]);
 
   const updateIndex = (path: string, value: number) => updateSelection({ type: "dimension/indexed", path, value });
   const markFrameLoaded = useCallback(() => updateSelection({ type: "frame/loaded" }), []);
   const stopPlayback = useCallback(() => updateSelection({ type: "frame/failed" }), []);
-  const setProbe = useCallback((probe: Probe) => updateSelection({ type: "probe/placed", probe }), []);
+  const setProbe = useCallback((probe: Probe) => steering.setProbe(probe), [steering]);
   const setRangeLocked = (locked: boolean) => updateSelection({ type: "range/locked", locked });
   const setColorRange = useCallback((range: ColorRange) => updateSelection({ type: "range/changed", range }), []);
-  const fieldVariable = useMemo(
-    () => metadata && variable
-      ? variableWithCoordinates(metadata, variable, display, coordinatePaths)
-      : variable,
-    [metadata, variable, display, coordinatePaths],
-  );
   const fieldViewKey = fieldVariable
     ? [
         fieldVariable.dataset_id ?? "dataset",
@@ -350,7 +395,7 @@ export function Viewer({
   ].filter(Boolean).join(" · ");
   const derivation = derivedValueLabel(fieldVariable);
   const changeFieldRange = (range: ColorRange) => setColorRange(sourceUnit && targetUnit ? {
-    minimum: convert(range.minimum, targetUnit, sourceUnit), maximum: convert(range.maximum, targetUnit, sourceUnit),
+    minimum: convert(range.minimum, targetUnit, sourceUnit, delta), maximum: convert(range.maximum, targetUnit, sourceUnit, delta),
   } : range);
   const figureSubtitle = [figureDetails(targetUnit?.label ?? displayUnit(variable)), derivation].filter(Boolean).join(" · ");
   const curveSubtitle = [
@@ -366,6 +411,7 @@ export function Viewer({
       const candidates = compatibleCoordinates(metadata, variable, next, axis);
       return [axis, candidates.length === 1 ? candidates[0].path : undefined];
     }));
+    steering.setProbe(undefined);
     updateSelection({ type: "display/selected", display: next, coordinates });
   };
   const settingsButton = (
@@ -375,7 +421,7 @@ export function Viewer({
       title="Settings"
       aria-haspopup="dialog"
       onClick={() => {
-        const view = shell.current!.querySelector(".stage > .figure")?.getBoundingClientRect()
+        const view = shell.current!.querySelector(".stage .figure")?.getBoundingClientRect()
           ?? shell.current!.querySelector(".stage")!.getBoundingClientRect();
         setSettingsOpen({ width: Math.round(view.width), height: Math.round(view.height) });
       }}
@@ -396,6 +442,29 @@ export function Viewer({
       </select>
     </label>
   );
+  const steeringIntent = view === "field" ? steering.intents.field : steering.intents.curve;
+  const eligible = (panel: typeof primaryPanel) => {
+    const binding = steering.bindingFor(panel);
+    if (!binding) return panel.intent.kind === "data" && Boolean(panel.intent.error);
+    return view === "field" ? hasField(binding) : view === "curve" && binding.variable.dimensions.length > 0 && (!hasField(binding) || Boolean(panel.probe));
+  };
+  const appended = steering.panels.slice(1).filter(eligible);
+  const primaryBinding = steering.bindingFor(primaryPanel);
+  const primaryFrameKey = steering.fieldKey(primaryPanel);
+  const primaryEligible = view === "metadata" || steeringIntent.kind === "hidden" || !primaryBinding || eligible(primaryPanel);
+  const fieldCount = view === "field" ? appended.length + (primaryEligible ? 1 : 0) : 0;
+  const panelSettings: PanelViewSettings = {
+    page: view === "curve" ? "curve" : "field", timestamp, colormap, scale,
+    range: view === "field" ? colorRange : shownRange, locked: view === "field" ? rangeLocked : curveLocked,
+    targetUnit, timeZone: displayTimeZone, fieldSettings, overlays,
+    overlaySource: { metadata, variable: fieldVariable, indices }, pressure: pressureOverlay, mapSource,
+  };
+  const topActions = <div className="topbar-actions">
+    <button className="steering-toggle" aria-controls="steering-panel" aria-expanded={steeringOpen} aria-pressed={steeringOpen}
+      onClick={() => setSteeringOpen(open => !open)}>Steering</button>
+    <button className="screenshot-button" title="Save plot as PNG" disabled={view === "metadata"} onClick={() => setSaving(true)}>Save PNG</button>
+    {sessionActions}
+  </div>;
 
   return (
     <div
@@ -404,6 +473,7 @@ export function Viewer({
       data-embedded={embedded}
       data-chrome={chromeHidden ? "none" : "full"}
       data-dataset={metadata.dataset_id}
+      data-steering={steeringOpen}
     >
       {!chromeHidden && (
         <header className="topbar">
@@ -416,6 +486,7 @@ export function Viewer({
               <span className="path-variable" title={variable.path}>{variable.path.slice(1)}</span>
             </span>
           </div>
+          {topActions}
         </header>
       )}
 
@@ -448,15 +519,15 @@ export function Viewer({
         onClose={() => setSettingsOpen(undefined)} onApply={setFieldSettings} />}
 
       <main className="main" data-timeline={timeline ? "shown" : "hidden"}>
-        <div className="toolbar">
+        <div className="toolbar" data-pinned={steeringIntent.kind !== "default"}>
           <nav className="view-tabs" aria-label="Variable views">
             {(["field", "curve", "metadata"] as const).map((name) => (
               <button
                 key={name}
                 className={view === name ? "active" : ""}
                 disabled={
-                  (name === "field" && variable.dimensions.length === 1 && variable.view_hint.kind !== "ugrid2d") ||
-                  (name === "curve" && variable.dimensions.length === 0)
+                  (name === "field" && !steering.panels.some(panel => { const binding = steering.bindingFor(panel); return binding && hasField(binding); })) ||
+                  (name === "curve" && !steering.panels.some(panel => steering.bindingFor(panel)?.variable.dimensions.length))
                 }
                 onClick={() => {
                   saveSelection(selectedDataset, selectedPath, name);
@@ -488,7 +559,7 @@ export function Viewer({
                   }} />{item.label}</label>)}
               </div>
             </details>}
-            {view === "field" && variable.view_hint.kind === "ugrid2d" && (
+            {steeringIntent.kind === "default" && view === "field" && variable.view_hint.kind === "ugrid2d" && (
               <div className="control-group">
                 <label className="dimension-readout">
                   {variable.view_hint.location}
@@ -500,7 +571,7 @@ export function Viewer({
                 </label>
               </div>
             )}
-            {view === "field" && variable.view_hint.kind !== "ugrid2d" && variable.dimensions.length >= 2 && (
+            {steeringIntent.kind === "default" && view === "field" && variable.view_hint.kind !== "ugrid2d" && variable.dimensions.length >= 2 && (
               <div className="control-group" role="group" aria-label="Displayed axes">
                 {/* One coordinate candidate is no choice: the dimension select
                     beside it already names what is plotted, so the second
@@ -515,6 +586,7 @@ export function Viewer({
                       candidates={yCoordinates}
                       value={coordinatePaths.y}
                       onChange={(y) => {
+                        steering.setProbe(undefined);
                         updateSelection({ type: "coordinate/selected", axis: "y", path: y });
                       }}
                     />
@@ -530,6 +602,7 @@ export function Viewer({
                       candidates={xCoordinates}
                       value={coordinatePaths.x}
                       onChange={(x) => {
+                        steering.setProbe(undefined);
                         updateSelection({ type: "coordinate/selected", axis: "x", path: x });
                       }}
                     />
@@ -537,7 +610,7 @@ export function Viewer({
                 </div>
               </div>
             )}
-            {view === "curve" && variable.dimensions.length > 1 && (
+            {steeringIntent.kind === "default" && view === "curve" && variable.dimensions.length > 1 && (
               <div className="control-group" role="group" aria-label="Curve dimension">
                 <label>
                   Along
@@ -554,7 +627,7 @@ export function Viewer({
                 </label>
               </div>
             )}
-            {view !== "metadata" && fixedDimensions.length > 0 && (
+            {steeringIntent.kind === "default" && view !== "metadata" && fixedDimensions.length > 0 && (
               <div className="control-group" role="group" aria-label="Fixed dimension indices">
                 {fixedDimensions.map((dimension) => (
                   <label key={dimension.path}>
@@ -577,12 +650,12 @@ export function Viewer({
                   setUnitId(event.target.value);
                   if (event.target.value === "Bft" || useBeaufort) { setCurveLocked(false); setScale("linear"); }
                 }}>
-                {!sourceUnit && <option value="native">{attributeText(variable, "units") ?? "native"}</option>}
+                {!sourceUnit && <option value="native">{attributeText(presentationVariable!, "units") ?? "native"}</option>}
                 {units?.choices.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
                 {view === "curve" && units?.beaufort && <option value="Bft">Bft</option>}
               </select></label>
             </div>}
-            {view === "curve" && !useBeaufort && <div className="control-group curve-offset-controls">
+            {steeringIntent.kind === "default" && view === "curve" && !useBeaufort && <div className="control-group curve-offset-controls">
               <label>Y offset ({targetUnit?.label ?? displayUnit(variable)})<OffsetInput
                 value={sourceUnit && targetUnit ? convert(sourceFeed.toolbar, sourceUnit, targetUnit, true) : sourceFeed.toolbar}
                 onChange={value => sourceFeed.setOffset(sourceUnit && targetUnit
@@ -689,16 +762,9 @@ export function Viewer({
               </>
             )}
           </div>
-          {/* Keep export in the same navigation row. */}
           <div className="toolbar-actions">
-            <button
-              className="screenshot-button"
-              title="Save plot as PNG"
-              disabled={view === "metadata"}
-              onClick={() => setSaving(true)}
-            >
-              Save PNG
-            </button>
+            {chromeHidden && topActions}
+            {view !== "metadata" && steeringIntent.kind !== "default" && <button onClick={() => steering.resetPlot(view)}>Reset plot</button>}
           </div>
           {saving && (
             <SaveDialog
@@ -710,9 +776,22 @@ export function Viewer({
         </div>
 
         <section className="stage" data-fixed-size={view === "field" && Boolean(fieldSettings.dimensions)}>
+          <section className={appended.length && view !== "metadata" ? "figure steering-frame" : "steering-primary"}
+            data-fields={fieldCount} data-multiple={appended.length > 0}>
+          <div hidden={!primaryEligible} className="steering-pane" data-kind={view} data-panel="panel1" role="group" aria-label="Primary panel">
           <PlotBoundary key={`${metadata.dataset_id}:${variable.path}:${view}`}>
           {view === "metadata" ? (
-            <MetadataPanel metadata={metadata} variable={variable} />
+            <MetadataPanel metadata={primaryPanel.intent.kind === "data" ? primaryPanel.intent.binding?.metadata ?? metadata : metadata}
+              variable={primaryPanel.intent.kind === "data" ? primaryPanel.intent.binding?.variable ?? variable : variable} />
+          ) : steeringIntent.kind === "hidden" ? (
+            <div className="comparison-unavailable">Plot hidden. Reset plot to restore the default.</div>
+          ) : steeringIntent.kind === "data" ? (
+            steeringIntent.error ? <div className="comparison-unavailable">{steeringIntent.error}</div>
+              : <PanelView panel={primaryPanel} session={steering} settings={panelSettings} primary
+                  onRange={view === "field" ? setColorRange : changeCurveRange} onStatus={updateStatus}
+                  onFrameLoaded={() => { steering.fieldLoaded("panel1", primaryFrameKey); markFrameLoaded(); }} />
+          ) : !primaryEligible ? (
+            null
           ) : plotDatasets.length === 0 ? (
             <div className="comparison-unavailable">Select a source to visualize.</div>
           ) : view === "field" && allowComparison && datasets.length > 1 ? (
@@ -737,7 +816,7 @@ export function Viewer({
               timeZone={displayTimeZone}
               onProbe={setProbe}
               onRange={setColorRange}
-              onFrameLoaded={markFrameLoaded}
+              onFrameLoaded={() => { steering.fieldLoaded("panel1", primaryFrameKey); markFrameLoaded(); }}
               onAllUnavailable={stopPlayback}
               onStatus={updateStatus}
             />
@@ -774,7 +853,7 @@ export function Viewer({
                   onViewChange={rememberFieldView}
                   onProbe={setProbe}
                   onRange={setColorRange}
-                  onFrameLoaded={markFrameLoaded}
+                  onFrameLoaded={() => { steering.fieldLoaded("panel1", primaryFrameKey); markFrameLoaded(); }}
                   onStatus={updateStatus}
                 />
               ) : (
@@ -785,9 +864,11 @@ export function Viewer({
                   onPresentation={setCurvePresentation}
                   onRange={changeCurveRange}
                   wind={wind && !windUnavailable}
+                  windComponents={fieldSettings.components[metadata.dataset_id!]}
                   targetUnit={useBeaufort ? "Bft" : targetUnit}
                   metadata={metadata}
                   variable={variable}
+                  currentTime={timestamp}
                   curveDimension={curveDimension}
                   indices={curveIndices}
                   average={probe?.average}
@@ -809,6 +890,11 @@ export function Viewer({
             </section>
           )}
           </PlotBoundary>
+          </div>
+          {view !== "metadata" && steering.panels.slice(1).map(panel => <PanelView key={panel.id} panel={panel} session={steering}
+            settings={panelSettings} onRange={() => {}} onStatus={updateStatus} />)}
+          {!primaryEligible && !appended.length && <p className="empty-note">Place a field probe to show its curve.</p>}
+          </section>
         </section>
 
         <Timeline
@@ -823,12 +909,18 @@ export function Viewer({
             : { type: "playback/stopped" })}
         />
       </main>
+      <SteeringPanel session={steering} open={steeringOpen} displays={steering.describeDisplays({
+        field: { visible: view === "field", range: rangeLocked ? `${colorRange.minimum} … ${colorRange.maximum}` : "automatic", unit: view === "field" ? targetUnit?.label ?? "" : "" },
+        curve: { visible: view === "curve", range: curveLocked ? `${shownRange.minimum} … ${shownRange.maximum}` : "automatic", unit: view === "curve" ? targetUnit?.label ?? "" : "" },
+
+      })} />
 
       {!chromeHidden && (
         <footer className="statusbar">
           <span>{status}</span>
-          <span>{shapeText(variable, display)}</span>
-          <span>{probePosition ? `${probePosition} · ${formatNumber(displayValue(probe!.value, variable, targetUnit))} ${targetUnit?.label ?? displayUnit(variable)}` : "click field to probe"}</span>
+          <span>{shapeText(presentationVariable!, steeringIntent.kind === "data"
+            ? { x: presentationVariable!.capabilities.display_x ?? undefined, y: presentationVariable!.capabilities.display_y ?? undefined } : display)}</span>
+          <span>{steeringIntent.kind !== "default" ? "Steering data" : probePosition ? `${probePosition} · ${formatNumber(displayValue(probe!.value, variable, targetUnit))} ${targetUnit?.label ?? displayUnit(variable)}` : "click field to probe"}</span>
         </footer>
       )}
     </div>

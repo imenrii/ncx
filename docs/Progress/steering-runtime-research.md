@@ -1,7 +1,8 @@
 # Steering runtime research
 
-Status: research and recommendation. Revised 2026-09-17. No runtime is installed
-or implemented. This revision adds source-backed reads to the runtime experiment.
+Status: research record, revised 2026-09-17. The manual runtime is now implemented;
+see [the current Steering contract](../steering.md) for its pinned assets,
+commands, limits, and checks. The findings below record the runtime decision.
 Scope: execution environment only. The [comparison plan](comparison-plan.md)
 owns the workflow. The [Steering interface](steering.md) owns variable references,
 materialization, block reads, plot bindings, and publication rules.

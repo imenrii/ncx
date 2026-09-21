@@ -1,16 +1,16 @@
-import { prepareMesh } from "./meshBuild";
+import { buildGeometry, probeFromHit, requiredVariable, type FieldGeometry } from "./fieldGeometry";
 import { useSlice } from "../data/useSlice";
 import { PlotStatus } from "./PlotStatus";
 import { displayValue, convertedLabel, unitChoice } from "../data/units";
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 
-import { fetchCoordinate, fetchSlice, fetchStaticSlice } from "../data/api";
+import { fetchSlice } from "../data/api";
 import { finiteRange, formatNumber } from "./color";
 import { registerPlotCapture } from "./capture";
 import type { FieldProps } from "./SpatialField";
 import { useFieldInteraction } from "./useFieldInteraction";
 import { fieldMargin, plotType } from "./plotgeom";
-import { PERFORMANCE_MEASURE, measurePerformance, measurePerformanceAsync } from "../data/performance";
+import { PERFORMANCE_MEASURE, measurePerformance } from "../data/performance";
 import { Colorbar, PlotAxes, FieldMarks, type PlotBounds } from "./plot";
 import { CoastlineOverlay } from "./CoastlineOverlay";
 import { FieldOverlays } from "./FieldOverlays";
@@ -20,22 +20,18 @@ import {
   edgesToFaces,
   findMeshHit,
   type Bounds,
-  type MeshGeometry,
   type MeshHit,
 } from "./mesh";
 import type {
-  DataSlice,
   Metadata,
-  Probe,
   Variable,
 } from "../data/model";
-import { attributeNumber, attributeNumbers, attributeText, displayUnit, quantityLabel } from "../data/model";
+import { attributeText, displayUnit, quantityLabel } from "../data/model";
 import {
   formatPosition,
-  geographicCoordinateVariables,
   probeAtPosition,
 } from "./projection";
-import { fieldRequest, ugridFieldRequest, type DisplayDimensions } from "../data/selection";
+import { fieldRequest, ugridFieldRequest } from "../data/selection";
 import { useElementSize } from "./useElementSize";
 import {
   fitPlotToBounds,
@@ -55,7 +51,6 @@ interface PointerValue {
   value: number;
 }
 
-type FieldGeometry = MeshGeometry & { edgeFaces?: Int32Array };
 
 export function MeshFieldView(props: MeshFieldViewProps) {
   const [frame, size] = useElementSize<HTMLDivElement>();
@@ -100,7 +95,8 @@ export function MeshFieldView(props: MeshFieldViewProps) {
     }
   }, [props.onStatus]);
   const type = plotType(frame.current);
-  const margin = fieldMargin(type, reserve?.bottom);
+  const exportingFrame = Boolean(frame.current?.closest(".steering-frame[data-export]"));
+  const margin = fieldMargin(type, exportingFrame ? 0 : reserve?.bottom, exportingFrame || props.compact);
   const availablePlot: PlotBounds = {
     left: margin.left,
     top: margin.top,
@@ -380,9 +376,9 @@ export function MeshFieldView(props: MeshFieldViewProps) {
       />
       <svg className="plot-svg" width={size.width} height={size.height} aria-hidden="true">
         {(props.wind || props.pressure || props.mapSource === "coastline") && geometry && view && <FieldOverlays
-          metadata={props.metadata} variable={props.variable} wind={props.wind} pressure={props.pressure}
+          metadata={props.overlaySource?.metadata ?? props.metadata} variable={props.overlaySource?.variable ?? props.variable} wind={props.wind} pressure={props.pressure}
           settings={props.fieldSettings}
-          indices={props.indices} bounds={view} plot={plot} labelSize={type.tick} geometry={geometry}
+          indices={props.overlaySource?.indices ?? props.indices} bounds={view} plot={plot} labelSize={type.tick} geometry={geometry}
           spatialDimension={props.variable.dimensions[spatialDimension]?.path}
           reserve={reserve} onStatus={props.onStatus}>
           {props.mapSource === "coastline" && <CoastlineOverlay bounds={view} plot={plot} onStatus={props.onStatus} />}
@@ -413,7 +409,7 @@ export function MeshFieldView(props: MeshFieldViewProps) {
         } />
       </svg>
       {geometry && (
-        <FieldControls overlays={props.overlays} onReserve={setReserve}
+        <FieldControls overlays={props.overlays} onReserve={setReserve} compact={props.compact}
             onZoomIn={() => changeView(zoomBounds(view ?? geometry.bounds, geometry.bounds, 0.75))}
             onZoomOut={() => changeView(zoomBounds(view ?? geometry.bounds, geometry.bounds, 4 / 3))}
             onReset={() => changeView(geometry.bounds)}
@@ -445,215 +441,6 @@ export function MeshFieldView(props: MeshFieldViewProps) {
   );
 }
 
-async function buildGeometry(
-  metadata: Metadata,
-  variable: Variable,
-  display: DisplayDimensions,
-  slice: DataSlice,
-  signal?: AbortSignal,
-): Promise<FieldGeometry> {
-  const hint = variable.view_hint;
-  if (hint.kind === "curvilinear") {
-    const xVariable = requiredVariable(metadata, hint.x);
-    const yVariable = requiredVariable(metadata, hint.y);
-    const { x: displayX, y: displayY } = display;
-    if (
-      displayY === undefined ||
-      displayX === undefined ||
-      xVariable.dimensions.length !== 2 ||
-      xVariable.dimensions[0].path !== variable.dimensions[displayY]?.path ||
-      xVariable.dimensions[1].path !== variable.dimensions[displayX]?.path ||
-      yVariable.dimensions.map((dimension) => dimension.path).join("|") !==
-        xVariable.dimensions.map((dimension) => dimension.path).join("|")
-    ) {
-      throw new Error("selected display dimensions do not match the curvilinear coordinates");
-    }
-    const [xValues, yValues] = await Promise.all([
-      fetchCoordinate(xVariable),
-      fetchCoordinate(yVariable),
-    ]);
-    const coordinateShape = xVariable.dimensions.map((dimension) => dimension.length);
-    if (
-      coordinateShape.length !== 2 ||
-      xValues.length !== coordinateShape[0] * coordinateShape[1] ||
-      yValues.length !== xValues.length ||
-      slice.shape.length !== 2
-    ) {
-      throw new Error("curvilinear coordinates and field must be two-dimensional");
-    }
-    const strides = slice.request.selection.map(axis => typeof axis === "number" ? 1 : axis.stride);
-    const geometry = await measurePerformanceAsync(PERFORMANCE_MEASURE.meshGeometry, () =>
-      prepareMesh({ kind: "curvilinear", args: [
-        xValues,
-        yValues,
-        coordinateShape[0],
-        coordinateShape[1],
-        slice.shape[0],
-        slice.shape[1],
-        strides[displayY],
-        strides[displayX],
-      ] }, signal));
-    return addGeographicCoordinates(
-      metadata,
-      variable,
-      xVariable,
-      yVariable,
-      xValues,
-      yValues,
-      geometry,
-    );
-  }
-
-  if (hint.kind === "ugrid2d") {
-    const xVariable = requiredVariable(metadata, hint.x);
-    const yVariable = requiredVariable(metadata, hint.y);
-    const connectivityVariable = requiredVariable(metadata, hint.face_node_connectivity);
-    const [xValues, yValues, connectivitySlice] = await Promise.all([
-      fetchCoordinate(xVariable),
-      fetchCoordinate(yVariable),
-      fetchStaticSlice(connectivityVariable),
-    ]);
-    if (
-      xVariable.dimensions.length !== 1 ||
-      yVariable.dimensions.length !== 1 ||
-      xValues.length !== xVariable.dimensions[0].length ||
-      yValues.length !== xValues.length ||
-      !(connectivitySlice.values instanceof Int32Array || connectivitySlice.values instanceof Uint32Array) ||
-      connectivitySlice.shape.length !== 2
-    ) {
-      throw new Error("UGRID requires one-dimensional node coordinates and padded 2-D connectivity");
-    }
-    const connectivity = connectivitySlice.values;
-    const geometry = await measurePerformanceAsync(PERFORMANCE_MEASURE.meshGeometry, () =>
-      prepareMesh({ kind: "ugrid", args: [
-        xValues,
-        yValues,
-        connectivity,
-        connectivitySlice.shape[0],
-        connectivitySlice.shape[1],
-        attributeNumber(connectivityVariable, "start_index") ?? 0,
-        [
-          ...attributeNumbers(connectivityVariable, "_FillValue"),
-          ...attributeNumbers(connectivityVariable, "missing_value"),
-        ],
-        hint.location === "node" ? "node" : "face",
-      ] }, signal));
-    const projected = await addGeographicCoordinates(
-      metadata,
-      variable,
-      xVariable,
-      yVariable,
-      xValues,
-      yValues,
-      geometry,
-    );
-    if (hint.location !== "edge") return projected;
-    const topology = requiredVariable(metadata, hint.mesh);
-    const reference = topology.capabilities.references.edge_face_connectivity?.[0];
-    if (!reference) throw new Error("UGRID edge data requires edge_face_connectivity");
-    const edgeFacesVariable = requiredVariable(
-      metadata,
-      reference,
-    );
-    const edgeFaces = await fetchStaticSlice(edgeFacesVariable);
-    const edgeDimension = topology.capabilities.edge_dimension;
-    const edgeAxis = edgeDimension
-      ? edgeFacesVariable.dimensions.findIndex((dimension) => dimension.name === edgeDimension)
-      : 0;
-    if (
-      !(edgeFaces.values instanceof Int32Array || edgeFaces.values instanceof Uint32Array) ||
-      edgeFaces.shape.length !== 2 ||
-      edgeAxis < 0 ||
-      edgeFaces.shape[edgeAxis] !== slice.values.length ||
-      edgeFaces.shape[1 - edgeAxis] !== 2
-    ) {
-      throw new Error("UGRID edge-face connectivity must be edge × 2");
-    }
-    const startIndex = attributeNumber(edgeFacesVariable, "start_index") ?? 0;
-    if (startIndex !== 0 && startIndex !== 1) throw new Error("UGRID start_index must be 0 or 1");
-    const padding = new Set([
-      ...attributeNumbers(edgeFacesVariable, "_FillValue"),
-      ...attributeNumbers(edgeFacesVariable, "missing_value"),
-    ]);
-    const normalized = new Int32Array(edgeFaces.values.length);
-    for (let index = 0; index < normalized.length; index += 1) {
-      const edge = index >> 1;
-      const side = index & 1;
-      const source = edgeAxis === 0 ? index : side * slice.values.length + edge;
-      const packed = Number(edgeFaces.values[source]);
-      const face = packed - startIndex;
-      if (padding.has(packed)) normalized[index] = -1;
-      else if (!Number.isSafeInteger(face) || face < 0 || face >= connectivitySlice.shape[0]) {
-        throw new Error(`UGRID edge refers to invalid face ${packed}`);
-      } else normalized[index] = face;
-      if (side === 1 && normalized[index] >= 0 && normalized[index] === normalized[index - 1]) {
-        throw new Error(`UGRID edge ${edge} refers to the same face twice`);
-      }
-    }
-    return {
-      ...projected,
-      edgeFaces: normalized,
-    };
-  }
-  throw new Error("variable is not a mesh field");
-}
-
-function probeFromHit(
-  variable: Variable,
-  display: DisplayDimensions,
-  indices: Record<string, number>,
-  slice: DataSlice,
-  hit: MeshHit,
-  value: number,
-): Probe {
-  const nextIndices = { ...indices };
-  if (variable.view_hint.kind === "ugrid2d" && variable.view_hint.location !== "edge") {
-    const dimension = variable.dimensions[display.x ?? variable.dimensions.length - 1];
-    if (dimension) nextIndices[dimension.path] = hit.scalarIndex;
-  } else if (display.x !== undefined && display.y !== undefined && slice.shape.length === 2) {
-    const columns = slice.shape[1];
-    const row = Math.floor(hit.scalarIndex / columns);
-    const column = hit.scalarIndex % columns;
-    const strides = slice.request.selection.map(axis => typeof axis === "number" ? 1 : axis.stride);
-    nextIndices[variable.dimensions[display.x].path] = column * strides[display.x];
-    nextIndices[variable.dimensions[display.y].path] = row * strides[display.y];
-  }
-  return {
-    indices: nextIndices,
-    x: hit.x,
-    y: hit.y,
-    value,
-    latitude: hit.latitude,
-    longitude: hit.longitude,
-  };
-}
-
-async function addGeographicCoordinates(
-  metadata: Metadata,
-  variable: Variable,
-  xVariable: Variable,
-  yVariable: Variable,
-  xValues: Float64Array,
-  yValues: Float64Array,
-  geometry: MeshGeometry,
-): Promise<MeshGeometry> {
-  const coordinates = geographicCoordinateVariables(metadata, variable, xVariable.dimensions);
-  if (!coordinates) return geometry;
-  const coordinateValues = (coordinate: Variable) =>
-    coordinate.path === xVariable.path
-      ? Promise.resolve(xValues)
-      : coordinate.path === yVariable.path
-        ? Promise.resolve(yValues)
-        : fetchCoordinate(coordinate);
-  const [longitude, latitude] = await Promise.all([
-    coordinateValues(coordinates.longitude),
-    coordinateValues(coordinates.latitude),
-  ]);
-  if (longitude.length !== xValues.length || latitude.length !== xValues.length) {
-    throw new Error("geographic node coordinates do not match the rendered mesh coordinates");
-  }
-  return { ...geometry, longitude, latitude };
-}
 
 function meshAxisLabels(metadata: Metadata, variable: Variable): { x: string; y: string } {
   const hint = variable.view_hint;
@@ -661,10 +448,4 @@ function meshAxisLabels(metadata: Metadata, variable: Variable): { x: string; y:
   const x = requiredVariable(metadata, hint.x);
   const y = requiredVariable(metadata, hint.y);
   return { x: `${x.name} (${displayUnit(x)})`, y: `${y.name} (${displayUnit(y)})` };
-}
-
-function requiredVariable(metadata: Metadata, path: string): Variable {
-  const variable = metadata.variables.find((candidate) => candidate.path === path);
-  if (!variable) throw new Error(`metadata has no variable ${path}`);
-  return variable;
 }

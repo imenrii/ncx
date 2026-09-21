@@ -2,15 +2,16 @@ import { fetchCoordinate, fetchSlice } from "./api";
 import { curveRequest } from "./selection";
 import { describeTime } from "./time";
 import type { Metadata, Probe, Variable } from "./model";
-import { windPair, windValues, type WindSamples } from "./wind";
+import { windPair, windValues, type WindSamples, type WindComponents } from "./wind";
 
 export async function loadWindCurve(
   metadata: Metadata, variable: Variable, along: number, indices: Record<string, number>,
   average: Probe["average"] | undefined, signal: AbortSignal,
   cached?: { path: string; values: Float32Array },
   fallbackUnit?: string,
+  components?: WindComponents,
 ): Promise<WindSamples> {
-  const match = windPair(metadata, variable, fallbackUnit);
+  const match = windPair(metadata, variable, fallbackUnit, components);
   if (!match.pair) throw new Error(match.reason);
   const pair = match.pair;
   const path = variable.dimensions[along]?.path;
