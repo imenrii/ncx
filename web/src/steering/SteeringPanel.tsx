@@ -2,7 +2,7 @@ import { memo, useEffect, useRef, useState, useSyncExternalStore, useCallback } 
 import { highlightHTML } from "@speed-highlight/core";
 import type { SteeringSession } from "./session";
 import { atHistoryEdge, indentLines, insertLine, type Edit } from "./editor";
-import type { CatalogSource, Completion, ConsoleError, Displays, ObjectDescription, PlotTarget } from "./model";
+import type { CatalogSource, Completion, ConsoleError, Displays, ObjectDescription } from "./model";
 
 export function SteeringPanel({ session, open, displays }: { session: SteeringSession; open: boolean; displays: Displays }) {
   useSyncExternalStore(session.subscribe, session.getSnapshot);
@@ -22,8 +22,6 @@ export function SteeringPanel({ session, open, displays }: { session: SteeringSe
   const [search, setSearch] = useState<string>();
   const searchInput = useRef<HTMLInputElement>(null);
   const [searchIndex, setSearchIndex] = useState(0);
-  const currentDisplays = useRef(displays);
-  currentDisplays.current = displays;
   const followLog = useRef(true);
 
   useEffect(() => {
@@ -66,7 +64,7 @@ export function SteeringPanel({ session, open, displays }: { session: SteeringSe
     const code = session.input;
     const before = code.slice(0, position);
     if (!force && !/(?<!\w)[A-Za-z_]\w*$|[.("'\[]$/.test(before)) { setCompletion(undefined); return; }
-    const result = await session.complete(code, position, currentDisplays.current, force);
+    const result = await session.complete(code, position, force);
     if (result) {
       const fragment = code.slice(result.start, result.end);
       result.items = !force && result.items.some(item => item.insert === fragment)
@@ -113,7 +111,7 @@ export function SteeringPanel({ session, open, displays }: { session: SteeringSe
       <details open className="steering-group steering-displays"><summary>Displays</summary>
         <button onClick={() => insert("frame")}>frame</button>
         {session.panels.map((panel, index) => <details open key={panel.id}><summary>{`panels[${index}]`}</summary>
-          {["data", "probe", "field", "curve"].map(name => <button key={name} onClick={() => insert(`panels[${index}].${name}`)}>{name}</button>)}
+          {["data", "probe"].map(name => <button key={name} onClick={() => insert(`panels[${index}].${name}`)}>{name}</button>)}
         </details>)}
       </details>
     </aside>
@@ -186,7 +184,7 @@ export function SteeringPanel({ session, open, displays }: { session: SteeringSe
                 if (event.key === "Enter") {
                   event.preventDefault();
                   if (event.shiftKey) edit(insertLine(session.input, start, end));
-                  else { completionVersion.current++; setCompletion(undefined); followLog.current = true; void session.submit(displays); }
+                  else { completionVersion.current++; setCompletion(undefined); followLog.current = true; void session.submit(); }
                 } else if (["ArrowUp", "ArrowDown"].includes(event.key) && atHistoryEdge(session.input, start, end, event.key === "ArrowUp")) {
                   event.preventDefault();
                   if (historyIndex === session.history.length) unsent.current = session.input;
@@ -219,7 +217,7 @@ function TerminalHelp() {
       </header>
       <p>Click an Outline entry to insert its name. Use your file’s paths and dimension names.</p>
       <details open><summary>Quick start</summary>
-        <Highlighted code={'t = sources.s1["/CLK"]\nt += 1.45\nplots.curve.show(t)'} />
+        <Highlighted code={'t = sources.s1["/CLK"]\nt += 1.45\npanels[0].show(t)'} />
         <p>Source data stays unchanged. Call <code>show()</code> again to update a plot.</p>
       </details>
       <details><summary>Fields and panels</summary>
@@ -235,11 +233,11 @@ function TerminalHelp() {
       <details><summary>Select, subtract, and convert</summary>
         <Highlighted code={'normal = sources.s1["/water_level"]\ntide = sources.s2["/water_level"]\nanomaly = normal - tide\np = frame.append(anomaly)'} />
         <p>Place a probe on the anomaly field to see its curve. Operands must have compatible dimensions and coordinates.</p>
-        <Highlighted code={'field = u.isel({"time": 0})\nseries = u.isel({"lat": 80, "lon": 120})\npressure = sources.s1["/msl"].to_unit("hPa")\nplots.show(pressure)'} />
+        <Highlighted code={'field = u.isel({"time": 0})\nseries = u.isel({"lat": 80, "lon": 120})\npressure = sources.s1["/msl"].to_unit("hPa")\npanels[0].show(pressure)'} />
         <p>Calculations use the selected data, including samples outside the visible plot. A time slice stays fixed.</p>
       </details>
       <details><summary>Manage panels</summary>
-        <Highlighted code={'p = frame.append(series)\np.clear()          # Hide this panel\np.remove()         # Remove this panel\nplots.reset()      # Restore the viewer selection'} />
+        <Highlighted code={'p = frame.append(series)\np.clear()          # Hide this panel\np.remove()         # Remove this panel\npanels[0].reset()      # Restore the viewer selection'} />
         <p><code>panels</code> is <code>frame.panels</code>. Indices start at zero; stored handles still refer to the same panel after another panel is removed.</p>
       </details>
       <details><summary>Inspect and load values</summary>
@@ -262,7 +260,7 @@ function TerminalHelp() {
 
 function ObjectResult({ value, session, displays }: { value: ObjectDescription; session: SteeringSession; displays: Displays }) {
   const state = value.target && displays[value.target];
-  const active = state && state.kind === value.reference?.split(".").at(-1);
+  const active = Boolean(state);
   const intent = session.panels.find(p => p.id === value.target)?.intent;
   const binding = intent?.kind === "data" ? intent.binding : undefined;
   const data = binding ? session.names.find(name => name.objectId === binding.expression?.id)?.name

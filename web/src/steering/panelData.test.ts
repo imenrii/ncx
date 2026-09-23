@@ -4,6 +4,7 @@ import { metadataFixture } from "../../tests/fixtures.ts";
 import type { Binding } from "./model.ts";
 
 Object.defineProperty(globalThis, "document", { configurable: true, value: { baseURI: "http://127.0.0.1/" } });
+const { fetchSlice } = await import("../data/api.ts");
 const { hasField, fieldIndices, timeCoordinate, curveSelection } = await import("./panelData.ts");
 
 function binding(dataset: string, samples: number): Binding {
@@ -12,7 +13,7 @@ function binding(dataset: string, samples: number): Binding {
   metadata.variables = metadata.variables.map(v => ({ ...v, dataset_id: dataset,
     dimensions: v.dimensions.map(d => d.path === "/time" ? { ...d, length: samples } : d) }));
   return { metadata, variable: metadata.variables.find(v => v.path === "/temperature")!,
-    release() {}, bytes: 0, delta: false, selectionLabel: "" };
+    read: fetchSlice, bytes: 0, geometryBytes: 0, delta: false, selectionLabel: "" };
 }
 
 test("global time matches timestamps, not sample ordinals", async () => {
@@ -47,7 +48,7 @@ test("probe curves are derived from one binding and remain absent until placed",
 test("UGRID edge capability follows the topology dimension, including static fields", () => {
   const metadata = metadataFixture("ugrid");
   const variable = metadata.variables.find(v => v.path === "/edge_current")!;
-  const edge = { metadata, variable, release() {}, bytes: 0, delta: false, selectionLabel: "" };
+  const edge = { metadata, variable, read: fetchSlice, bytes: 0, geometryBytes: 0, delta: false, selectionLabel: "" };
   assert.equal(hasField(edge), true);
   assert.equal(hasField({ ...edge, variable: { ...variable, dimensions: variable.dimensions.slice(1) } }), true);
   assert.equal(hasField({ ...edge, variable: { ...variable, dimensions: variable.dimensions.slice(0, 1) } }), false);

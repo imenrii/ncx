@@ -16,6 +16,13 @@ attached to response bytes until the HTTP body and its clones are dropped.
 Metadata discovery has cardinality and retained-byte limits; JSON is written
 through a size-capped writer.
 
+Dense spatial previews can read a contiguous source rectangle and gather the
+requested samples in place before decoding. `ReadSelection::contiguous_plane`
+owns the eligibility and source-byte limits. Its full source allocation is
+included in `ReadPlan.peak_bytes`. Sparse selections, curves, connectivity, and
+multi-frame reads retain direct strided access. Both paths return the exact
+requested shape and samples, with the same packing and missing-value rules.
+
 Cancelled waiters release their tickets and permits. A blocking operation
 checks whether its receiver still exists before it starts. An active NetCDF C
 call cannot be interrupted. Dropped client work can therefore finish once it
@@ -52,8 +59,26 @@ To configure the build-time geometry limit, edit `MESH_GEOMETRY_LIMIT_MIB` at
 the top of `web/src/plots/mesh.ts`. The value is in MiB (1,048,576 bytes).
 Rebuild the frontend with `cd web && npm run build`, then run
 `cargo build --release` from the repository root to embed it in the binary.
-The limit applies per mesh to expanded geometry arrays. It excludes the hit
+The limit applies per mesh to vertex and triangle-index arrays. It excludes the hit
 index, source coordinates, scalar data, worker copies, and GPU buffers.
+
+Curvilinear screen views select nearest native samples for the available plot
+pixels, including device scale up to two. They retain this spatial sampling
+when time changes; stopping playback does not force a full-grid mesh. Zoom and
+resize can select a finer stride, including native detail when it fits the
+existing full-resolution limit. Small features and extrema between samples can be
+missed. Click probes identify a displayed native node; extracted curves still
+read its native samples. PNG export uses the separate existing export request,
+which reads the native plane within the full-resolution limit and otherwise
+records its stride in `ncx_sampling`.
+
+Each mesh view retains its current geometry, keyed by the accepted slice's
+spatial selection and shape. It does not draw a new slice against mismatched
+geometry. Curvilinear grids share vertices and upload one scalar per sampled
+node; UGRID keeps its node/face/edge contracts. Canvas fallback retains a pixel
+to triangle map and image buffer for its current geometry, bounds, and size.
+Frame and colour changes repaint those pixels without rebuilding the map.
+Pan, resize, or geometry replacement invalidates it; destruction releases it.
 
 ## Steering and published arrays
 

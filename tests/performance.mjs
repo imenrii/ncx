@@ -16,9 +16,9 @@ for (let run = 0; run < 3; run += 1) {
   timings.mesh.push(performance.now() - started);
   assert.equal(mesh.triangleSources.length, 203522);
   assert.ok(findMeshHit(mesh, 150.25, 150.25));
-  const buffers = [mesh.positions, mesh.scalarIndices, mesh.coordinateIndices, mesh.triangleSources,
+  const buffers = [mesh.positions, mesh.scalarIndices, mesh.coordinateIndices, mesh.triangleSources, mesh.indices,
     mesh.hitIndex.offsets, mesh.hitIndex.triangles];
-  assert.ok(buffers.reduce((bytes, array) => bytes + array.byteLength, 0) < 16 * 1024 * 1024);
+  assert.ok(buffers.reduce((bytes, array) => bytes + (array?.byteLength ?? 0), 0) < 8 * 1024 * 1024);
   started = performance.now();
   const curve = curveGeometry(values, undefined, 1000, 500);
   timings.curve.push(performance.now() - started);

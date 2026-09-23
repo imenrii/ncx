@@ -1,4 +1,4 @@
-// Build-time limit per mesh for expanded geometry arrays, excluding GPU buffers and the hit index.
+// Build-time limit per mesh for vertex/index arrays, excluding GPU buffers and the hit index.
 const MESH_GEOMETRY_LIMIT_MIB = 512;
 
 export interface Bounds {
@@ -8,10 +8,11 @@ export interface Bounds {
   maximumY: number;
 }
 
-/** Expanded triangles plus the source scalar used by every rendered vertex. */
+/** Vertex attributes and triangle sources. Curvilinear grids share vertices. */
 export interface MeshGeometry {
   /** GPU and Canvas positions relative to origin, so f32 retains local spacing. */
   positions: Float32Array;
+  indices?: Uint32Array;
   origin: { x: number; y: number };
   scalarIndices: Uint32Array;
   coordinateIndices: Uint32Array;
@@ -68,7 +69,7 @@ export function buildCurvilinearGeometry(
         vertex(row, column, cell); vertex(row + 1, column + 1, cell); vertex(row + 1, column, cell);
       }
     }
-  });
+  }, sampledRows * sampledColumns);
 }
 
 export function buildUgridGeometry(
@@ -144,12 +145,13 @@ export function findMeshHit(
   if (!cell) return undefined;
   for (const triangle of cell) {
     const vertex = triangle * 3;
-    const ax = positions[vertex * 2];
-    const ay = positions[vertex * 2 + 1];
-    const bx = positions[(vertex + 1) * 2];
-    const by = positions[(vertex + 1) * 2 + 1];
-    const cx = positions[(vertex + 2) * 2];
-    const cy = positions[(vertex + 2) * 2 + 1];
+    const a = meshVertex(geometry, vertex), b = meshVertex(geometry, vertex + 1), c = meshVertex(geometry, vertex + 2);
+    const ax = positions[a * 2];
+    const ay = positions[a * 2 + 1];
+    const bx = positions[b * 2];
+    const by = positions[b * 2 + 1];
+    const cx = positions[c * 2];
+    const cy = positions[c * 2 + 1];
     if (!pointInTriangle(localX, localY, ax, ay, bx, by, cx, cy)) continue;
     const nearest = [
       squaredDistance(localX, localY, ax, ay),
@@ -160,7 +162,7 @@ export function findMeshHit(
       squaredDistance(localX, localY, bx, by),
       squaredDistance(localX, localY, cx, cy),
     ));
-    const selected = vertex + nearest;
+    const selected = meshVertex(geometry, vertex + nearest);
     const coordinateIndex = coordinateIndices[selected];
     return {
       scalarIndex: scalarIndices[selected],
@@ -255,6 +257,7 @@ function squaredDistance(ax: number, ay: number, bx: number, by: number): number
 function finishGeometry(
   x: Float64Array, y: Float64Array,
   visit: (emit: (coordinate: number, scalar: number, triangle: number) => void, counting: boolean) => void,
+  sharedVertices?: number,
 ): MeshGeometry {
   let vertices = 0, minimumX = Infinity, minimumY = Infinity, maximumX = -Infinity, maximumY = -Infinity;
   visit(coordinate => {
@@ -263,22 +266,27 @@ function finishGeometry(
     minimumY = Math.min(minimumY, y[coordinate]); maximumY = Math.max(maximumY, y[coordinate]);
   }, true);
   if (!vertices) throw new Error("mesh has no renderable triangles");
-  const bytes = vertices * 16 + vertices / 3 * 4;
+  const attributeCount = sharedVertices ?? vertices;
+  const bytes = attributeCount * 16 + vertices / 3 * 4 + (sharedVertices ? vertices * 4 : 0);
   if (!Number.isSafeInteger(bytes) || bytes > MESH_GEOMETRY_LIMIT_MIB * 1024 * 1024) throw new Error("Mesh geometry exceeds the memory limit");
   const origin = { x: minimumX, y: minimumY };
-  const positions = new Float32Array(vertices * 2), scalarIndices = new Uint32Array(vertices);
-  const coordinateIndices = new Uint32Array(vertices), triangleSources = new Uint32Array(vertices / 3);
+  const positions = new Float32Array(attributeCount * 2), scalarIndices = new Uint32Array(attributeCount);
+  const coordinateIndices = new Uint32Array(attributeCount), triangleSources = new Uint32Array(vertices / 3);
+  const indices = sharedVertices ? new Uint32Array(vertices) : undefined;
+  if (indices) positions.fill(NaN);
   let index = 0;
   visit((coordinate, scalar, triangle) => {
-    positions[index * 2] = x[coordinate] - origin.x;
-    positions[index * 2 + 1] = y[coordinate] - origin.y;
-    scalarIndices[index] = scalar; coordinateIndices[index] = coordinate;
+    const vertex = indices ? scalar : index;
+    if (indices) indices[index] = vertex;
+    positions[vertex * 2] = x[coordinate] - origin.x;
+    positions[vertex * 2 + 1] = y[coordinate] - origin.y;
+    scalarIndices[vertex] = scalar; coordinateIndices[vertex] = coordinate;
     triangleSources[Math.floor(index / 3)] = triangle;
     index += 1;
   }, false);
   if (minimumX === maximumX) maximumX = minimumX + 1;
   if (minimumY === maximumY) maximumY = minimumY + 1;
-  const geometry = { positions, scalarIndices, coordinateIndices, triangleSources, origin,
+  const geometry = { positions, indices, scalarIndices, coordinateIndices, triangleSources, origin,
     bounds: { minimumX, maximumX, minimumY, maximumY } };
   return { ...geometry, hitIndex: buildHitIndex(geometry) };
 }
@@ -289,13 +297,15 @@ function buildHitIndex(geometry: Omit<MeshGeometry, "hitIndex">): MeshHitIndex {
   const counts = new Uint32Array(divisions * divisions);
   const { positions, origin, bounds } = geometry;
   const cells = (triangle: number) => {
-    const vertex = triangle * 6;
+    const a = meshVertex(geometry, triangle * 3) * 2;
+    const b = meshVertex(geometry, triangle * 3 + 1) * 2;
+    const c = meshVertex(geometry, triangle * 3 + 2) * 2;
     const column = (x: number) => gridIndex(x, bounds.minimumX - origin.x, bounds.maximumX - origin.x, divisions);
     const row = (y: number) => gridIndex(y, bounds.minimumY - origin.y, bounds.maximumY - origin.y, divisions);
-    return [column(Math.min(positions[vertex], positions[vertex + 2], positions[vertex + 4])),
-      column(Math.max(positions[vertex], positions[vertex + 2], positions[vertex + 4])),
-      row(Math.min(positions[vertex + 1], positions[vertex + 3], positions[vertex + 5])),
-      row(Math.max(positions[vertex + 1], positions[vertex + 3], positions[vertex + 5]))];
+    return [column(Math.min(positions[a], positions[b], positions[c])),
+      column(Math.max(positions[a], positions[b], positions[c])),
+      row(Math.min(positions[a + 1], positions[b + 1], positions[c + 1])),
+      row(Math.max(positions[a + 1], positions[b + 1], positions[c + 1]))];
   };
   let total = 0;
   for (let triangle = 0; triangle < count; triangle += 1) {
@@ -315,6 +325,10 @@ function buildHitIndex(geometry: Omit<MeshGeometry, "hitIndex">): MeshHitIndex {
     for (let y = top; y <= bottom; y += 1) for (let x = left; x <= right; x += 1) triangles[cursor[y * divisions + x]++] = triangle;
   }
   return { columns: divisions, rows: divisions, offsets, triangles };
+}
+
+export function meshVertex(geometry: Pick<MeshGeometry, "indices">, triangleVertex: number): number {
+  return geometry.indices?.[triangleVertex] ?? triangleVertex;
 }
 
 function hitCell(geometry: MeshGeometry, x: number, y: number): Uint32Array | undefined {

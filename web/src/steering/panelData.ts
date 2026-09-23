@@ -1,4 +1,3 @@
-import { fetchCoordinate } from "../data/api.ts";
 import { arrayBytes, selectionShape } from "../data/arrayData.ts";
 import { hasGeographicCoordinates, meshDimension, type DimensionSelection, type Probe, type Variable } from "../data/model.ts";
 import { defaultDisplayDimensions, fieldRequest, ugridFieldRequest, type DisplayDimensions } from "../data/selection.ts";
@@ -6,17 +5,21 @@ import { describeTime } from "../data/time.ts";
 import { loadRectilinearAxis, buildGeometry, probeFromHit } from "../plots/fieldGeometry.ts";
 import { findMeshHit } from "../plots/mesh.ts";
 import { probeAtPosition } from "../plots/projection.ts";
-import { bindInput, loadCurve } from "./data.ts";
+import { loadCurve, readCoordinate, readStatic } from "./data.ts";
 import type { CurveSeries } from "../plots/curveSeries.ts";
 import { LIMITS, type Binding, type PanelState, type ProbeMove, type ProbePosition } from "./model.ts";
 
 export function hasField(binding: Binding): boolean {
   const { variable, metadata } = binding;
-  if (variable.dimensions.length === 0) return true;
+  if (variable.dimensions.length === 0) return false;
   const hint = variable.view_hint;
   if (hint.kind !== "ugrid2d") return variable.dimensions.length >= 2;
   const dimension = meshDimension(metadata, variable);
   return variable.dimensions.some(d => d.path === dimension);
+}
+
+export function hasFieldView(binding: Binding): boolean {
+  return binding.variable.dimensions.length === 0 || hasField(binding);
 }
 
 export function timeCoordinate(binding: Binding): Variable | undefined {
@@ -44,7 +47,7 @@ export async function fieldIndices(binding: Binding, timestamp: number | undefin
   const coordinate = timeCoordinate(binding);
   if (!coordinate) return fixed;
   if (timestamp === undefined) throw new Error("The global time is unavailable");
-  const values = await fetchCoordinate(coordinate);
+  const values = await readCoordinate(binding, coordinate);
   const time = describeTime(coordinate)!;
   const index = values.findIndex(value => time.originMs + value * time.multiplierMs === timestamp);
   if (index < 0) throw new Error("No sample at the selected time");
@@ -67,21 +70,16 @@ export async function readCurve(binding: Binding, selection: DimensionSelection[
   let sums: Float64Array | undefined;
   let counts: Uint32Array | undefined;
   for (const selected of selections) {
-    const projected = bindInput({ reference: { source: "view", path: binding.variable.path, selection: selected } },
-      [{ alias: "view", label: binding.variable.name, metadata: binding.metadata }], "curve");
-    try {
-      const sample = await loadCurve(projected, 0, signal);
-      first ??= sample;
-      if (selections.length === 1) return { ...sample, difference: binding.delta };
-      sums ??= new Float64Array(sample.y.length);
-      counts ??= new Uint32Array(sample.y.length);
-      for (let i = 0; i < sample.y.length; i++) {
-        if (!Number.isFinite(sample.y[i])) continue;
-        sums[i] += sample.y[i];
-        counts[i]++;
-      }
+    const sample = await loadCurve(binding, selected, signal);
+    first ??= sample;
+    if (selections.length === 1) return { ...sample, difference: binding.delta };
+    sums ??= new Float64Array(sample.y.length);
+    counts ??= new Uint32Array(sample.y.length);
+    for (let i = 0; i < sample.y.length; i++) {
+      if (!Number.isFinite(sample.y[i])) continue;
+      sums[i] += sample.y[i];
+      counts[i]++;
     }
-    finally { projected.release(); }
   }
   const y = Float32Array.from(sums!, (sum, i) => counts![i] ? sum / counts![i] : NaN);
   return { ...first!, y, difference: binding.delta };
@@ -109,7 +107,7 @@ export async function resolveProbe(binding: Binding, position: ProbeMove, indice
       const coordinate = metadata.variables.find(v => v.path === path && v.capabilities.coordinate);
       let index: number | undefined;
       if (coordinate) {
-        const loaded = await loadRectilinearAxis(metadata, coordinate);
+        const loaded = await loadRectilinearAxis(metadata, coordinate, (v, wire) => readStatic(binding, v, wire, signal));
         index = loaded.axis?.cellAtPhysical(values[side]);
         if (index !== undefined) values[side] = loaded.values[index];
       } else {
@@ -127,7 +125,7 @@ export async function resolveProbe(binding: Binding, position: ProbeMove, indice
   const request = hint.kind === "ugrid2d" ? ugridFieldRequest(variable, display.x ?? 0, indices)
     : fieldRequest(variable, display, indices, { width: 1024, height: 1024 }, true);
   const slice = { request, shape: selectionShape(request.selection), dtype: "f32" as const, values: new Float32Array() };
-  const geometry = await buildGeometry(metadata, variable, display, slice, signal);
+  const geometry = await buildGeometry(metadata, variable, display, slice, signal, (v, wire) => readStatic(binding, v, wire, signal));
   const hit = findMeshHit(geometry, x, y);
   if (!hit) throw new Error("The probe is outside the mesh");
   const probe = probeFromHit(variable, display, indices, slice, hit, NaN);

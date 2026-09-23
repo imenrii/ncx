@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useSyncExternalStore, useMemo,
 import { SteeringSession } from "../steering/session";
 import { SteeringPanel } from "../steering/SteeringPanel";
 import { PanelView, type PanelViewSettings } from "../steering/SteeredPlot";
-import { hasField } from "../steering/panelData";
+import { hasField, hasFieldView } from "../steering/panelData";
 import { currentHubCacheKey } from "../hub/hub";
 import { initialVariableState, reduceVariableState, savedSelection, saveSelection } from "./viewerState";
 import { PlotBoundary } from "./PlotBoundary";
@@ -151,7 +151,7 @@ export function Viewer({
   const pressureSource = metadata && variable
     ? selectedPressureVariable(metadata, variable, fieldSettings.pressureComponents[metadata.dataset_id!]) : undefined;
   const view = requestedView;
-  const activeIntent = steering.intents[view === "field" ? "field" : "curve"];
+  const activeIntent = primaryPanel.intent;
   const presentationVariable = activeIntent.kind === "data" ? activeIntent.binding?.variable ?? variable : variable;
   const delta = presentationVariable?.value_kind === "delta";
   const units = useMemo(() => presentationVariable ? unitChoice(presentationVariable) : undefined, [presentationVariable]);
@@ -165,6 +165,9 @@ export function Viewer({
   const targetUnit = units?.choices.find(item => item.id === unitId) ?? sourceUnit;
   const useBeaufort = Boolean(view === "curve" && units?.beaufort && unitId === "Bft");
   const windUnit = useBeaufort ? "Bft" : targetUnit?.id;
+  const terminalRange = view === "field" ? rangeLocked ? `${colorRange.minimum} … ${colorRange.maximum}` : "automatic"
+    : curveLocked ? `${curveRange.minimum} … ${curveRange.maximum}` : "automatic";
+  useLayoutEffect(() => { steering.setPresentation(terminalRange, targetUnit?.label ?? ""); }, [steering, terminalRange, targetUnit?.label]);
   const windMatch = useMemo(() => metadata && variable
     ? windPair(metadata, variable, view === "curve" ? windUnit : undefined, fieldSettings.components[metadata.dataset_id!]) : {},
   [metadata, variable, view, windUnit, fieldSettings.components]);
@@ -442,11 +445,11 @@ export function Viewer({
       </select>
     </label>
   );
-  const steeringIntent = view === "field" ? steering.intents.field : steering.intents.curve;
+  const steeringIntent = primaryPanel.intent;
   const eligible = (panel: typeof primaryPanel) => {
     const binding = steering.bindingFor(panel);
-    if (!binding) return panel.intent.kind === "data" && Boolean(panel.intent.error);
-    return view === "field" ? hasField(binding) : view === "curve" && binding.variable.dimensions.length > 0 && (!hasField(binding) || Boolean(panel.probe));
+    if (!binding) return panel.intent.kind === "error";
+    return view === "field" ? hasFieldView(binding) : view === "curve" && binding.variable.dimensions.length > 0 && (!hasField(binding) || Boolean(panel.probe));
   };
   const appended = steering.panels.slice(1).filter(eligible);
   const primaryBinding = steering.bindingFor(primaryPanel);
@@ -526,7 +529,7 @@ export function Viewer({
                 key={name}
                 className={view === name ? "active" : ""}
                 disabled={
-                  (name === "field" && !steering.panels.some(panel => { const binding = steering.bindingFor(panel); return binding && hasField(binding); })) ||
+                  (name === "field" && !steering.panels.some(panel => { const binding = steering.bindingFor(panel); return binding && hasFieldView(binding); })) ||
                   (name === "curve" && !steering.panels.some(panel => steering.bindingFor(panel)?.variable.dimensions.length))
                 }
                 onClick={() => {
@@ -764,7 +767,7 @@ export function Viewer({
           </div>
           <div className="toolbar-actions">
             {chromeHidden && topActions}
-            {view !== "metadata" && steeringIntent.kind !== "default" && <button onClick={() => steering.resetPlot(view)}>Reset plot</button>}
+            {view !== "metadata" && steeringIntent.kind !== "default" && <button onClick={() => steering.resetPanel(primaryPanel.id)}>Reset plot</button>}
           </div>
           {saving && (
             <SaveDialog
@@ -785,9 +788,10 @@ export function Viewer({
               variable={primaryPanel.intent.kind === "data" ? primaryPanel.intent.binding?.variable ?? variable : variable} />
           ) : steeringIntent.kind === "hidden" ? (
             <div className="comparison-unavailable">Plot hidden. Reset plot to restore the default.</div>
+          ) : steeringIntent.kind === "error" ? (
+            <div className="comparison-unavailable">{steeringIntent.message}</div>
           ) : steeringIntent.kind === "data" ? (
-            steeringIntent.error ? <div className="comparison-unavailable">{steeringIntent.error}</div>
-              : <PanelView panel={primaryPanel} session={steering} settings={panelSettings} primary
+            <PanelView panel={primaryPanel} session={steering} settings={panelSettings} primary
                   onRange={view === "field" ? setColorRange : changeCurveRange} onStatus={updateStatus}
                   onFrameLoaded={() => { steering.fieldLoaded("panel1", primaryFrameKey); markFrameLoaded(); }} />
           ) : !primaryEligible ? (
@@ -909,11 +913,7 @@ export function Viewer({
             : { type: "playback/stopped" })}
         />
       </main>
-      <SteeringPanel session={steering} open={steeringOpen} displays={steering.describeDisplays({
-        field: { visible: view === "field", range: rangeLocked ? `${colorRange.minimum} … ${colorRange.maximum}` : "automatic", unit: view === "field" ? targetUnit?.label ?? "" : "" },
-        curve: { visible: view === "curve", range: curveLocked ? `${shownRange.minimum} … ${shownRange.maximum}` : "automatic", unit: view === "curve" ? targetUnit?.label ?? "" : "" },
-
-      })} />
+      <SteeringPanel session={steering} open={steeringOpen} displays={steering.describeDisplays()} />
 
       {!chromeHidden && (
         <footer className="statusbar">

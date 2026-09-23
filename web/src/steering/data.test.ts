@@ -20,15 +20,15 @@ test("a published selection retains native coordinates and local slice indices",
   };
   try {
     assert.deepEqual(binding.variable.dimensions.map(d => d.length), [3, 4]);
-    const coordinate = await fetchSlice({ dataset: binding.metadata.dataset_id, path: "/lat", wire: "f64", selection: [{ start: 0, stop: 3, stride: 1 }] });
+    const coordinate = await binding.read({ dataset: binding.metadata.dataset_id, path: "/lat", wire: "f64", selection: [{ start: 0, stop: 3, stride: 1 }] });
     assert.deepEqual([...coordinate.values], [21, 23, 25]);
     assert.match(decodeURIComponent(urls[0]), /selection=1:6&stride=2/);
     assert.deepEqual(coordinate.request.selection, [{ start: 0, stop: 3, stride: 1 }]);
-    const result = await fetchSlice({ dataset: binding.metadata.dataset_id, path: binding.variable.path,
+    const result = await binding.read({ dataset: binding.metadata.dataset_id, path: binding.variable.path,
       selection: [1, { start: 0, stop: 4, stride: 2 }], wire: "f64" });
     assert.deepEqual([...result.values], [4, 6]);
     assert.equal(binding.delta, true);
-  } finally { binding.release(); globalThis.fetch = originalFetch; }
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test("supplied series reads copy storage without detaching the source", async () => {
@@ -48,10 +48,8 @@ test("a mesh point can supply a time curve without publishing a sliced mesh", ()
   const catalog = [{ alias: "s1", label: "mesh", metadata }];
   const reference = { source: "s1", path: "/node_temperature", selection: [{ start: 0, stop: 3, stride: 1 }, 2] };
   const curve = bindInput({ reference }, catalog, "curve");
-  try {
-    assert.deepEqual(curve.variable.dimensions.map(d => d.path), ["/time"]);
-    assert.throws(() => bindInput({ reference }, catalog, "field"), /complete native spatial dimension/);
-  } finally { curve.release(); }
+  assert.deepEqual(curve.variable.dimensions.map(d => d.path), ["/time"]);
+  assert.throws(() => bindInput({ reference }, catalog, "field"), /complete native spatial dimension/);
 });
 
 test("worker coordinate transfers preserve the shared viewer cache", async () => {

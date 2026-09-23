@@ -98,6 +98,14 @@ try {
     await evaluate("document.querySelector('.hub-open-panel').requestSubmit()");
   }
   await wait(`document.querySelector('${canvasSelector}[data-rendered=true]')`);
+  await evaluate(`(() => {
+    window.__dataRequests = [];
+    const fetch = window.fetch;
+    window.fetch = (...args) => {
+      if (String(args[0]).includes('/api/data?')) window.__dataRequests.push(String(args[0]));
+      return fetch(...args);
+    };
+  })()`);
   assert.equal(await evaluate("document.querySelector('#steering-panel').hidden"), true);
   const runtimeStarted = Date.now();
   await evaluate("document.querySelector('.steering-toggle').click()");
@@ -179,10 +187,10 @@ try {
   assert.equal(await evaluate("document.querySelectorAll('canvas.field-canvas, canvas.mesh-canvas').length"), 0);
 
   if (fixture === 'wind') await wait("document.querySelector('.wind-barbs')");
-  const curveReads = await evaluate("performance.getEntriesByType('resource').filter(r => r.name.includes('/api/data?')).length");
+  const curveReads = await evaluate("window.__dataRequests.length");
   await evaluate("document.querySelector('.timeline .forward').click()");
   await wait("document.querySelector('.timeline input').value === document.querySelector('.timeline input').max");
-  assert.equal(await evaluate("performance.getEntriesByType('resource').filter(r => r.name.includes('/api/data?')).length"), curveReads,
+  assert.equal(await evaluate("window.__dataRequests.length"), curveReads,
     'Moving global time must reuse full probe curves');
   await evaluate("document.querySelector('.timeline .to-start').click()");
   await capture('curve');
@@ -271,6 +279,34 @@ try {
   await exportPage('curve-export');
   assert.equal(await evaluate("document.querySelectorAll('.steering-pane:not([hidden]) .curve-line').length"), 1);
   await switchPage('Field');
+  if (!fixture && !hub && process.env.NCX_STEERING_CSP !== '1') {
+    await evaluate(`(() => {
+      window.__normalFetch = window.fetch;
+      window.__normalTimeout = window.setTimeout;
+      window.setTimeout = (callback, delay, ...args) => window.__normalTimeout(callback, delay === 120000 ? 500 : delay, ...args);
+      window.fetch = (...args) => {
+        if (new URL(String(args[0]), location.href).searchParams.get('path') !== ${JSON.stringify(path)}) return window.__normalFetch(...args);
+        return new Promise((resolve, reject) => {
+          const timer = window.__normalTimeout(() => resolve(window.__normalFetch(...args)), 2000);
+          args[1]?.signal?.addEventListener('abort', () => {
+            clearTimeout(timer); reject(new DOMException('Aborted', 'AbortError'));
+          }, {once:true});
+        });
+      };
+    })()`);
+    await submit('survivor = 17; slow = frame.append(u + 10001)');
+    await wait("document.querySelector('.plot-error')?.textContent.includes('time limit')");
+    await evaluate("window.fetch = window.__normalFetch; window.setTimeout = window.__normalTimeout");
+    await submit('assert survivor == 17; slow.remove()');
+    await evaluate("Array.from(document.querySelectorAll('.steering-menu button')).find(b => b.textContent === 'Reset workspace').click()");
+    await wait("document.querySelector('.steering-state').textContent === '' && !document.querySelector('.steering-head > button:not(.steering-help-toggle)')");
+    await submit('assert "survivor" not in globals(); assert panels[1].data is not None');
+    const beforeRestartRead = await evaluate('window.__dataRequests.length');
+    await evaluate("document.querySelector('.timeline .to-end').click()");
+    await wait(`window.__dataRequests.length > ${beforeRestartRead}`);
+    await wait(`document.querySelectorAll('${canvasSelector}[data-rendered=true]').length === 2 && document.querySelector('.steering-state').textContent === ''`);
+    assert.equal(await evaluate("document.querySelector('.plot-error')?.textContent ?? ''"), '');
+  }
   await command('browsingContext.setViewport',{context,viewport:{width:600,height:760}});
   await capture('narrow');
   assert.equal(await evaluate("document.querySelectorAll('.timeline input').length"),1);

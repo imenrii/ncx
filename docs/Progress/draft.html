@@ -7,8 +7,52 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ncx — Steering draft</title>
-  <link rel="stylesheet" href="../../../Style/Web/example.css">
+  <link rel="stylesheet" href="../../../Style/Web/tokens.css">
   <style>
+    /* Base rules from the former Style/Web/example.css, which this draft was drawn with. */
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; font-size: var(--size-body); line-height: var(--line-height-ui); }
+    a { color: var(--accent); text-underline-offset: 0.2em; }
+    button, input, select, textarea { font: inherit; color: inherit; }
+    button, input, select, textarea, code, pre,
+    .path, .count, .row, .state, .val, .statusbar, .swatch, .stroke-ladder text {
+      font-family: var(--mono);
+      font-weight: var(--mono-weight);
+      font-style: normal;
+      font-size: var(--size-tick);
+      line-height: var(--mono-ui-leading);
+      letter-spacing: normal;
+      word-spacing: normal;
+      font-kerning: none;
+      font-variant-numeric: normal;
+      font-variant-ligatures: none;
+      font-feature-settings: var(--mono-features);
+      font-synthesis: none;
+    }
+    input, textarea, code, pre, .val, .count, .row .when, .stroke-ladder text {
+      font-feature-settings: var(--mono-literal-features);
+      line-height: var(--mono-literal-leading);
+    }
+    strong, b { font-weight: 600; }
+    em, i { font-style: normal; letter-spacing: 0.06em; }
+    code em, code i, pre em, pre i, .path em, .path i { letter-spacing: normal; }
+    .path { min-width: 0; color: var(--ink-medium); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .path b { color: var(--ink); }
+    .grow { flex: 1 1 auto; }
+    .statusbar {
+      grid-column: 1 / -1; display: flex; align-items: center; gap: 12px;
+      padding: 0 8px; min-height: var(--status-height); border-top: 1px solid var(--ink);
+      background: var(--plate); color: var(--plate-quiet); font-size: var(--size-micro);
+      font-weight: var(--mono-inverse-weight); font-feature-settings: var(--mono-literal-features);
+    }
+    .statusbar .msg { color: var(--plate-text); }
+    button { min-height: var(--hit); padding: 0 8px; cursor: pointer; border: 1px solid var(--line); border-radius: 0; background: var(--paper); white-space: nowrap; }
+    button:hover:not(:disabled) { background: var(--dither), var(--paper); }
+    button:active:not(:disabled) { background: var(--dither-strong), var(--paper); }
+    button:disabled { color: var(--ink-weak); background: var(--ink-faint); cursor: default; }
+    input, select, textarea { min-height: var(--hit); max-width: 100%; padding: 0 4px; border: 1px solid var(--line); border-radius: 0; background: var(--paper); }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+    
     [hidden] { display: none !important; }
     .draft-shell { --sidebar-width: 256px; --terminal-height: 288px; height: 100dvh; min-height: 480px; display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto; }
     .masthead { display: flex; align-items: center; gap: 16px; padding: 6px 12px; background: var(--amber); border-bottom: 1px solid var(--ink); }

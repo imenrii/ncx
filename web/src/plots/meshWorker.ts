@@ -6,6 +6,7 @@ onmessage = ({ data }: MessageEvent<MeshBuild>) => {
     const buffers = [geometry.positions, geometry.scalarIndices, geometry.coordinateIndices,
       geometry.triangleSources, geometry.hitIndex.offsets, geometry.hitIndex.triangles]
       .map(array => array.buffer as ArrayBuffer);
+    if (geometry.indices) buffers.push(geometry.indices.buffer as ArrayBuffer);
     postMessage({ geometry }, { transfer: buffers });
   } catch (error) {
     postMessage({ error: error instanceof Error ? error.message : String(error) });

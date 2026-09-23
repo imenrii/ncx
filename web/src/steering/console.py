@@ -24,7 +24,6 @@ def summary(value):
         shape = " × ".join(map(str, value.shape)) or "scalar"
         storage = "resident" if value._node[0] == "resident" else "lazy"
         return f"Variable · {value.dtype} · {shape} · {value.unit or 'unit unspecified'} · {storage}"
-    if type(value) is runtime.Plot: return f"{value.path} · {'Field' if value.kind == 'field' else 'Curve'}"
     if type(value) is runtime.PanelProbe: return f"{value.panel.path}.probe"
     if type(value) is runtime.PanelCollection: return f"Panels · {len(value)}"
     if type(value) is runtime.Frame: return f"Frame · {len(value.panels)} panels"
@@ -51,17 +50,13 @@ def members(value):
                       unit_kind=value.unit_kind, name=value.name, expression=value.expression,
                       storage="resident" if value._node[0] == "resident" else "lazy")
         result.update({name: getattr(value, name) for name in ("isel", "compute", "read", "blocks", "coordinate", "to_unit", "with_unit", "with_values", "rename")})
-        result["probe"] = runtime.Variable.probe
         return result
-    if type(value) in (runtime.Panel, runtime.PanelProbe, runtime.Plot):
+    if type(value) in (runtime.Panel, runtime.PanelProbe):
         panel = value if type(value) is runtime.Panel else value.panel
         try: panel._check()
         except ValueError: return dict(status="removed")
-    if type(value) is runtime.Plot:
-        return dict(data=value.data, visible=value.visible, range=value.range, unit=value.unit,
-                    show=value.show, clear=value.clear, reset=value.reset)
     if type(value) is runtime.Panel:
-        result = {"curve": value.curve, "field": value.field, "data": value.data, "probe": value.probe, "show": value.show, "clear": value.clear, "reset": value.reset}
+        result = {"visible": value.visible, "range": value.range, "unit": value.unit, "data": value.data, "probe": value.probe, "show": value.show, "clear": value.clear, "reset": value.reset}
         result["remove"] = value.remove
         return result
     if type(value) is runtime.PanelCollection: return {}
@@ -83,14 +78,14 @@ def members(value):
 def describe(value):
     runtime = _runtime()
     result = dict(kind=type(value).__name__, summary=summary(value), fields=[])
-    if type(value) is runtime.Plot:
-        result["target"] = value.target
+    if type(value) is runtime.Panel:
+        result["target"] = value.name
         result["reference"] = value.path
     if type(value) is runtime.Variable: result["objectId"] = value.id
     if type(value) is runtime.Source:
-        result["fields"] = [dict(name="variables", value=str(len(runtime._sources[value._alias])))]
+        result["fields"] = [dict(name="variables", value=str(len(runtime.WORKSPACE.sources[value._alias])))]
         return result
-    if type(value) in (runtime.Variable, runtime.Plot, runtime.Panel, runtime.Frame, runtime.PanelProbe, np.ndarray):
+    if type(value) in (runtime.Variable, runtime.Panel, runtime.Frame, runtime.PanelProbe, np.ndarray):
         result["fields"] = [dict(name=name, value=summary(item)) for name, item in members(value).items() if not callable(item) and not isinstance(item, property)]
     elif type(value) is dict:
         result["fields"] = [dict(name=summary(key), value=summary(item)) for key, item in islice(value.items(), 20)]
@@ -153,7 +148,7 @@ def completion(namespace, code, cursor, force=False):
             closing = after.find(quote)
             if closing >= 0 and after[closing + 1:closing + 2] == "]": result["end"] = cursor + closing + 2
             result["items"] = [dict(label=name, insert=name.replace("\\", "\\\\").replace(quote, "\\" + quote) + quote + "]", detail="source variable")
-                               for name, variable in _runtime()._sources[owner._alias].items()
+                               for name, variable in _runtime().WORKSPACE.sources[owner._alias].items()
                                if variable["capabilities"]["numeric"] and name.startswith(prefix)][:50]
             return result
         expression = r'''[A-Za-z_]\w*(?:\.[A-Za-z_]\w*|\[(?:"[^"\n]*"|'[^'\n]*'|[0-9]+)\])*'''

@@ -19,7 +19,7 @@ let outputBuffer = "";
 let outputKind = "output";
 let outputTimer: ReturnType<typeof setTimeout> | undefined;
 const jobs: any[] = [];
-const reads = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
+const reads = new Map<number, { evaluation?: number; resolve: (value: unknown) => void; reject: (error: Error) => void }>();
 
 function flushOutput() {
   clearTimeout(outputTimer); outputTimer = undefined;
@@ -63,6 +63,19 @@ scope.onmessage = ({ data }) => {
     else pending?.resolve(data.slice);
     return;
   }
+  if (data.type === "cancel-evaluation") {
+    const queued = jobs.findIndex(job => job.type === "evaluate" && job.id === data.id);
+    if (queued >= 0) {
+      jobs.splice(queued, 1);
+      scope.postMessage({ type: "evaluated", id: data.id, error: { message: "Evaluation cancelled", code: "" } });
+    } else call("cancel_evaluation", data.id);
+    for (const [id, pending] of reads) {
+      if (pending.evaluation !== data.id) continue;
+      pending.reject(new Error("Evaluation cancelled"));
+      reads.delete(id);
+    }
+    return;
+  }
   jobs.push(data);
   void drain();
 };
@@ -89,8 +102,8 @@ async function process(data: any) {
       const bridge = async (json: string) => {
         const id = ++nextRead;
         return new Promise((resolve, reject) => {
-          if (reads.size) { reject(new Error("Only one source read can run at a time")); return; }
-          reads.set(id, { resolve, reject });
+          if (reads.size >= LIMITS.concurrentReads) { reject(new Error("Source read concurrency limit reached")); return; }
+          reads.set(id, { resolve, reject, evaluation: evaluationId });
           flushOutput();
           scope.postMessage({ type: "read", id, run, evaluation: evaluationId, reference: JSON.parse(json) });
         });
@@ -104,12 +117,11 @@ async function process(data: any) {
           scope.postMessage({ type: "move-probe", id, run, target, position: JSON.parse(position), updates }, transfers(updates));
         });
       };
-      Object.assign(scope, { ncx_move_probe: moveProbe, ncx_read: bridge, ncx_limits: JSON.stringify(LIMITS), ncx_units: JSON.stringify(UNIT_FAMILIES), ncx_instance: data.instance });
+      Object.assign(scope, { ncx_move_probe: moveProbe, ncx_read: bridge, ncx_limits: JSON.stringify(LIMITS), ncx_units: JSON.stringify(UNIT_FAMILIES) });
       py.FS.writeFile(`${site}/ncx_evaluation.py`, evaluation);
       py.FS.writeFile(`${site}/ncx_console.py`, consoleModule);
       py.FS.writeFile(`${site}/ncx_runtime.py`, python);
       runtime = py.pyimport("ncx_runtime");
-      call("configure", JSON.stringify(data.catalog), "{}");
       restore(data.expressions);
       const decoder = new TextDecoder();
       py.setStdout({ write(bytes) { output(decoder.decode(bytes, { stream: true })); return bytes.length; } });
@@ -119,19 +131,23 @@ async function process(data: any) {
     return;
   }
   if (data.type === "retain") { call("retain", JSON.stringify(data.ids)); return; }
+  if (data.type === "configure") {
+    call("configure", JSON.stringify(data.snapshot), data.revision);
+    return;
+  }
   if (data.type === "complete") {
     try {
-      restore(data.expressions);
-      call("configure", "[]", JSON.stringify(data.view ?? {}), JSON.stringify(data.displays), JSON.stringify(data.probe ?? null));
       scope.postMessage({ type: "completion", id: data.id, completion: plain("completions", data.code, data.cursor, data.force) });
-    } catch { scope.postMessage({ type: "completion", id: data.id, completion: { start: data.cursor, end: data.cursor, items: [], signature: "" } }); }
+    } catch {
+      scope.postMessage({ type: "completion", id: data.id, completion: { start: data.cursor, end: data.cursor, items: [], signature: "" } });
+    }
     return;
   }
   if (data.type === "evaluate") {
     evaluationId = data.id;
     try {
       restore([data.expression]);
-      const value = plainValue(await call("evaluate", data.expression.id, JSON.stringify(data.selection), data.wire));
+      const value = plainValue(await call("evaluate", data.expression.id, JSON.stringify(data.selection), data.wire, data.id));
       scope.postMessage({ type: "evaluated", id: data.id, ...value }, transfers(value));
     } catch (error) { scope.postMessage({ type: "evaluated", id: data.id, error: { message: String(error), code: "" } }); }
     finally { evaluationId = undefined; }
@@ -144,7 +160,6 @@ async function process(data: any) {
     if (!call("complete", data.code)) { scope.postMessage({ type: "incomplete", run }); return; }
     accepted = true;
     restore(data.expressions);
-    call("configure", "[]", JSON.stringify(data.view), JSON.stringify(data.displays), JSON.stringify(data.probe ?? null));
     scope.postMessage({ type: "started", run, code: data.code });
     const result = plainValue(await call("execute", data.code, run));
     flushOutput();

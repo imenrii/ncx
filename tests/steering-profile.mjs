@@ -154,7 +154,7 @@ async function trial(binary, version, fixture, run) {
     await command('browsingContext.navigate', { context, url: address, wait: 'complete' });
     await wait('window.__firstPlot');
     result.warm_plot_ms = await evaluate('window.__firstPlot');
-    if (version === 'current') {
+    if (version === 'current' || process.env.NCX_PROFILE_BASELINE_STEERING === '1') {
       result.browser_before_python_rss_kib = browserRss(browser.pid);
       const beforePython = network.length;
       result.python_ready_ms = await timeAction("document.querySelector('.steering-toggle').click()",
@@ -180,7 +180,7 @@ async function trial(binary, version, fixture, run) {
         result.convert_assignment_ms = await submit('p = sources.s1["/msl"].to_unit("hPa")');
         await assertSuccess();
         result.unit_after_assignment = await evaluate("document.querySelector('#display-unit').value");
-        result.convert_show_ms = await submit('plots.field.show(p)');
+        result.convert_show_ms = await submit('panels[0].show(p)');
         await assertSuccess();
         await wait("document.querySelector('.steering-field .field-canvas[data-rendered=true]')");
         result.convert_show_paint_ms = await evaluate('performance.now() - window.__actionStart');
@@ -205,6 +205,14 @@ async function trial(binary, version, fixture, run) {
         assert.equal(result.editor_field_rasters, 0, 'Editing commands repainted unchanged fields');
         await evaluate("Array.from(document.querySelectorAll('.view-tabs button')).find(b=>b.textContent==='Metadata').click()");
         result.metadata_after_show = await evaluate("document.querySelector('.metadata-panel').innerText");
+        const beforeMean = (await resources()).length;
+        result.full_mean_ms = await submit('whole = sources.s1["/msl"]; average = np.nanmean(whole); mean_value = await average.compute()');
+        await assertSuccess();
+        result.full_mean_resources = (await resources()).slice(beforeMean).filter(r => r.name.startsWith('/api/data?'));
+        const beforeCached = (await resources()).length;
+        result.rebuilt_mean_ms = await submit('assert np.allclose(await np.nanmean(whole).compute(), mean_value)');
+        await assertSuccess();
+        result.rebuilt_mean_resources = (await resources()).slice(beforeCached).filter(r => r.name.startsWith('/api/data?'));
       } else {
         result.match_ms = await submit('normal, tide = await view.match(view.s1, view.s2)');
         await assertSuccess();
@@ -219,6 +227,12 @@ async function trial(binary, version, fixture, run) {
         result.anomaly_repeat_ms = await submit('anomaly_panel.show(anomaly)');
         await assertSuccess();
         result.anomaly_repeat_resources = (await resources()).slice(beforeRepeat).filter(r => r.name.startsWith('/api/data?'));
+        const beforeRebuilt = (await resources()).length;
+        result.rebuilt_anomaly_ms = await submit('anomaly_panel.show(normal - tide)');
+        await assertSuccess();
+        await wait("document.querySelectorAll('.curve-line').length >= 3");
+        result.rebuilt_anomaly_resources = (await resources()).slice(beforeRebuilt).filter(r => r.name.startsWith('/api/data?'));
+        if (version === 'current') assert.equal(result.rebuilt_anomaly_resources.length, 0, 'Equivalent expressions must reuse evaluated data');
         const beforeAppend = (await resources()).length;
         result.append_curve_ms = await submit('extra = frame.append(anomaly)');
         await assertSuccess();

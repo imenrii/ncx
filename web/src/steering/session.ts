@@ -1,19 +1,26 @@
-import { fetchMetadata } from "../data/api.ts";
+import { fetchMetadata, fetchSlice } from "../data/api.ts";
 import { AsyncByteCache } from "../data/cache.ts";
-import { arrayBytes } from "../data/arrayData.ts";
+import { arrayBytes, registerArraySource } from "../data/arrayData.ts";
 import type { DataSlice, SliceRequest, Source, Probe, Metadata, Variable } from "../data/model.ts";
 import { curveSelection } from "../plots/curveSeries.ts";
 import { attributeText } from "../data/model.ts";
 import { comparisonFieldSelection } from "../data/selection.ts";
 import { bindInput, readReference, validateField, suppliedCatalog } from "./data.ts";
-import { hasField, timeCoordinate, curveAlong, curveSelection as selectCurve, fieldIndices, probePosition, readCurve, resolveProbe } from "./panelData.ts";
-import { LIMITS, PYODIDE_VERSION, type PanelState, type ProbeSelection, type Binding, type CatalogSource, type Completion, type ConsoleError, type Displays, type Expression, type Intent, type LogEntry, type OutlineName, type PlotCommand, type PlotTarget, type RuntimeMessage, type ViewSelection } from "./model.ts";
+import { hasField, hasFieldView, timeCoordinate, curveAlong, curveSelection as selectCurve, fieldIndices, probePosition, readCurve, resolveProbe } from "./panelData.ts";
+import { LIMITS, PYODIDE_VERSION, type PanelState, type Binding, type CatalogSource, type Completion, type ConsoleError, type Displays, type Expression, type LogEntry, type OutlineName, type PlotCommand, type RuntimeMessage, type ViewSelection, type WorkspaceSnapshot } from "./model.ts";
 
 let nextInstance = 0;
 
 export class SteeringSession {
   private listeners = new Set<() => void>();
   private version = 0;
+  private readonly instance = ++nextInstance;
+  private workspaceRevision = 0;
+  private sentRevision = -1;
+  private displayCache?: Displays;
+  private presentation: { range: string; unit: string } = { range: "automatic", unit: "" };
+  private registrations = new Map<Binding, () => void>();
+  private logBytes = 0;
   private worker?: Worker;
   private abort?: AbortController;
   private timer?: ReturnType<typeof setTimeout>;
@@ -32,7 +39,6 @@ export class SteeringSession {
   private supplied: (() => void)[] = [];
   private catalogRequest = 0;
   private revision = 0;
-  private probePanel?: string;
   private defaultBinding?: Binding;
   private curveCache = new AsyncByteCache<import("../plots/curveSeries.ts").CurveSeries>(LIMITS.readBytes / 2,
     curve => curve.x.byteLength + curve.y.byteLength);
@@ -49,10 +55,6 @@ export class SteeringSession {
   panels: PanelState[] = [
     { id: "panel1", intent: { kind: "default" } },
   ];
-  get intents(): Record<string, Intent> {
-    const primary = this.panels[0].intent;
-    return { field: primary, curve: primary };
-  }
   bindingFor(panel: PanelState): Binding | undefined {
     return panel.intent.kind === "data" ? panel.intent.binding
       : panel.id === "panel1" && panel.intent.kind === "default" ? this.defaultBinding : undefined;
@@ -90,50 +92,94 @@ export class SteeringSession {
     return curve;
   }
   get bindings(): Binding[] {
-    return [...new Set(this.panels.flatMap(p => p.intent.kind === "data" ? p.intent.binding ? [p.intent.binding] : [] : []))];
+    return [...new Set(this.panels.flatMap(p => p.intent.kind === "data" ? [p.intent.binding] : []))];
   }
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   getSnapshot = () => this.version;
   private notify() {
-    const bytes = (entry: LogEntry) => entry.text.length + (entry.error?.traceback?.length ?? 0) + (entry.object ? JSON.stringify(entry.object).length : 0);
-    let retained = this.log.reduce((total, entry) => total + bytes(entry), 0);
-    while (this.log.length > 1 && (retained > LIMITS.outputChars || this.log.length > 200)) retained -= bytes(this.log.shift()!);
-    this.version++; this.listeners.forEach(listener => listener());
+    this.version++;
+    this.listeners.forEach(listener => listener());
+  }
+  private workspaceChanged() {
+    this.workspaceRevision++;
+    this.displayCache = undefined;
+  }
+  setPresentation(range: string, unit: string) {
+    if (this.presentation.range === range && this.presentation.unit === unit) return;
+    this.presentation = { range, unit };
+    this.workspaceChanged();
+    this.notify();
   }
   setInput(value: string) { this.input = value.slice(0, LIMITS.outputChars); this.notify(); }
-  clearLog() { this.log = []; this.notify(); }
+  clearLog() { this.log = []; this.logBytes = 0; this.notify(); }
+  private measureLog(entry: Pick<LogEntry, "text" | "error" | "object">): number {
+    return entry.text.length + (entry.error ? JSON.stringify(entry.error).length : 0)
+      + (entry.object ? JSON.stringify(entry.object).length : 0);
+  }
+  private trimLog() {
+    while (this.log.length > 1 && (this.logBytes > LIMITS.outputChars || this.log.length > 200)) {
+      this.logBytes -= this.log.shift()!.bytes;
+    }
+  }
+  private addLog(entry: Omit<LogEntry, "id" | "bytes">) {
+    const bytes = this.measureLog(entry);
+    this.log.push({ ...entry, id: ++this.logId, bytes });
+    this.logBytes += bytes;
+    this.trimLog();
+    this.notify();
+  }
   private append(kind: LogEntry["kind"], text: string) {
     const last = this.log.at(-1);
-    if (kind !== "command" && last?.kind === kind && !last.error && !last.object) last.text = (last.text + text).slice(-LIMITS.outputChars);
-    else this.log.push({ id: ++this.logId, kind, text: text.slice(0, LIMITS.outputChars) });
-    this.notify();
+    if (kind !== "command" && last?.kind === kind && !last.error && !last.object) {
+      this.logBytes -= last.bytes;
+      last.text = (last.text + text).slice(-LIMITS.outputChars);
+      last.bytes = this.measureLog(last);
+      this.logBytes += last.bytes;
+      this.trimLog();
+      this.notify();
+    } else this.addLog({ kind, text: text.slice(0, LIMITS.outputChars) });
   }
   reportError(error: ConsoleError) {
     error = { ...error, traceback: error.traceback?.slice(0, 16 * 1024) };
-    this.log.push({ id: ++this.logId, kind: "error", text: error.message, error });
-    this.notify();
+    this.addLog({ kind: "error", text: error.message, error });
   }
-  describeDisplays(presentation: Partial<Record<PlotTarget, { kind?: "field" | "curve"; visible: boolean; range: string; unit: string }>> = {}): Displays {
-    return Object.fromEntries(this.panels.map(panel => {
+  describeDisplays(): Displays {
+    if (this.displayCache) return this.displayCache;
+    this.displayCache = Object.fromEntries(this.panels.map(panel => {
       const binding = this.bindingFor(panel);
       const page = this.selection?.kind === "curve" ? "curve" : "field";
-      const shown = presentation[panel.id === "panel1" ? page : panel.id];
-      const spatial = binding ? hasField(binding) : false;
-      const eligible = page === "field" ? spatial : Boolean(binding?.variable.dimensions.length && (!spatial || panel.probe));
-      const probe = binding && panel.probe ? {
-        indices: panel.intent.kind === "default" ? this.selection?.probe?.indices ?? panel.probe.indices : panel.probe.indices,
-        along: curveAlong(binding, panel.intent.kind === "default" ? binding.variable.dimensions[this.selection?.along ?? 0]?.path : undefined)!, average: panel.probe.average,
-      } : undefined;
+      const domain = !binding ? "empty" : !binding.variable.dimensions.length ? "scalar"
+        : hasField(binding) ? "field" : "curve";
+      const eligible = page === "field" ? domain === "field" || domain === "scalar"
+        : domain === "curve" || domain === "field" && Boolean(panel.probe);
+      const preferred = panel.intent.kind === "default" && binding
+        ? binding.variable.dimensions[this.selection?.along ?? 0]?.path : undefined;
+      const spatialPaths = panel.intent.kind === "default" && binding
+        ? [this.selection?.display.x, this.selection?.display.y].flatMap(axis => axis === undefined ? [] : [binding.variable.dimensions[axis]?.path]) : [];
+      const fixed = panel.intent.kind === "default" ? Object.fromEntries(
+        Object.entries(this.selection?.indices ?? {}).filter(([path]) => !spatialPaths.includes(path))) : {};
       return [panel.id, {
-        kind: page, spatial,
-        visible: this.selection?.kind !== "metadata" && panel.intent.kind !== "hidden" && eligible,
-        range: shown?.range ?? "automatic",
-        unit: binding ? attributeText(binding.variable, "units") ?? "" : "",
-        ids: binding?.expression ? [binding.expression.id] : [],
-        reference: binding?.expression ? undefined : binding?.origin,
-        probe, position: probePosition(panel.probe), selection: panel.probe,
+        kind: page, domain,
+        visible: this.selection?.kind !== "metadata" && eligible,
+        range: panel.id === "panel1" ? this.presentation.range : "automatic",
+        unit: panel.id === "panel1" ? this.presentation.unit : binding ? attributeText(binding.variable, "units") ?? "" : "",
+        data: binding?.expression ? { id: binding.expression.id } : binding?.origin ? { reference: binding.origin } : undefined,
+        along: binding ? curveAlong(binding, preferred) : undefined,
+        indices: fixed,
+        probe: panel.probe,
       }];
     }));
+    return this.displayCache;
+  }
+  private configureWorker() {
+    if (!this.worker || this.sentRevision === this.workspaceRevision) return;
+    const snapshot: WorkspaceSnapshot = {
+      scope: `${this.instance}:${this.epoch}`,
+      ...(this.sentRevision < 0 ? { catalog: this.catalog } : {}),
+      panels: this.describeDisplays(), view: this.viewReferences(),
+    };
+    this.worker.postMessage({ type: "configure", revision: this.workspaceRevision, snapshot });
+    this.sentRevision = this.workspaceRevision;
   }
   private expressionInputs(): Expression[] {
     return [...new Map(this.bindings.flatMap(b => b.expression ? [[b.expression.id, b.expression] as const] : [])).values()];
@@ -143,13 +189,14 @@ export class SteeringSession {
     this.knownExpressions = new Set(ids);
     this.worker?.postMessage({ type: "retain", ids });
   }
-  complete(code: string, cursor: number, displays = this.describeDisplays(), force = false): Promise<Completion | undefined> {
+  complete(code: string, cursor: number, force = false): Promise<Completion | undefined> {
     this.completionRequest?.resolve();
     if (this.state !== "ready" || !this.worker) return Promise.resolve(undefined);
+    this.configureWorker();
     const id = ++this.requestId;
     return new Promise(resolve => {
       this.completionRequest = { id, resolve };
-      this.worker!.postMessage({ type: "complete", id, code, cursor, force, view: this.viewReferences(), probe: this.commandProbe(), displays });
+      this.worker!.postMessage({ type: "complete", id, code, cursor, force });
     });
   }
   private evaluateExpression = async (expression: Expression, request: SliceRequest, signal?: AbortSignal): Promise<DataSlice> => {
@@ -165,10 +212,11 @@ export class SteeringSession {
     signal?.throwIfAborted();
     const id = ++this.requestId;
     const abort = new AbortController();
-    signal?.addEventListener("abort", () => abort.abort(), { once: true, signal: abort.signal });
+    signal?.addEventListener("abort", () => this.cancelEvaluation(id, new DOMException("Evaluation cancelled", "AbortError")),
+      { once: true, signal: abort.signal });
     this.state = "busy";
     const promise = new Promise<DataSlice>((resolve, reject) => {
-      const timer = setTimeout(() => { this.stop(); this.append("error", "Plot evaluation exceeded the time limit.\n"); }, LIMITS.runMs);
+      const timer = setTimeout(() => this.cancelEvaluation(id, new Error("Plot evaluation exceeded the time limit")), LIMITS.runMs);
       this.evaluations.set(id, { request, abort, resolve, reject, timer });
       const payload = this.knownExpressions.has(expression.id) ? { id: expression.id } : expression;
       this.knownExpressions.add(expression.id);
@@ -177,6 +225,20 @@ export class SteeringSession {
     this.notify();
     return promise;
   };
+  private cancelEvaluation(id: number, reason: Error) {
+    const job = this.evaluations.get(id);
+    if (!job || job.abort.signal.aborted) return;
+    job.abort.abort();
+    clearTimeout(job.timer);
+    job.reject(reason);
+    this.worker?.postMessage({ type: "cancel-evaluation", id });
+    // A worker blocked inside synchronous NumPy cannot service cancellation messages.
+    job.timer = setTimeout(() => {
+      if (!this.evaluations.has(id)) return;
+      this.stop(false);
+      this.append("error", "Python did not respond to cancellation. Workspace reset.\n");
+    }, LIMITS.cancelMs);
+  }
   configure(sources: readonly Source[], unitRevision: number, scope: string, selection?: ViewSelection, data?: { metadata: Metadata; variable: Variable }) {
     for (const source of sources) if (!this.aliases.has(source.id)) this.aliases.set(source.id, `s${++this.aliasNumber}`);
     const defaultChanged = data && (this.defaultBinding?.variable !== data.variable || this.defaultBinding.metadata !== data.metadata);
@@ -187,12 +249,15 @@ export class SteeringSession {
         JSON.stringify(previous.variable.view_hint) === JSON.stringify(data.variable.view_hint);
       const source = sources.find(s => "dataset" in s && s.dataset === data.metadata.dataset_id);
       const alias = source && this.aliases.get(source.id);
-      this.defaultBinding = { ...data, sourceDataset: data.metadata.dataset_id, bytes: 0, delta: false, selectionLabel: "", release() {},
+      this.defaultBinding = { ...data, sourceDataset: data.metadata.dataset_id, bytes: 0, geometryBytes: 0, delta: false, selectionLabel: "", read: fetchSlice,
         origin: alias ? { source: alias, path: data.variable.path,
           selection: data.variable.dimensions.map(d => ({ start: 0, stop: d.length, stride: 1 })) } : undefined };
       if (!sameSelection && this.panels[0].intent.kind === "default") this.panels[0] = { ...this.panels[0], probe: undefined };
     }
+    const selectionChanged = JSON.stringify(this.selection) !== JSON.stringify(selection);
     this.selection = selection;
+    if (selectionChanged || defaultChanged) this.workspaceChanged();
+    this.syncBindings();
     this.sources = sources;
     const identity = JSON.stringify([scope, unitRevision, sources.map(source => {
       if ("dataset" in source) return [source.id, source.dataset];
@@ -200,12 +265,11 @@ export class SteeringSession {
       return [source.id, data];
     }).sort((a, b) => String(a[0]).localeCompare(String(b[0])))]);
     if (identity === this.identity) {
-      if (defaultChanged) this.notify();
+      if (selectionChanged || defaultChanged) this.notify();
       return;
     }
     this.identity = identity;
     this.epoch++;
-    this.probePanel = undefined;
     this.catalogRequest++;
     for (const source of sources) if (!this.aliases.has(source.id)) this.aliases.set(source.id, `s${++this.aliasNumber}`);
     this.catalog = [];
@@ -213,9 +277,10 @@ export class SteeringSession {
     this.evaluated.clear();
     this.curveCache.clear();
     this.loadedFields.clear();
-    this.bindings.forEach(b => b.release());
     this.panels = this.panels.map(panel => ({ ...panel, intent: panel.intent.kind === "data"
-      ? { kind: "data", error: "Sources changed. Submit again or reset this plot." } : panel.intent }));
+      ? { kind: "error", message: "Sources changed. Submit again or reset this plot." } : panel.intent }));
+    this.syncBindings();
+    this.workspaceChanged();
     if (this.worker || this.state !== "closed") {
       this.stop(false);
       this.append("output", "Sources changed. Workspace reset.\n");
@@ -251,7 +316,10 @@ export class SteeringSession {
       worker.onmessage = event => { if (this.worker === worker) void this.message(event.data); };
       worker.onerror = event => { if (this.worker === worker) this.fail(event.message || "Python worker failed"); };
       for (const input of this.expressionInputs()) this.knownExpressions.add(input.id);
-      worker.postMessage({ type: "init", instance: ++nextInstance, catalog: this.catalog, expressions: this.expressionInputs(), runtimeURL: new URL(`assets/python-${PYODIDE_VERSION}/`, document.baseURI).href });
+      this.sentRevision = -1;
+      this.workspaceChanged();
+      worker.postMessage({ type: "init", expressions: this.expressionInputs(), runtimeURL: new URL(`assets/python-${PYODIDE_VERSION}/`, document.baseURI).href });
+      this.configureWorker();
       this.timer = setTimeout(() => this.fail("Python startup timed out"), LIMITS.runMs);
     } catch (cause) { if (epoch === this.epoch) this.fail(String(cause)); }
   }
@@ -259,7 +327,7 @@ export class SteeringSession {
     this.evaluated.clear();
     this.curveCache.clear();
     this.loadedFields.clear();
-    this.worker?.terminate(); this.worker = undefined;
+    this.worker?.terminate(); this.worker = undefined; this.sentRevision = -1;
     this.abort?.abort(); this.abort = undefined;
     clearTimeout(this.timer);
     this.active = undefined;
@@ -277,49 +345,46 @@ export class SteeringSession {
   dispose() {
     this.stop(false);
     this.supplied.forEach(release => release());
-    this.bindings.forEach(b => b.release());
+    for (const release of this.registrations.values()) release();
+    this.registrations.clear();
   }
-  resetPlot(target: PlotTarget) {
-    const id = target === "field" || target === "curve" ? "panel1" : target;
-    if (id === this.probePanel) this.probePanel = undefined;
+  resetPanel(id: string) {
     this.replacePanels(this.panels.map(p => p.id === id ? { ...p, intent: { kind: "default" }, probe: undefined } : p));
   }
   removePanel(id: string) {
     if (id === "panel1") throw new Error("The main panel cannot be removed");
     this.replacePanels(this.panels.filter(p => p.id !== id));
   }
+  private syncBindings() {
+    const needed = new Set(this.selection?.kind === "field" ? this.bindings.filter(hasFieldView) : []);
+    for (const [binding, release] of this.registrations) {
+      if (needed.has(binding)) continue;
+      release();
+      this.registrations.delete(binding);
+    }
+    for (const binding of needed) {
+      if (!this.registrations.has(binding)) this.registrations.set(binding, registerArraySource(binding));
+    }
+  }
   private replacePanels(panels: PanelState[]) {
-    const previous = this.bindings;
     this.panels = panels;
-    const retained = new Set(this.bindings);
-    previous.filter(b => !retained.has(b)).forEach(b => b.release());
-    this.revision++; this.notify();
+    this.syncBindings();
+    const ids = new Set(panels.map(panel => panel.id));
+    for (const id of this.loadedFields.keys()) if (!ids.has(id)) this.loadedFields.delete(id);
+    this.revision++;
+    this.workspaceChanged();
+    this.notify();
   }
   setProbe(probe: Probe | undefined, id = "panel1") {
-    this.probePanel = id;
     this.panels = this.panels.map(panel => panel.id === id ? { ...panel, probe } : panel);
-    this.revision++; this.notify();
-  }
-  private commandProbe(): ProbeSelection | undefined {
-    // Compatibility for existing Variable.probe scripts; new code uses panel.probe.data.
-    const panel = this.panels.find(p => p.id === this.probePanel) ?? this.panels[0];
-    const binding = this.bindingFor(panel);
-    const origin = binding?.origin;
-    const variable = origin && this.catalog.find(s => s.alias === origin.source)?.metadata.variables.find(v => v.path === origin.path);
-    if (!origin || !binding || !variable || !panel.probe) return undefined;
-    const indices = Object.fromEntries(variable.dimensions.map((dimension, i) => {
-      const base = origin.selection[i];
-      const local = panel.probe!.indices[dimension.path] ?? 0;
-      return [dimension.path, typeof base === "number" ? base : base.start + local * base.stride];
-    }));
-    return { source: origin.source, path: origin.path, indices, along: curveAlong(binding)!, average: panel.probe.average };
+    this.revision++; this.workspaceChanged(); this.notify();
   }
   private viewReferences() {
     const view: Record<string, unknown> = {};
     const current = this.selection;
     const primary = this.catalog.find(c => c.metadata.dataset_id === current?.dataset)?.metadata.variables.find(v => v.path === current?.path);
     for (const source of this.catalog) {
-      const field = this.intents.field;
+      const field = this.panels[0].intent;
       const binding = field.kind === "data" ? field.binding : undefined;
       const origin = current?.kind === "field" ? binding?.origin : undefined;
       if (origin?.source === source.alias && binding && field.kind === "data") {
@@ -349,17 +414,17 @@ export class SteeringSession {
     }
     return view;
   }
-  async submit(displays = this.describeDisplays()) {
+  async submit() {
     if (this.state === "closed" || this.state === "failed") { await this.open(); return; }
     if (this.state !== "ready" || !this.input.trim()) return;
     this.completionRequest?.resolve(); this.completionRequest = undefined;
-    const view = this.viewReferences();
+    this.configureWorker();
     const id = ++this.run;
     this.active = { id, epoch: this.epoch, selection: JSON.stringify(this.selection), revisions: this.revision, code: this.input };
     this.abort = new AbortController();
     this.state = "busy";
     this.timer = setTimeout(() => { this.stop(); this.append("error", "Execution exceeded the time limit.\n"); }, LIMITS.runMs);
-    this.worker!.postMessage({ type: "submit", run: id, code: this.input, view, probe: this.commandProbe(), displays });
+    this.worker!.postMessage({ type: "submit", run: id, code: this.input });
     this.notify();
   }
   private fail(message: string) {
@@ -386,12 +451,14 @@ export class SteeringSession {
         job.reject(error);
       }
       else {
-        const width = data.dtype === "f64" ? 8 : 4;
-        if (data.values.byteLength !== arrayBytes(data.shape, width, LIMITS.readBytes)) { job.reject(new Error("Invalid result byte count")); return; }
-        const values = data.dtype === "f64"
-          ? new Float64Array(data.values.buffer, data.values.byteOffset, data.values.byteLength / width)
-          : new Float32Array(data.values.buffer, data.values.byteOffset, data.values.byteLength / width);
-        job.resolve({ values, shape: data.shape, dtype: data.dtype, request: job.request });
+        try {
+          const width = data.dtype === "f64" ? 8 : 4;
+          if (data.values.byteLength !== arrayBytes(data.shape, width, LIMITS.readBytes)) throw new Error("Invalid result byte count");
+          const values = data.dtype === "f64"
+            ? new Float64Array(data.values.buffer, data.values.byteOffset, data.values.byteLength / width)
+            : new Float32Array(data.values.buffer, data.values.byteOffset, data.values.byteLength / width);
+          job.resolve({ values, shape: data.shape, dtype: data.dtype, request: job.request });
+        } catch (error) { job.reject(error instanceof Error ? error : new Error(String(error))); }
       }
       if (!this.active && !this.evaluations.size) this.state = "ready";
       this.notify(); return;
@@ -401,32 +468,27 @@ export class SteeringSession {
       const active = this.active;
       const signal = this.abort?.signal;
       if (!active || active.id !== data.run || !signal) return;
-      let temporary: Binding | undefined;
       try {
         const expressions = new Map(this.expressionInputs().map(e => [e.id, e]));
-        for (const update of data.updates) for (const input of update.inputs ?? []) {
-          if ("expression" in input) expressions.set(input.expression.id, input.expression);
+        for (const update of data.updates) {
+          if (update.input && "expression" in update.input) expressions.set(update.input.expression.id, update.input.expression);
         }
         const update = data.updates.find(u => u.target === data.target && u.action === "show");
         const panel = this.panels.find(p => p.id === data.target);
         let binding = panel && this.bindingFor(panel);
-        const input = update?.inputs?.[0];
+        const input = update?.input;
         if (input) {
           const resolved = "id" in input ? { expression: expressions.get(input.id)! } : input;
-          temporary = bindInput(resolved, this.catalog, "auto", this.evaluateExpression);
-          binding = temporary;
+          binding = bindInput(resolved, this.catalog, "auto", this.evaluateExpression);
         }
         if (!binding) throw new Error("Bind panel data before moving its probe");
         const indices = await fieldIndices(binding, this.timestamp, panel?.intent.kind === "default" ? this.selection?.indices : undefined);
         const selection = await resolveProbe(binding, data.position, indices, signal, panel?.intent.kind === "default" ? this.selection?.display : undefined);
         signal.throwIfAborted();
-        worker?.postMessage({ type: "probe-result", id: data.id, result: {
-          selection, position: probePosition(selection),
-          probe: { indices: selection.indices, along: curveAlong(binding), average: selection.average },
-        } });
+        worker?.postMessage({ type: "probe-result", id: data.id, result: selection });
       } catch (error) {
         worker?.postMessage({ type: "probe-result", id: data.id, error: error instanceof Error ? error.message : String(error) });
-      } finally { temporary?.release(); }
+      }
       return;
     }
     if (data.type === "read") {
@@ -456,22 +518,23 @@ export class SteeringSession {
       this.finish();
     } else if (data.type === "done") {
       this.names = Array.isArray(data.names) ? data.names.slice(0, LIMITS.names) : [];
-      for (const command of data.updates) for (const input of command.inputs ?? []) if ("expression" in input) this.knownExpressions.add(input.expression.id);
+      for (const command of data.updates) if (command.input && "expression" in command.input) this.knownExpressions.add(command.input.expression.id);
       try {
         if (data.error) this.reportError(data.error);
         else {
           await this.publish(data.updates, active);
           if (data.result) {
-            this.log.push({ id: ++this.logId, kind: "result", text: data.result.summary, object: data.result });
-            this.notify();
+            this.addLog({ kind: "result", text: data.result.summary, object: data.result });
           }
         }
       } catch (error) { this.reportError({ message: error instanceof Error ? error.message : String(error), traceback: error instanceof Error ? error.stack : undefined, code: active.code }); }
+      this.workspaceChanged();
+      this.configureWorker();
       this.retainExpressions();
       if (this.active === active) this.finish();
     }
   }
-  private finish() { clearTimeout(this.timer); this.active = undefined; this.abort = undefined; this.state = this.evaluations.size ? "busy" : "ready"; this.notify(); }
+  private finish() { clearTimeout(this.timer); this.abort?.abort(); this.active = undefined; this.abort = undefined; this.state = this.evaluations.size ? "busy" : "ready"; this.notify(); }
   private async publish(commands: PlotCommand[], active: NonNullable<SteeringSession["active"]>) {
     const current = () => this.active === active && active.epoch === this.epoch && active.selection === JSON.stringify(this.selection) && active.revisions === this.revision;
     if (!commands.length) return;
@@ -479,69 +542,74 @@ export class SteeringSession {
     if (commands.length > LIMITS.panels * 2 || new Set(commands.map(c => c.target)).size !== commands.length) throw new Error("Invalid plot update");
     const prepared = new Map(this.panels.map(p => [p.id, p]));
     const expressions = new Map(this.expressionInputs().map(e => [e.id, e]));
-    const created: Binding[] = [];
     const reusable = new Map(this.bindings.flatMap(binding => binding.expression ? [[binding.expression.id, binding] as const] : []));
-    const counted = new Set<Binding>();
-    const cachedBytes = this.evaluated.bytes + this.curveCache.bytes;
-    let bytes = cachedBytes;
-    const count = (binding: Binding) => {
-      if (counted.has(binding)) return;
-      bytes += binding.bytes;
-      counted.add(binding);
-      if (bytes > LIMITS.publishedBytes) throw new Error("Old and replacement plot data exceed the memory limit");
+    const admitted = new Set(this.bindings);
+    const created: Binding[] = [];
+    const budget = () => {
+      const bindings = new Set([...admitted, ...created]);
+      const curveOwners = new Map<string, Binding>();
+      for (const panel of [...this.panels, ...prepared.values()]) {
+        if (panel.intent.kind !== "data") continue;
+        const binding = panel.intent.binding;
+        curveOwners.set(JSON.stringify([panel.id, binding.metadata.dataset_id, panel.probe]), binding);
+      }
+      const values = {
+        bindings: [...bindings].reduce((sum, b) => sum + b.bytes, 0),
+        geometry: [...bindings].reduce((sum, b) => sum + b.geometryBytes, 0),
+        curves: [...curveOwners.values()].reduce((sum, binding) => {
+          const axis = curveAlong(binding);
+          const dimension = binding.variable.dimensions.find(d => d.path === axis);
+          return sum + (dimension ? arrayBytes([dimension.length], 16, LIMITS.readBytes) : 0);
+        }, 0),
+        caches: this.evaluated.bytes + this.curveCache.bytes,
+      };
+      if (Object.values(values).reduce((sum, value) => sum + value, 0) > LIMITS.publishedBytes) {
+        throw new Error("Published bindings, geometry, curves, and caches exceed the memory limit");
+      }
+      return values;
     };
-    this.bindings.forEach(count);
-    try {
-      for (const command of commands) {
-        if (!/^panel[1-9]\d*$/.test(command.target) ||
-            !["append", "remove", "show", "clear", "reset", "probe"].includes(command.action)) throw new Error("Invalid plot command");
-        if (command.action === "remove") {
-          if (command.target === "panel1") throw new Error("The main panel cannot be removed");
-          prepared.delete(command.target); continue;
-        }
-        if (command.action === "probe") {
-          const panel = prepared.get(command.target);
-          if (!panel) throw new Error("Panel is no longer available");
-          prepared.set(command.target, { ...panel, probe: command.probe ?? undefined });
-          continue;
-        }
-        if (command.action !== "show") {
-          prepared.set(command.target, { id: command.target,
-            intent: { kind: command.action === "reset" ? "default" : "hidden" } });
-          continue;
-        }
-        if (command.inputs?.length !== 1) throw new Error("A panel binds one Variable");
-        const supplied = command.inputs[0];
-        const expression = "id" in supplied ? expressions.get(supplied.id) : undefined;
-        if ("id" in supplied && !expression) throw new Error("Published expression is no longer available");
-        const input = "id" in supplied ? { expression: expression! } : supplied;
-        if ("expression" in input) expressions.set(input.expression.id, input.expression);
-        const key = "expression" in input ? input.expression.id : "";
-        let binding = reusable.get(key);
-        if (!binding) {
-          binding = bindInput(input, this.catalog, "auto", this.evaluateExpression);
-          created.push(binding);
-          count(binding);
-          if (hasField(binding)) bytes += await validateField(binding, this.abort!.signal, LIMITS.publishedBytes - bytes);
-          else arrayBytes(binding.variable.dimensions.map(d => d.length), 16, LIMITS.readBytes);
-          if (key) reusable.set(key, binding);
-        }
-        const previousPanel = prepared.get(command.target);
-        const previous = previousPanel?.intent;
-        const same = previous?.kind === "data" && previous.binding === binding;
-        prepared.set(command.target, { id: command.target, probe: command.probe === null ? undefined : command.probe ?? (same ? previousPanel?.probe : undefined),
-          intent: same ? previous : { kind: "data", binding } });
+    for (const command of commands) {
+      if (!/^panel[1-9]\d*$/.test(command.target) ||
+          !["append", "remove", "show", "clear", "reset", "probe"].includes(command.action)) throw new Error("Invalid plot command");
+      if (command.action === "remove") {
+        if (command.target === "panel1") throw new Error("The main panel cannot be removed");
+        prepared.delete(command.target); continue;
       }
-      for (const panel of prepared.values()) {
-        const binding = panel.intent.kind === "data" ? panel.intent.binding : undefined;
-        const along = binding && curveAlong(binding);
-        const dimension = binding?.variable.dimensions.find(d => d.path === along);
-        if (dimension) bytes += arrayBytes([dimension.length], 16, LIMITS.readBytes);
+      if (command.action === "probe") {
+        const panel = prepared.get(command.target);
+        if (!panel) throw new Error("Panel is no longer available");
+        prepared.set(command.target, { ...panel, probe: command.probe ?? undefined });
+        continue;
       }
-      if (prepared.size > LIMITS.panels) throw new Error("Panel limit reached; remove an unused panel");
-      if (bytes + Math.max(0, this.evaluated.bytes + this.curveCache.bytes - cachedBytes) > LIMITS.publishedBytes) throw new Error("Published data and evaluation cache exceed the memory limit");
-      if (!current()) throw new Error("View changed. Plot updates discarded.");
-      this.replacePanels([...prepared.values()]);
-    } catch (error) { created.forEach(b => b.release()); throw error; }
+      if (command.action !== "show") {
+        prepared.set(command.target, { id: command.target,
+          intent: { kind: command.action === "reset" ? "default" : "hidden" } });
+        continue;
+      }
+      if (!command.input) throw new Error("A panel binds one Variable");
+      const supplied = command.input;
+      const expression = "id" in supplied ? expressions.get(supplied.id) : undefined;
+      if ("id" in supplied && !expression) throw new Error("Published expression is no longer available");
+      const input = "id" in supplied ? { expression: expression! } : supplied;
+      if ("expression" in input) expressions.set(input.expression.id, input.expression);
+      const key = "expression" in input ? input.expression.id : "";
+      let binding = reusable.get(key);
+      if (!binding) {
+        binding = bindInput(input, this.catalog, "auto", this.evaluateExpression);
+        created.push(binding);
+        if (key) reusable.set(key, binding);
+      }
+      const previousPanel = prepared.get(command.target);
+      const previous = previousPanel?.intent;
+      const same = previous?.kind === "data" && previous.binding === binding;
+      prepared.set(command.target, { id: command.target, probe: command.probe === null ? undefined : command.probe ?? (same ? previousPanel?.probe : undefined),
+        intent: same ? previous : { kind: "data", binding } });
+    }
+    if (prepared.size > LIMITS.panels) throw new Error("Panel limit reached; remove an unused panel");
+    budget();
+    for (const binding of created) if (hasField(binding)) await validateField(binding, this.abort!.signal);
+    budget();
+    if (!current()) throw new Error("View changed. Plot updates discarded.");
+    this.replacePanels([...prepared.values()]);
   }
 }

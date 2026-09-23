@@ -54,9 +54,33 @@ capture without `NCX_VISUAL_PROFILE` checks the installed production fonts.
 
 Performance fixtures cover a 320 × 320 grid and a million-point curve. Each
 median preparation time must stay below 750 ms; mesh/index buffers below
-16 MiB; curve path below 80,000 characters; and Node peak RSS below 256 MiB.
+8 MiB; curve path below 80,000 characters; and Node peak RSS below 256 MiB.
 These generous regression ceilings are not a universal interactive-latency
 promise. Browser smoke separately checks worker output and scalar-upload reuse.
+
+Large curvilinear regression measurements use an external three-dimensional
+fixture with time first. Build the frontend and release binary, then run:
+
+```bash
+NCX_FIXTURE=/path/to/forecast.nc node tests/structured-performance.mjs /tmp/canvas.json
+NCX_FIXTURE=/path/to/forecast.nc NCX_WEBGL=1 xvfb-run -a node tests/structured-performance.mjs /tmp/webgl.json
+node --expose-gc tests/structured-geometry.mjs
+```
+
+Set `NCX_BINARY` to a saved release for the baseline. Set `NCX_BASELINE` to its
+JSON result to require at least 20% improvement in initial display, time change,
+and stride-2 server reads, plus one scalar request and zero geometry rebuilds
+for a time change. Compare the same fixture and renderer on an idle machine.
+Use `NCX_SCREENSHOT=/tmp/field.png` for a visual capture and
+`NCX_EXPORT=/tmp/export.png` to verify native-frame PNG export on fixtures within
+the full-resolution limit. `NCX_MESH_MODULE` can select a saved `mesh.ts` for the
+isolated geometry benchmark. The [measurement record](Progress/structured-performance.md)
+contains before/after results and acceptance decisions.
+
+Browser measurements use the existing bounded `ncx.*` Performance entries.
+Canvas adds `ncx.mesh.raster-map` and `ncx.mesh.raster-paint` so regressions can
+distinguish spatial preparation from per-frame colour work. WebGL draw timing
+measures command submission, not GPU completion.
 
 `.github/workflows/check.yml` runs these gates on each PR and main/master push.
 Repository administrators must make `checks` a required branch check. Adding a
@@ -88,8 +112,8 @@ cargo build --release --locked
 
 ## Steering
 
-The ordinary frontend tests include exact in-memory slicing and source/resident
-adapter checks. After the frontend and Rust builds, run:
+The frontend tests include exact slicing, direct binding readers, atomic session
+publication, budget rejection, stale updates, snapshot reuse, and cancellation. After the frontend and Rust builds, run:
 
 ```bash
 node tests/steering-python.mjs
@@ -110,6 +134,7 @@ against a separate pre-Steering release binary.
 The Python test uses the bundled Pyodide/NumPy build, so no system NumPy install
 is needed. Firefox checks paired Field/Curve views, independent editable probes, exact
 global time, shared overlays, scalar and series panels, and PNG export. The Python
-test also checks bounded computation, immutable expressions, and failed commands. They
+test also checks content identities, expression-depth admission, bounded concurrent
+reads, scalar-cache safety, and failed commands. They
 save desktop and narrow screenshots. Embedding hosts need the CSP described
 in [Steering](steering.md#runtime-and-bounds).

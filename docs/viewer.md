@@ -42,10 +42,16 @@ Worker. Cached input arrays are copied; returned buffers transfer to the view.
 Cancellation terminates the worker. Small geometry uses the same builder on
 the calling thread. Worker URLs are hashed build assets embedded by Rust.
 
-GPU scalar expansion and upload occur only when the geometry or source values
+Curvilinear grids use indexed triangles and upload their scalar array directly.
+UGRID scalar expansion and upload occur only when the geometry or source values
 change. Pan, palette, and range changes reuse that buffer. Native edge scalars
 retain the existing incident-edge mean; this is a derived face view, not a
 native edge renderer. Means accumulate in f64 before float32 output.
+
+Canvas fallback uses `plots/meshRaster.ts` to build a screen-pixel triangle map.
+It keeps the existing flat triangle mean and missing-value mask, without
+issuing a separate Canvas path for each triangle. Pixel-centre coverage replaces
+path-edge antialiasing. The view owns the current map and image only.
 
 Long ordered curves retain first/min/max/last samples per screen-pixel bin in
 source order. NaNs preserve gaps. Small curves keep every sample. The ordered

@@ -79,6 +79,20 @@ test("UGRID never invents a spatial preview stride", () => {
   assert.deepEqual(request.selection, [12, 4, 9, { start: 0, stop: 3000, stride: 1 }]);
 });
 
+test("display sampling stays bounded and stable across time while export can use native data", () => {
+  const grid = { ...variable, dimensions: variable.dimensions.map((axis, index) =>
+    ({ ...axis, length: index === 2 ? 1626 : index === 3 ? 2036 : axis.length })) };
+  const display = { x: 3, y: 2 }, viewport = { width: 679, height: 595 };
+  const first = fieldRequest(grid, display, { "/time": 0 }, viewport, true, undefined, "display");
+  const next = fieldRequest(grid, display, { "/time": 1 }, viewport, false, undefined, "display");
+  assert.deepEqual(first.selection.slice(1), next.selection.slice(1));
+  assert.deepEqual(first.selection.slice(2), [{ start: 0, stop: 1626, stride: 3 }, { start: 0, stop: 2036, stride: 3 }]);
+  assert.deepEqual(fieldRequest(grid, display, {}, viewport, true).selection.slice(2),
+    [{ start: 0, stop: 1626, stride: 1 }, { start: 0, stop: 2036, stride: 1 }]);
+  assert.deepEqual(fieldRequest(grid, display, {}, { width: 2400, height: 1800 }, true, undefined, "display").selection.slice(2),
+    [{ start: 0, stop: 1626, stride: 1 }, { start: 0, stop: 2036, stride: 1 }]);
+});
+
 test("a curve sweeps time, not whatever dimension happened to be on x", () => {
   // gauge_level(time, station): display puts station on x, so falling through
   // to it drew a line across three independent gauges.

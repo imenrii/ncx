@@ -56,7 +56,8 @@ export function MeshFieldView(props: MeshFieldViewProps) {
   const [frame, size] = useElementSize<HTMLDivElement>();
   const canvas = useRef<HTMLCanvasElement>(null);
   const renderer = useRef<MeshSurface | undefined>(undefined);
-  const [geometry, setGeometry] = useState<FieldGeometry>();
+  const [prepared, setPrepared] = useState<{ key: string; geometry: FieldGeometry }>();
+  const geometry = prepared?.geometry;
   const [view, setView] = useState<Bounds | undefined>(props.initialView);
   const [hover, setHover] = useState<PointerValue>();
   const [reserve, setReserve] = useState<ContourBox>();
@@ -122,13 +123,19 @@ export function MeshFieldView(props: MeshFieldViewProps) {
       if (hint.kind === "ugrid2d") {
         return ugridFieldRequest(props.variable, spatialDimension, props.indices);
       }
-      const ratio = props.settled ? Math.min(2, window.devicePixelRatio || 1) : 1;
+      const ratio = Math.min(2, window.devicePixelRatio || 1);
+      const zoomX = geometry && view
+        ? Math.max(1, (geometry.bounds.maximumX - geometry.bounds.minimumX) / (view.maximumX - view.minimumX)) : 1;
+      const zoomY = geometry && view
+        ? Math.max(1, (geometry.bounds.maximumY - geometry.bounds.minimumY) / (view.maximumY - view.minimumY)) : 1;
       return fieldRequest(
         props.variable,
         props.display,
         props.indices,
-        { width: availablePlot.width * ratio, height: availablePlot.height * ratio },
-        props.settled,
+        { width: availablePlot.width * ratio * zoomX, height: availablePlot.height * ratio * zoomY },
+        true,
+        undefined,
+        "display",
       );
     },
     [
@@ -137,36 +144,41 @@ export function MeshFieldView(props: MeshFieldViewProps) {
       spatialDimension,
       props.display,
       props.indices,
-      props.settled,
+      geometry?.bounds,
+      view,
       availablePlot.width,
       availablePlot.height,
     ],
   );
 
-  const { slice, loading, error: readError } = useSlice(request, !needsConfirmation, {
-    ready: next => {
-      setError(undefined);
-      props.onFrameLoaded();
-      props.onStatus(`${next.shape.join(" × ")} · ${hint.kind}${hint.kind === "ugrid2d" ? ` ${hint.location}` : ""} · ${next.dtype}`);
+  const { slice, loading, error: readError } = useSlice(
+    request,
+    !needsConfirmation && availablePlot.width > 1 && availablePlot.height > 1,
+    {
+      ready: next => {
+        setError(undefined);
+        props.onFrameLoaded();
+        props.onStatus(`${next.shape.join(" × ")} · ${hint.kind}${hint.kind === "ugrid2d" ? ` ${hint.location}` : ""} · ${next.dtype}`);
+      },
+      failed: error => { props.onFrameError?.(); props.onStatus(error.message); },
     },
-    failed: error => { props.onFrameError?.(); props.onStatus(error.message); },
-  });
+  );
   useEffect(() => { if (loading) canvas.current?.removeAttribute("data-rendered"); }, [loading]);
   useEffect(() => { setHover(undefined); }, [size.width, size.height, view, slice]);
 
-  const sliceShape = slice?.shape.join(",") ?? "";
+  const geometryKey = JSON.stringify(slice && [slice.shape,
+    slice.request.selection.map(axis => typeof axis === "number" ? null : axis)]);
   useEffect(() => {
     const controller = new AbortController();
     if (needsConfirmation || !slice) return;
     buildGeometry(props.metadata, props.variable, props.display, slice, controller.signal)
       .then((nextGeometry) => {
         if (controller.signal.aborted) return;
-        setGeometry(nextGeometry);
+        setPrepared({ key: geometryKey, geometry: nextGeometry });
         setView((current) => current ?? props.initialView ?? nextGeometry.bounds);
         setError(undefined);
       })
       .catch((cause: unknown) => {
-        if (controller.signal.aborted) return;
         if (controller.signal.aborted) return;
         const message = cause instanceof Error ? cause.message : String(cause);
         setError(message);
@@ -181,8 +193,7 @@ export function MeshFieldView(props: MeshFieldViewProps) {
     props.metadata,
     props.variable,
     props.display,
-    request.selection.map(axis => typeof axis === "number" ? 1 : axis.stride).join(","),
-    sliceShape,
+    geometryKey,
     props.onFrameError,
     props.onStatus,
   ]);
@@ -215,7 +226,7 @@ export function MeshFieldView(props: MeshFieldViewProps) {
   }, [automaticRange, props.range, props.rangeLocked, props.onRange]);
 
   useEffect(() => {
-    if (!rendererReady || !renderer.current || !geometry || !view || !values) return;
+    if (!rendererReady || !renderer.current || !geometry || prepared?.key !== geometryKey || !view || !values) return;
     renderer.current.draw(geometry, values, {
       colormap: props.colormap,
       scale: props.scale,
@@ -225,7 +236,7 @@ export function MeshFieldView(props: MeshFieldViewProps) {
       height: plot.height,
     });
     canvas.current?.setAttribute("data-rendered", "true");
-  }, [rendererReady, geometry, values, view, props.colormap, props.scale, activeRange, plot.width, plot.height]);
+  }, [rendererReady, geometry, prepared?.key, geometryKey, values, view, props.colormap, props.scale, activeRange, plot.width, plot.height]);
 
   useEffect(() => {
     const node = frame.current;
@@ -299,7 +310,7 @@ export function MeshFieldView(props: MeshFieldViewProps) {
     : undefined;
 
   const inspect = (event: PointerEvent<HTMLCanvasElement>): PointerValue | undefined => {
-    if (!geometry || !view || !values) return undefined;
+    if (!geometry || prepared?.key !== geometryKey || !view || !values) return undefined;
     const bounds = event.currentTarget.getBoundingClientRect();
     const localX = Math.max(0, Math.min(bounds.width, event.clientX - bounds.left));
     const localY = Math.max(0, Math.min(bounds.height, event.clientY - bounds.top));

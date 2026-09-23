@@ -5,6 +5,8 @@ export const PERFORMANCE_MEASURE = {
   meshGeometry: "ncx.mesh.geometry",
   meshScalarUpload: "ncx.mesh.scalar-upload",
   meshDraw: "ncx.mesh.draw",
+  meshRasterMap: "ncx.mesh.raster-map",
+  meshRasterPaint: "ncx.mesh.raster-paint",
 } as const;
 
 export function measurePerformance<T>(name: string, operation: () => T): T {

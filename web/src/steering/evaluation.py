@@ -1,8 +1,10 @@
-"""Asynchronous read adapter for the pinned Dask task format."""
+"""Bounded asynchronous reads for the pinned Dask task format."""
 from collections import Counter, OrderedDict
+import asyncio
 import inspect
 import math
 import numpy as np
+import dask.array as da
 from dask._task_spec import convert_legacy_graph, DataNode
 from dask.core import flatten
 from dask.order import order
@@ -10,6 +12,16 @@ from dask.optimization import cull
 from dask.sizeof import sizeof
 
 _scalars = OrderedDict()
+_SCALAR_PREFIX = "ncx-scalar-"
+
+
+def _identity(value):
+    return value
+
+
+def scalar_array(array, token):
+    # Only this explicit expression/selection token can enter the scalar cache.
+    return da.map_blocks(_identity, array, dtype=array.dtype, name=_SCALAR_PREFIX + token)
 
 
 def checked_bytes(shape, width, maximum):
@@ -43,31 +55,86 @@ async def compute(array, limits):
         _scalars.move_to_end(key)
     graph, _ = cull(graph, list(requested))
     references = Counter(dep for node in graph.values() for dep in node.dependencies)
-    priorities = order(graph)
-    cache, sizes = {}, {}
-    retained = 0
-    # Fusion stays disabled: source tasks must finish their await before NumPy runs.
-    for key in sorted(graph, key=priorities.get):
-        result = graph[key](cache)
-        result = await result if inspect.isawaitable(result) else result
+    priorities = sorted(graph, key=order(graph).get)
+    cache, sizes, pending = {}, {}, {}
+    retained = reserved = 0
+
+    def store(key, result):
+        nonlocal retained
         size = sizeof(result)
-        if retained + size > limits["computeBytes"]:
+        if retained + reserved + size > limits["computeBytes"]:
             raise MemoryError("Computation buffers exceed the memory limit")
         cache[key], sizes[key] = result, size
-        if isinstance(result, (np.ndarray, np.generic)) and result.ndim == 0 and result.dtype.kind in "biufc" and result.nbytes <= 1024:
-            scalar = np.array(result, copy=True); scalar.flags.writeable = False
+        retained += size
+        if (isinstance(key, tuple) and str(key[0]).startswith(_SCALAR_PREFIX)
+                and isinstance(result, (np.ndarray, np.generic)) and result.ndim == 0
+                and result.dtype.kind in "biufc" and result.nbytes <= 1024):
+            scalar = np.array(result, copy=True)
+            scalar.flags.writeable = False
             _scalars[key] = scalar
             _scalars.move_to_end(key)
             while len(_scalars) > 64: _scalars.popitem(last=False)
-        retained += size
+
+    def release_dependencies(key):
+        nonlocal retained
         for dependency in graph[key].dependencies:
             references[dependency] -= 1
             if not references[dependency] and dependency not in requested:
                 retained -= sizes.pop(dependency)
                 del cache[dependency]
 
-    def collect(key):
-        return [collect(item) for item in key] if isinstance(key, list) else cache[key]
+    # Source descriptors and resident chunks are synchronous DataNodes. Loading
+    # these first lets independent source reads overlap without running NumPy ahead.
+    for key in priorities:
+        if isinstance(graph[key], DataNode): store(key, graph[key](cache))
+    sources = [key for key in priorities if any(
+        isinstance(graph[dep], DataNode) and getattr(graph[dep].value, "_ncx_source", False)
+        for dep in graph[key].dependencies)]
+    next_source = 0
 
-    finalize, arguments = array.__dask_postcompute__()
-    return np.asarray(finalize(collect(keys), *arguments))
+    async def await_read(request):
+        return await request
+
+    def prefetch():
+        nonlocal next_source, reserved
+        while next_source < len(sources) and len(pending) < limits["concurrentReads"]:
+            key = sources[next_source]
+            request = graph[key](cache)
+            # Reserve both the read result and the transient conversion before I/O.
+            size = request.nbytes * 2
+            if retained + reserved + size > limits["computeBytes"]: break
+            reserved += size
+            pending[key] = (asyncio.create_task(await_read(request)), size)
+            next_source += 1
+
+    try:
+        # Fusion stays disabled: every source task must finish before NumPy uses it.
+        for key in priorities:
+            if isinstance(graph[key], DataNode): continue
+            prefetch()
+            if key in pending:
+                task, reservation = pending.pop(key)
+                result = await task
+                reserved -= reservation
+            else:
+                result = graph[key](cache)
+                if next_source < len(sources) and sources[next_source] == key: next_source += 1
+                if inspect.isawaitable(result):
+                    size = getattr(result, "nbytes", limits["blockBytes"]) * 2
+                    if retained + reserved + size > limits["computeBytes"]:
+                        raise MemoryError("Source reads exceed the computation memory limit")
+                    result = await result
+            store(key, result)
+            release_dependencies(key)
+            # Cancellation messages must be serviced between NumPy tasks as well as reads.
+            await asyncio.sleep(0)
+
+        def collect(key):
+            return [collect(item) for item in key] if isinstance(key, list) else cache[key]
+
+        finalize, arguments = array.__dask_postcompute__()
+        return np.asarray(finalize(collect(keys), *arguments))
+    finally:
+        tasks = [task for task, _ in pending.values()]
+        for task in tasks: task.cancel()
+        if tasks: await asyncio.gather(*tasks, return_exceptions=True)

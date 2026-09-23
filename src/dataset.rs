@@ -234,7 +234,7 @@ impl Dataset {
             .iter()
             .find(|variable| variable.path == path)
             .ok_or_else(|| DataError::new(404, "variable_not_found", "unknown variable path"))?;
-        let selection = ReadSelection::parse(summary, selection, stride)?;
+        let mut selection = ReadSelection::parse(summary, selection, stride)?;
         let connectivity = self.connectivity_variables.contains(path);
         if connectivity && wire == Some(WireType::F64) {
             return Err(DataError::new(
@@ -244,6 +244,9 @@ impl Dataset {
             ));
         }
         let wire = wire.unwrap_or(WireType::F32);
+        if !connectivity {
+            selection.contiguous_count = selection.contiguous_plane(summary.source_element_bytes);
+        }
         let read_size = selection.check_response_size(
             max_response_bytes,
             summary.source_element_bytes,
@@ -765,6 +768,7 @@ struct ReadSelection {
     output_shape: Vec<usize>,
     ranged_dimensions: Vec<bool>,
     elements: usize,
+    contiguous_count: Option<Vec<usize>>,
 }
 
 impl ReadSelection {
@@ -856,7 +860,40 @@ impl ReadSelection {
             output_shape,
             ranged_dimensions,
             elements,
+            contiguous_count: None,
         })
+    }
+
+    // Dense spatial previews are cheaper to gather in memory than through HDF5
+    // point selection. Keep sparse probes and multi-frame reads on the direct path.
+    fn contiguous_plane(&self, element_bytes: usize) -> Option<Vec<usize>> {
+        let rank = self.count.len();
+        if rank < 2
+            || self.elements < 4096
+            || self.count[..rank - 2].iter().any(|&count| count != 1)
+            || self.count[rank - 2..].contains(&1)
+            || !self.ranged_dimensions[rank - 2..]
+                .iter()
+                .all(|&ranged| ranged)
+            || self.stride[rank - 2..].iter().all(|&stride| stride == 1)
+        {
+            return None;
+        }
+        let count = self
+            .count
+            .iter()
+            .zip(&self.stride)
+            .map(|(&count, &stride)| (count - 1).checked_mul(stride as usize)?.checked_add(1))
+            .collect::<Option<Vec<_>>>()?;
+        let elements = count
+            .iter()
+            .try_fold(1usize, |total, &count| total.checked_mul(count))?;
+        if elements > self.elements.checked_mul(16)?
+            || elements.checked_mul(element_bytes)? > 64 * 1024 * 1024
+        {
+            return None;
+        }
+        Some(count)
     }
 
     fn check_response_size(
@@ -865,8 +902,18 @@ impl ReadSelection {
         source_element_bytes: usize,
         wire_element_bytes: usize,
     ) -> Result<ReadSize, DataError> {
-        let source_bytes = self
-            .elements
+        let source_elements = self
+            .contiguous_count
+            .as_ref()
+            .map_or(Some(self.elements), |count| {
+                count
+                    .iter()
+                    .try_fold(1usize, |total, &count| total.checked_mul(count))
+            })
+            .ok_or_else(|| {
+                DataError::oversized("source element count overflows usize".to_owned(), None)
+            })?;
+        let source_bytes = source_elements
             .checked_mul(source_element_bytes)
             .ok_or_else(|| {
                 DataError::oversized("source buffer size overflows usize".to_owned(), None)
@@ -1114,14 +1161,33 @@ fn read_numeric<T>(
 where
     T: PackedNumber,
 {
+    let unit_stride = vec![1; selection.stride.len()];
     let extents = (
         selection.start.as_slice(),
-        selection.count.as_slice(),
-        selection.stride.as_slice(),
+        selection
+            .contiguous_count
+            .as_deref()
+            .unwrap_or(&selection.count),
+        if selection.contiguous_count.is_some() {
+            unit_stride.as_slice()
+        } else {
+            selection.stride.as_slice()
+        },
     );
-    let values = variable
+    let mut values = variable
         .get_values::<T, _>(extents)
         .map_err(|error| DataError::new(500, "netcdf_read_failed", error.to_string()))?;
+    if let Some(count) = &selection.contiguous_count {
+        let rank = count.len();
+        let columns = selection.count[rank - 1];
+        let row_step = selection.stride[rank - 2] as usize * count[rank - 1];
+        let column_step = selection.stride[rank - 1] as usize;
+        // Source offsets never precede output offsets, so gathering is in place.
+        for index in 0..selection.elements {
+            values[index] = values[index / columns * row_step + index % columns * column_step];
+        }
+        values.truncate(selection.elements);
+    }
     let missing = missing_values::<T>(variable)?;
     let scale = numeric_attribute(variable, "scale_factor")?.unwrap_or(1.0);
     let offset = numeric_attribute(variable, "add_offset")?.unwrap_or(0.0);
@@ -1557,12 +1623,81 @@ mod tests {
             output_shape: Vec::new(),
             ranged_dimensions: Vec::new(),
             elements: usize::MAX,
+            contiguous_count: None,
         };
 
         let error = selection.check_response_size(u64::MAX, 8, 8).unwrap_err();
         assert_eq!(error.status, 413);
         assert_eq!(error.code, "response_too_large");
         assert_eq!(error.suggested_stride, None);
+    }
+
+    #[test]
+    fn contiguous_preview_matches_direct_reads_and_reserves_the_source_slab() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("ncx-preview-{unique}.nc"));
+        {
+            let mut file = netcdf::create(&path).unwrap();
+            file.add_dimension("time", 2).unwrap();
+            file.add_dimension("y", 151).unwrap();
+            file.add_dimension("x", 203).unwrap();
+            let mut variable = file
+                .add_variable::<i16>("packed", &["time", "y", "x"])
+                .unwrap();
+            variable.put_attribute("_FillValue", -9999_i16).unwrap();
+            variable.put_attribute("missing_value", -9998_i16).unwrap();
+            variable.put_attribute("scale_factor", 0.25_f64).unwrap();
+            variable.put_attribute("add_offset", 10.0_f64).unwrap();
+            let mut values = (0..2 * 151 * 203)
+                .map(|i| (i % 500) as i16 - 250)
+                .collect::<Vec<_>>();
+            values[151 * 203 + 3 * 203 + 5] = -9999;
+            values[151 * 203 + 3 * 203 + 8] = -9998;
+            variable.put_values(&values, ..).unwrap();
+        }
+        let dataset = Dataset::open(&path).unwrap();
+        for wire in [WireType::F32, WireType::F64] {
+            let plan = dataset
+                .plan_read("/packed", "1,3:150,5:201", "1,2,3", Some(wire), 1 << 20)
+                .unwrap();
+            let count = plan.selection.contiguous_count.as_ref().unwrap();
+            assert_eq!(
+                plan.peak_bytes,
+                count.iter().product::<usize>() * 2 + plan.response_bytes
+            );
+            let gathered = dataset.read(plan).unwrap();
+            let mut direct = dataset
+                .plan_read("/packed", "1,3:150,5:201", "1,2,3", Some(wire), 1 << 20)
+                .unwrap();
+            direct.selection.contiguous_count = None;
+            let direct = dataset.read(direct).unwrap();
+            assert_eq!(gathered.shape, direct.shape);
+            assert_eq!(gathered.body, direct.body);
+        }
+        for (selection, stride) in [
+            ("1,:,:", "1,1,1"),
+            (":,:,:", "1,2,2"),
+            ("1,:,:", "1,100,100"),
+        ] {
+            let plan = dataset
+                .plan_read("/packed", selection, stride, None, 1 << 20)
+                .unwrap();
+            assert!(plan.selection.contiguous_count.is_none());
+        }
+        let mut summary = test_variable();
+        for dimension in &mut summary.dimensions {
+            dimension.length = 100_000;
+        }
+        let selection = ReadSelection::parse(&summary, ":,:", "2,2").unwrap();
+        assert!(selection.contiguous_plane(8).is_none());
+        summary.dimensions[0].length = 1;
+        let selection =
+            ReadSelection::parse(&summary, ":,:", &format!("{},2", isize::MAX)).unwrap();
+        assert!(selection.contiguous_plane(8).is_none());
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]

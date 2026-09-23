@@ -80,6 +80,7 @@ export function fieldRequest(
   viewport: { width: number; height: number },
   settled: boolean,
   region: ViewBounds = { minimumX: 0, maximumX: 1, minimumY: 0, maximumY: 1 },
+  resolution: "automatic" | "display" = "automatic",
 ): SliceRequest {
   const ranges = variable.dimensions.map((dimension, index) => {
     if (index !== display.x && index !== display.y) return undefined;
@@ -93,10 +94,12 @@ export function fieldRequest(
     (total, range) => total * (range ? range.stop - range.start : 1),
     1,
   );
+  const fitsDisplay = ranges.every((range, index) => !range ||
+    range.stop - range.start <= (index === display.x ? viewport.width : viewport.height));
   // ponytail: avoid allocating a multi-hundred-MB browser slice; add tiled
   // structured reads when datasets need full resolution beyond this ceiling.
   const requestFullResolution =
-    settled && fullResolutionSamples <= MAX_FULL_RESOLUTION_SAMPLES;
+    (resolution === "automatic" || fitsDisplay) && settled && fullResolutionSamples <= MAX_FULL_RESOLUTION_SAMPLES;
 
   const selection: DimensionSelection[] = variable.dimensions.map((dimension, index) => {
     const range = ranges[index];

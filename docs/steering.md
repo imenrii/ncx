@@ -11,7 +11,7 @@ One `Variable` type represents source, resident, and calculated data:
 ```python
 t = sources.s1["/CLK"]
 t += 1.45
-plots.curve.show(t)
+panels[0].show(t)
 ```
 
 Lookup and arithmetic do not load the values. They create an immutable
@@ -23,18 +23,18 @@ bindings retain their previous versions:
 original = t
 t += 1
 # original and the curve still refer to the version supplied to show().
-plots.curve.show(t)
+panels[0].show(t)
 ```
 
 Pointwise arithmetic keeps native coordinates. A scalar offset uses the
 variable's native units. Source-unit conversion is explicit through `to_unit`.
 Variables are immutable; use another expression instead of writing into their
-buffers. `Array` remains a constructor alias for `Variable`.
+buffers. `Variable` is the sole constructor name.
 
 ```python
 surface = sources.s1["/temperature"].isel({"/time": 0})
 anomaly = surface - np.nanmean(surface)
-plots.field.show(anomaly)
+panels[0].show(anomaly)
 ```
 
 The runtime applies a display selection through pointwise operations before
@@ -76,12 +76,11 @@ reference remains available when a cross-dataset extraction has no valid mapping
 c = Variable(np.array([1., 3., 2.]), dims=("x",),
              coords={"x": {"values": [0., 1., 2.], "unit": "s"}},
              unit="m", name="Example")
-plots.curve.show(c)
+panels[0].show(c)
 ```
 
 Constructing a resident variable copies its input. Later changes to the input
-array cannot change the variable. `with_values` provides compatibility for a
-same-shape replacement with explicit units and a name.
+array cannot change the variable. `with_values` creates a same-shape replacement with explicit units and a name.
 
 For explicit streaming algorithms:
 
@@ -102,7 +101,7 @@ selection. Chunking does not make every FFT, sort, or factorization fit in memor
 
 A panel binds one immutable Variable. Its Field and Curve views derive from that
 binding. Both pages use the same ordered collection, `panels` (`frame.panels`).
-Indices start at zero. `plots` refers to `panels[0]`.
+Indices start at zero; `panels[0]` is the main panel.
 
 ```python
 u = sources.s1["/u10"]
@@ -162,20 +161,23 @@ averaging components before `np.hypot` differs from probing a speed field.
 
 ```python
 panels is frame.panels                # True
-plots is panels[0]                    # True
 p = frame.append(speed)               # First append is panels[1]
 p.data                               # Bound immutable Variable
-p.curve.data                         # Probe series, or None
+p.probe.data                         # Probe series, or None
 p.show(speed.to_unit("kt"))           # Replace the one panel binding
 p.clear()                            # Hide this panel
 p.remove()                           # Remove this panel
-plots.reset()                        # Restore the viewer selection
+panels[0].reset()                        # Restore the viewer selection
 ```
 
-`p.field.show(data)` and `p.curve.show(data)` are compatibility forms of
-`p.show(data)`. They bind the same panel and do not change the selected page.
-`frame.append().field.show(data)` remains valid. Rebinding clears an old probe;
-showing the same immutable expression again preserves it.
+`panel.show(data)` is the sole binding operation. Rebinding clears an old probe;
+showing the same content again preserves it. The selected Field/Curve page
+chooses the renderer without changing the binding. `frame.append(data)` creates
+a new panel, or use `p = frame.append(); p.show(data)`.
+
+The pre-release aliases `Array`, `plots`, `panel1`, `Variable.probe`, and the
+`.field`/`.curve` display handles were removed. Use `Variable`, `panels[index]`,
+`panel.show(data)`, and `panel.probe.data`.
 
 The frame starts with one panel. Up to 16 panels are admitted. Removing a panel
 shifts later collection indices; a saved handle keeps its identity. Removed
@@ -253,47 +255,91 @@ Expansion does not compute a lazy variable. Errors show the message and user-cod
 line first, with internal frames under **Traceback**. **Edit command** restores
 the failing submission without running it.
 
-## Runtime and bounds
+## Workspace, identity, and bounds
 
-Identical expressions shown again or in another panel reuse their admitted
-binding and curve arrays. A bounded 32 MiB cache deduplicates evaluated display slices; a 16 MiB cache
-reuses probe curves by binding and selection. Shared bindings are counted once; publication checks existing
-and replacement data together with cached results against the workspace budget.
-Changing sources clears the cache. Stop discards worker state and pending work.
-New expressions serialize once per submission; already admitted expressions
-are referenced by identity when another panel uses them.
-Complete coordinate reads reuse the viewer cache with a copy for worker
-transfer. Partial coordinate requests remain partial. See the
-[paired panel performance record](Progress/steering-panel-performance.md) for measured
-latency, transfer sizes, and remaining costs.
+The browser owns committed panel state. Python has one `Workspace` with a
+revisioned snapshot, the user namespace, sources, published variables, and one
+map of pending panel commands. A configure message updates that snapshot only
+when its revision advances. Source metadata is sent at worker initialization.
+Completion reads the workspace; it does not configure, delete, or replace panels.
+Display snapshots are cached independently of editor and log notifications.
+
+Each panel snapshot contains one data reference and one native probe selection.
+Probe position and curve extraction derive from that selection. Fixed selectors
+are separate from spatial probe indices. Pending moves and copies change the
+same command record used for publication; there is no global “last probe”.
+
+Within a session, variables carry a SHA-256 numerical token built from the node, operand tokens,
+source generation and selection, and captured array bytes. The wire identity
+also includes dimensions, coordinates, units, unit kind, and name. Thus two
+independently typed `t + 1` expressions reuse an admitted binding, while changing
+a label or unit cannot silently reuse old display metadata. Identity describes
+the recorded expression, not algebraic equivalence. Opaque callbacks receive unique identities rather than being deduplicated across
+expression objects. Callbacks must be deterministic; materialize a bounded result
+first when they depend on mutable external state.
+
+Source and resident Dask arrays receive explicit names. The scalar cache accepts
+only explicit expression/selection keys, not arbitrary Dask-generated task keys.
+A cached full-domain reduction can be reused across bounded display selections.
+`compute()` returns detached arrays so later edits cannot corrupt those caches.
+
+A binding owns its reader and metadata. Curve extraction reads that binding
+directly, including area averages; it does not create temporary dataset entries.
+Only Field/Value renderer bindings enter the synthetic-dataset registry. The
+session owns their registration lifetime. Field geometry validation uses the
+same reader without changing the binding's budget fields.
+
+Publication checks one cost record: bindings, geometry, curve reservations, and
+caches. Existing and replacement bindings count together. Admission occurs before
+geometry reads and is checked again after asynchronous validation. A failed or
+stale batch cannot replace panels or leave temporary renderer registrations.
+A 32 MiB cache retains evaluated slices; a 16 MiB cache retains probe curves.
+Log size is measured only when entries change, rather than on every UI update.
+
+Independent source tasks overlap up to four reads. Each pending read reserves
+space for its result and transfer conversion before it starts. NumPy tasks run
+in dependency order, release consumed buffers, and yield between tasks. The
+worker still serializes evaluations and terminal commands: this preserves one
+workspace owner and one computation budget. NetCDF reads remain serialized per
+open dataset on the server. Read overlap does not make NetCDF itself parallel.
 
 The pinned runtime is packaged locally, including Dask's pure-Python wheels.
-`web/python/packages.json` records wheel names and SHA-256 hashes. The build
-checks these hashes and the Pyodide NumPy/YAML lock entries. No CDN is used at
-runtime, and ordinary viewing does not initialize Python.
+`web/python/packages.json` records wheel names and SHA-256 hashes. Builds check
+these hashes and the Pyodide NumPy/YAML lock entries. There is no runtime CDN,
+and ordinary viewing does not initialize Python. The Dask task adapter is tied
+to the pinned task format; its tests must pass when Dask is upgraded.
 
-`steering/evaluation.py` adapts the pinned Dask task format to awaited source
-reads. It executes tasks in dependency order, releases consumed intermediates,
-and retains a bounded cache of scalar results so panning does not repeat a
-completed full-domain reduction. Graph fusion is disabled because a source task
-must finish its asynchronous read before NumPy consumes its result. Check this
-adapter when upgrading Dask.
+Accepted expressions retain a cloudpickle payload for worker restart. These
+bytes are executable: only the current session's worker can create them. Host
+source messages, files, metadata, URLs, and imported data cannot supply a payload
+for `restore()`. This is a closed internal transport, not a general pickle import
+API. A resident array can exist both in the Python heap and in its retained
+serialized payload; serialization is not zero-copy. Browser publication accounts
+for retained payloads, coordinates, geometry, curve storage, and caches. Arbitrary
+Python objects and temporary NumPy allocations remain outside a hard heap cap.
 
-Executable limits live in `steering/model.ts`: 32 MiB per materialized result,
-4 MiB source blocks, 128 MiB of accounted computation buffers, 100,000 task nodes,
-64 MiB of published expression/data admission, bounded console output and history,
-and a two-minute execution/startup timeout. Publication counts old content while
-preparing its replacement. A rejected replacement keeps the old plot.
+Limits are defined once in `steering/model.ts`: 32 MiB per materialized result,
+4 MiB source blocks, four concurrent reads, 128 MiB of accounted computation
+buffers, 100,000 Dask tasks, expression depth 64 and a conservative 10,000-node
+estimate, 64 MiB of publication storage, bounded console output/history, and a
+two-minute startup/execution limit. Expression complexity is checked before a
+new Dask metadata operation, so long arithmetic chains fail admission rather
+than overflow the interpreter stack.
 
-These limits cover ncx-owned buffers and work. Arbitrary NumPy temporaries and
-user Python objects have no hard heap cap. A worker separates execution from the
-UI thread but is not an origin or authority sandbox. Stable input files are
-required; growing files and external writers are not supported.
+Evaluation cancellation aborts source reads and cancels the Python task while
+keeping the workspace. A two-minute timeout requests the same cancellation.
+If the worker cannot acknowledge it within 1.5 seconds—for example while blocked
+inside synchronous NumPy—the worker is terminated as a hard fallback. Stop is
+always a hard interrupt. Accepted browser-side expressions survive a restart.
 
-An embedding host must allow `worker-src 'self'` and
+A worker separates execution from the UI thread; it is not an origin or authority
+sandbox. Input files must remain stable. Growing files and external writers are
+not supported. An embedding host must allow `worker-src 'self'` and
 `script-src 'self' 'wasm-unsafe-eval'` on viewer responses. General JavaScript
-`unsafe-eval` is unnecessary. cuSURGE currently needs that viewer-only CSP change;
-its console policy and calculation ownership stay separate.
+`unsafe-eval` is unnecessary.
+
+See the [refactor measurements](Progress/steering-refactor-performance.md) for
+before/after timings, request counts, and limits of the measurements.
 
 ## Checks
 
@@ -308,5 +354,5 @@ NCX_STEERING_MODE=hub node tests/steering-smoke.mjs /tmp/ncx-steering-hub
 
 The runtime test covers immutable arithmetic, query selection, global reductions,
 serialization, safe completion and inspection, and concise errors. Firefox tests
-exercise the actual editor, rich output, lazy plots, stale publication, and worker
-restart. See [checks.md](checks.md) for the wider viewer gates.
+exercise actual panel rendering, probes, shared time, overlays, and export. Direct
+session tests cover batch rejection, budgets, staleness, snapshots, and cancellation. See [checks.md](checks.md) for the wider viewer gates.

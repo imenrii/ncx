@@ -14,7 +14,7 @@ import type { DisplayTimeZone } from "../data/time";
 import type { OverlayToggles } from "../plots/OverlayLegend";
 import type { SteeringSession } from "./session";
 import type { Binding, PanelState, PlotKind } from "./model";
-import { curveAlong, hasField, timeCoordinate } from "./panelData";
+import { curveAlong, hasField, hasFieldView, timeCoordinate } from "./panelData";
 
 export interface PanelViewSettings {
   page: PlotKind;
@@ -80,8 +80,8 @@ export function PanelView({ panel, session, settings, primary = false, onRange, 
     return () => controller.abort();
   }, [binding, settings.page, curveKey, session]);
 
-  if (!binding) return panel.intent.kind === "data" && panel.intent.error ? <p role="status">{panel.intent.error}</p> : null;
-  if (settings.page === "field" && !spatial) return null;
+  if (!binding) return panel.intent.kind === "error" ? <p role="status">{panel.intent.message}</p> : null;
+  if (settings.page === "field" && !hasFieldView(binding)) return null;
   if (settings.page === "curve" && (!binding.variable.dimensions.length || spatial && !panel.probe)) return null;
   const error = settings.page === "field" ? field?.key === frameKey && field.error : curve?.key === curveKey && curve.error;
   // Keep the renderer and its last slice while this binding resolves the next time.

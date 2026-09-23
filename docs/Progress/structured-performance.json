@@ -1,0 +1,2484 @@
+{
+  "date": "2026-09-22",
+  "fixture": "cuSURGE/cuSURGE/lib/data/LFZ_RUPGEN/output/TY0000_forecast.nc",
+  "shape": [
+    301,
+    1626,
+    2036
+  ],
+  "browser": "Firefox 151.0.4",
+  "node": "24.18.0",
+  "viewport": [
+    1400,
+    1000
+  ],
+  "device_pixel_ratio": 1,
+  "runs_per_renderer": 3,
+  "method": "Warm local reads; release binaries; Canvas forced in headless Firefox, WebGL under Xvfb. Final data-rendered timestamp after worker completion and stable animation frames. WebGL measures are CPU submission timings.",
+  "binary_sha256": {
+    "before": "a58cc2e4fe79ea117bc31f877d9f7938b84666ecf88dd7c3fcc1b3fd8bad65a7",
+    "after": "74644952024b035f3a136b1d0494b028da7e07aa5a455964afb463fa0d6bc1e8"
+  },
+  "renderers": {
+    "canvas": {
+      "before": {
+        "median": {
+          "initial_ms": 18555,
+          "frame_ms": 25519,
+          "frame_reads": 3,
+          "frame_geometry_attempts": 4,
+          "frame_raster_map_builds": 0,
+          "io": {
+            "stride_1_ms": 27.786,
+            "stride_2_ms": 140.121,
+            "stride_3_ms": 67.516,
+            "stride_4_ms": 36.854
+          }
+        },
+        "runs": [
+          {
+            "renderer": "canvas",
+            "shape": [
+              301,
+              1626,
+              2036
+            ],
+            "io": {
+              "stride_1_ms": 30.636,
+              "stride_2_ms": 140.121,
+              "stride_3_ms": 62.035,
+              "stride_4_ms": 36.854
+            },
+            "initial": {
+              "measures": [
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 15,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 20,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 14,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 97,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 119,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 205,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 105,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 76,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 2500,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 7474,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 7618,
+                  "detail": null
+                }
+              ],
+              "reads": [
+                "http://127.0.0.1:39517/api/data?path=%2Fzeta&selection=0%2C0%3A1626%2C0%3A2036&stride=1%2C1626%2C2036&dataset=dataset",
+                "http://127.0.0.1:39517/api/data?path=%2Ftime&selection=0%3A301&stride=1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:39517/api/data?path=%2Fzeta&selection=0%2C0%3A1626%2C0%3A2036&stride=1%2C3%2C3&dataset=dataset",
+                "http://127.0.0.1:39517/api/data?path=%2Flon&selection=0%3A1626%2C0%3A2036&stride=1%2C1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:39517/api/data?path=%2Flat&selection=0%3A1626%2C0%3A2036&stride=1%2C1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:39517/api/data?path=%2Fzeta&selection=0%2C0%3A1626%2C0%3A2036&stride=1%2C1%2C1&dataset=dataset"
+              ],
+              "frames": [
+                10653,
+                18279
+              ],
+              "contexts": [
+                {
+                  "type": "webgl2",
+                  "ok": false
+                },
+                {
+                  "type": "2d",
+                  "ok": true
+                }
+              ],
+              "errors": [],
+              "active": 0,
+              "ready_ms": 18279
+            },
+            "frame": {
+              "measures": [
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 107,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 6961,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 79,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 6763,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 67,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 70,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 7908,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 7800,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 2507,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 8000,
+                  "detail": null
+                }
+              ],
+              "reads": [
+                "http://127.0.0.1:39517/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C1%2C1&dataset=dataset",
+                "http://127.0.0.1:39517/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C3%2C3&dataset=dataset",
+                "http://127.0.0.1:39517/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C1%2C1&dataset=dataset"
+              ],
+              "frames": [
+                26086,
+                34061,
+                44589
+              ],
+              "contexts": [
+                {
+                  "type": "webgl2",
+                  "ok": false
+                },
+                {
+                  "type": "2d",
+                  "ok": true
+                }
+              ],
+              "errors": [],
+              "active": 0,
+              "ready_ms": 25485,
+              "started_ms": 19104
+            }
+          },
+          {
+            "renderer": "canvas",
+            "shape": [
+              301,
+              1626,
+              2036
+            ],
+            "io": {
+              "stride_1_ms": 27.786,
+              "stride_2_ms": 138.708,
+              "stride_3_ms": 67.516,
+              "stride_4_ms": 36.511
+            },
+            "initial": {
+              "measures": [
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 16,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 22,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 17,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 93,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 159,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 206,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 108,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 87,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 2657,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 7543,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 7671,
+                  "detail": null
+                }
+              ],
+              "reads": [
+                "http://127.0.0.1:37302/api/data?path=%2Fzeta&selection=0%2C0%3A1626%2C0%3A2036&stride=1%2C1626%2C2036&dataset=dataset",
+                "http://127.0.0.1:37302/api/data?path=%2Ftime&selection=0%3A301&stride=1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:37302/api/data?path=%2Fzeta&selection=0%2C0%3A1626%2C0%3A2036&stride=1%2C3%2C3&dataset=dataset",
+                "http://127.0.0.1:37302/api/data?path=%2Flon&selection=0%3A1626%2C0%3A2036&stride=1%2C1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:37302/api/data?path=%2Flat&selection=0%3A1626%2C0%3A2036&stride=1%2C1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:37302/api/data?path=%2Fzeta&selection=0%2C0%3A1626%2C0%3A2036&stride=1%2C1%2C1&dataset=dataset"
+              ],
+              "frames": [
+                10876,
+                18555
+              ],
+              "contexts": [
+                {
+                  "type": "webgl2",
+                  "ok": false
+                },
+                {
+                  "type": "2d",
+                  "ok": true
+                }
+              ],
+              "errors": [],
+              "active": 0,
+              "ready_ms": 18555
+            },
+            "frame": {
+              "measures": [
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 121,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 7072,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 95,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 6851,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 102,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 74,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 8408,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 8292,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 2483,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 8158,
+                  "detail": null
+                }
+              ],
+              "reads": [
+                "http://127.0.0.1:37302/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C1%2C1&dataset=dataset",
+                "http://127.0.0.1:37302/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C3%2C3&dataset=dataset",
+                "http://127.0.0.1:37302/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C1%2C1&dataset=dataset"
+              ],
+              "frames": [
+                26487,
+                34997,
+                45658
+              ],
+              "contexts": [
+                {
+                  "type": "webgl2",
+                  "ok": false
+                },
+                {
+                  "type": "2d",
+                  "ok": true
+                }
+              ],
+              "errors": [],
+              "active": 0,
+              "ready_ms": 26269,
+              "started_ms": 19389
+            }
+          },
+          {
+            "renderer": "canvas",
+            "shape": [
+              301,
+              1626,
+              2036
+            ],
+            "io": {
+              "stride_1_ms": 25.946,
+              "stride_2_ms": 142.18,
+              "stride_3_ms": 74.246,
+              "stride_4_ms": 37.412
+            },
+            "initial": {
+              "measures": [
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 16,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 31,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 23,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 108,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 132,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 1,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 110,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 1,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 270,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 34,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 2639,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 7614,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 7824,
+                  "detail": null
+                }
+              ],
+              "reads": [
+                "http://127.0.0.1:38244/api/data?path=%2Fzeta&selection=0%2C0%3A1626%2C0%3A2036&stride=1%2C1626%2C2036&dataset=dataset",
+                "http://127.0.0.1:38244/api/data?path=%2Ftime&selection=0%3A301&stride=1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:38244/api/data?path=%2Fzeta&selection=0%2C0%3A1626%2C0%3A2036&stride=1%2C3%2C3&dataset=dataset",
+                "http://127.0.0.1:38244/api/data?path=%2Flon&selection=0%3A1626%2C0%3A2036&stride=1%2C1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:38244/api/data?path=%2Flat&selection=0%3A1626%2C0%3A2036&stride=1%2C1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:38244/api/data?path=%2Fzeta&selection=0%2C0%3A1626%2C0%3A2036&stride=1%2C1%2C1&dataset=dataset"
+              ],
+              "frames": [
+                11001,
+                18832
+              ],
+              "contexts": [
+                {
+                  "type": "webgl2",
+                  "ok": false
+                },
+                {
+                  "type": "2d",
+                  "ok": true
+                }
+              ],
+              "errors": [],
+              "active": 0,
+              "ready_ms": 18832
+            },
+            "frame": {
+              "measures": [
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 98,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 6837,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 93,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 6634,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 78,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 77,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 8082,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 7966,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 2525,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 7956,
+                  "detail": null
+                }
+              ],
+              "reads": [
+                "http://127.0.0.1:38244/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C1%2C1&dataset=dataset",
+                "http://127.0.0.1:38244/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C3%2C3&dataset=dataset",
+                "http://127.0.0.1:38244/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C1%2C1&dataset=dataset"
+              ],
+              "frames": [
+                26508,
+                34668,
+                45170
+              ],
+              "contexts": [
+                {
+                  "type": "webgl2",
+                  "ok": false
+                },
+                {
+                  "type": "2d",
+                  "ok": true
+                }
+              ],
+              "errors": [],
+              "active": 0,
+              "ready_ms": 25519,
+              "started_ms": 19651
+            }
+          }
+        ]
+      },
+      "after": {
+        "median": {
+          "initial_ms": 1072,
+          "frame_ms": 103,
+          "frame_reads": 1,
+          "frame_geometry_attempts": 0,
+          "frame_raster_map_builds": 0,
+          "io": {
+            "stride_1_ms": 23.783,
+            "stride_2_ms": 12.987,
+            "stride_3_ms": 8.138,
+            "stride_4_ms": 6.683
+          }
+        },
+        "runs": [
+          {
+            "renderer": "canvas",
+            "shape": [
+              301,
+              1626,
+              2036
+            ],
+            "io": {
+              "stride_1_ms": 24.424,
+              "stride_2_ms": 15.975,
+              "stride_3_ms": 9.283,
+              "stride_4_ms": 6.058
+            },
+            "initial": {
+              "measures": [
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 16,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 16,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 27,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 176,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 203,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 389,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.raster-map",
+                  "ms": 34,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 87,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.raster-paint",
+                  "ms": 53,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.raster-map",
+                  "ms": 28,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 71,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.raster-paint",
+                  "ms": 43,
+                  "detail": null
+                }
+              ],
+              "reads": [
+                "http://127.0.0.1:43502/api/data?path=%2Fzeta&selection=0%2C0%3A1626%2C0%3A2036&stride=1%2C3%2C3&dataset=dataset",
+                "http://127.0.0.1:43502/api/data?path=%2Ftime&selection=0%3A301&stride=1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:43502/api/data?path=%2Flon&selection=0%3A1626%2C0%3A2036&stride=1%2C1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:43502/api/data?path=%2Flat&selection=0%3A1626%2C0%3A2036&stride=1%2C1&dataset=dataset&wire=f64"
+              ],
+              "frames": [
+                994,
+                1070
+              ],
+              "contexts": [
+                {
+                  "type": "webgl2",
+                  "ok": false
+                },
+                {
+                  "type": "2d",
+                  "ok": true
+                }
+              ],
+              "errors": [],
+              "active": 0,
+              "ready_ms": 1070
+            },
+            "frame": {
+              "measures": [
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 39,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.raster-paint",
+                  "ms": 51,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 51,
+                  "detail": null
+                }
+              ],
+              "reads": [
+                "http://127.0.0.1:43502/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C3%2C3&dataset=dataset"
+              ],
+              "frames": [
+                2013
+              ],
+              "contexts": [
+                {
+                  "type": "webgl2",
+                  "ok": false
+                },
+                {
+                  "type": "2d",
+                  "ok": true
+                }
+              ],
+              "errors": [],
+              "active": 0,
+              "ready_ms": 114,
+              "started_ms": 1899
+            }
+          },
+          {
+            "renderer": "canvas",
+            "shape": [
+              301,
+              1626,
+              2036
+            ],
+            "io": {
+              "stride_1_ms": 20.146,
+              "stride_2_ms": 12.987,
+              "stride_3_ms": 8.138,
+              "stride_4_ms": 6.968
+            },
+            "initial": {
+              "measures": [
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 14,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 77,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 1,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 89,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 179,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 197,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 383,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.raster-map",
+                  "ms": 37,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 91,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.raster-paint",
+                  "ms": 54,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 70,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.raster-map",
+                  "ms": 29,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.raster-paint",
+                  "ms": 40,
+                  "detail": null
+                }
+              ],
+              "reads": [
+                "http://127.0.0.1:38521/api/data?path=%2Fzeta&selection=0%2C0%3A1626%2C0%3A2036&stride=1%2C3%2C3&dataset=dataset",
+                "http://127.0.0.1:38521/api/data?path=%2Ftime&selection=0%3A301&stride=1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:38521/api/data?path=%2Flon&selection=0%3A1626%2C0%3A2036&stride=1%2C1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:38521/api/data?path=%2Flat&selection=0%3A1626%2C0%3A2036&stride=1%2C1&dataset=dataset&wire=f64"
+              ],
+              "frames": [
+                997,
+                1072
+              ],
+              "contexts": [
+                {
+                  "type": "webgl2",
+                  "ok": false
+                },
+                {
+                  "type": "2d",
+                  "ok": true
+                }
+              ],
+              "errors": [],
+              "active": 0,
+              "ready_ms": 1072
+            },
+            "frame": {
+              "measures": [
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 25,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.raster-paint",
+                  "ms": 55,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 55,
+                  "detail": null
+                }
+              ],
+              "reads": [
+                "http://127.0.0.1:38521/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C3%2C3&dataset=dataset"
+              ],
+              "frames": [
+                2002
+              ],
+              "contexts": [
+                {
+                  "type": "webgl2",
+                  "ok": false
+                },
+                {
+                  "type": "2d",
+                  "ok": true
+                }
+              ],
+              "errors": [],
+              "active": 0,
+              "ready_ms": 103,
+              "started_ms": 1899
+            }
+          },
+          {
+            "renderer": "canvas",
+            "shape": [
+              301,
+              1626,
+              2036
+            ],
+            "io": {
+              "stride_1_ms": 23.783,
+              "stride_2_ms": 12.412,
+              "stride_3_ms": 8.045,
+              "stride_4_ms": 6.683
+            },
+            "initial": {
+              "measures": [
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 15,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 51,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 51,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 163,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 205,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 384,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.raster-map",
+                  "ms": 34,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 88,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.raster-paint",
+                  "ms": 54,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.raster-map",
+                  "ms": 29,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 74,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.raster-paint",
+                  "ms": 45,
+                  "detail": null
+                }
+              ],
+              "reads": [
+                "http://127.0.0.1:38695/api/data?path=%2Fzeta&selection=0%2C0%3A1626%2C0%3A2036&stride=1%2C3%2C3&dataset=dataset",
+                "http://127.0.0.1:38695/api/data?path=%2Ftime&selection=0%3A301&stride=1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:38695/api/data?path=%2Flon&selection=0%3A1626%2C0%3A2036&stride=1%2C1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:38695/api/data?path=%2Flat&selection=0%3A1626%2C0%3A2036&stride=1%2C1&dataset=dataset&wire=f64"
+              ],
+              "frames": [
+                1002,
+                1081
+              ],
+              "contexts": [
+                {
+                  "type": "webgl2",
+                  "ok": false
+                },
+                {
+                  "type": "2d",
+                  "ok": true
+                }
+              ],
+              "errors": [],
+              "active": 0,
+              "ready_ms": 1081
+            },
+            "frame": {
+              "measures": [
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 24,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.raster-paint",
+                  "ms": 49,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 49,
+                  "detail": null
+                }
+              ],
+              "reads": [
+                "http://127.0.0.1:38695/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C3%2C3&dataset=dataset"
+              ],
+              "frames": [
+                1994
+              ],
+              "contexts": [
+                {
+                  "type": "webgl2",
+                  "ok": false
+                },
+                {
+                  "type": "2d",
+                  "ok": true
+                }
+              ],
+              "errors": [],
+              "active": 0,
+              "ready_ms": 93,
+              "started_ms": 1901
+            },
+            "zoom": {
+              "reads": [
+                "http://127.0.0.1:38695/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C3%2C2&dataset=dataset",
+                "http://127.0.0.1:38695/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C2%2C2&dataset=dataset",
+                "http://127.0.0.1:38695/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C1%2C1&dataset=dataset"
+              ]
+            },
+            "export": {
+              "ms": 3651,
+              "width": 2882,
+              "height": 2064,
+              "reads": [
+                "http://127.0.0.1:38695/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C1%2C1&dataset=dataset"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "webgl": {
+      "before": {
+        "median": {
+          "initial_ms": 3542,
+          "frame_ms": 3623,
+          "frame_reads": 3,
+          "frame_geometry_attempts": 4,
+          "frame_raster_map_builds": 0,
+          "io": {
+            "stride_1_ms": 27.12,
+            "stride_2_ms": 139.215,
+            "stride_3_ms": 65.239,
+            "stride_4_ms": 36.173
+          }
+        },
+        "runs": [
+          {
+            "renderer": "webgl",
+            "shape": [
+              301,
+              1626,
+              2036
+            ],
+            "io": {
+              "stride_1_ms": 30.084,
+              "stride_2_ms": 139.215,
+              "stride_3_ms": 65.93,
+              "stride_4_ms": 36.899
+            },
+            "initial": {
+              "measures": [
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 96,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 28,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 16,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 91,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 153,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 106,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 270,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 2553,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.scalar-upload",
+                  "ms": 147,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 0,
+                  "detail": null
+                }
+              ],
+              "reads": [
+                "http://127.0.0.1:42100/api/data?path=%2Fzeta&selection=0%2C0%3A1626%2C0%3A2036&stride=1%2C1626%2C2036&dataset=dataset",
+                "http://127.0.0.1:42100/api/data?path=%2Ftime&selection=0%3A301&stride=1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:42100/api/data?path=%2Fzeta&selection=0%2C0%3A1626%2C0%3A2036&stride=1%2C3%2C3&dataset=dataset",
+                "http://127.0.0.1:42100/api/data?path=%2Flon&selection=0%3A1626%2C0%3A2036&stride=1%2C1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:42100/api/data?path=%2Flat&selection=0%3A1626%2C0%3A2036&stride=1%2C1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:42100/api/data?path=%2Fzeta&selection=0%2C0%3A1626%2C0%3A2036&stride=1%2C1%2C1&dataset=dataset"
+              ],
+              "frames": [
+                3537,
+                3542
+              ],
+              "contexts": [
+                {
+                  "type": "webgl2",
+                  "ok": true
+                }
+              ],
+              "errors": [],
+              "active": 0,
+              "ready_ms": 3542
+            },
+            "frame": {
+              "measures": [
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 88,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 336,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 82,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.scalar-upload",
+                  "ms": 154,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 40,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 97,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 316,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.scalar-upload",
+                  "ms": 179,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 2542,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.scalar-upload",
+                  "ms": 238,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 0,
+                  "detail": null
+                }
+              ],
+              "reads": [
+                "http://127.0.0.1:42100/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C1%2C1&dataset=dataset",
+                "http://127.0.0.1:42100/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C3%2C3&dataset=dataset",
+                "http://127.0.0.1:42100/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C1%2C1&dataset=dataset"
+              ],
+              "frames": [
+                6301,
+                6657,
+                9569
+              ],
+              "contexts": [
+                {
+                  "type": "webgl2",
+                  "ok": true
+                }
+              ],
+              "errors": [],
+              "active": 0,
+              "ready_ms": 3623,
+              "started_ms": 5946
+            }
+          },
+          {
+            "renderer": "webgl",
+            "shape": [
+              301,
+              1626,
+              2036
+            ],
+            "io": {
+              "stride_1_ms": 27.12,
+              "stride_2_ms": 135.175,
+              "stride_3_ms": 64.617,
+              "stride_4_ms": 35.474
+            },
+            "initial": {
+              "measures": [
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 68,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 26,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 14,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 91,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 169,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 219,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 1,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 120,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 76,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 2502,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.scalar-upload",
+                  "ms": 173,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 0,
+                  "detail": null
+                }
+              ],
+              "reads": [
+                "http://127.0.0.1:33720/api/data?path=%2Fzeta&selection=0%2C0%3A1626%2C0%3A2036&stride=1%2C1626%2C2036&dataset=dataset",
+                "http://127.0.0.1:33720/api/data?path=%2Ftime&selection=0%3A301&stride=1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:33720/api/data?path=%2Fzeta&selection=0%2C0%3A1626%2C0%3A2036&stride=1%2C3%2C3&dataset=dataset",
+                "http://127.0.0.1:33720/api/data?path=%2Flon&selection=0%3A1626%2C0%3A2036&stride=1%2C1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:33720/api/data?path=%2Flat&selection=0%3A1626%2C0%3A2036&stride=1%2C1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:33720/api/data?path=%2Fzeta&selection=0%2C0%3A1626%2C0%3A2036&stride=1%2C1%2C1&dataset=dataset"
+              ],
+              "frames": [
+                3516,
+                3522
+              ],
+              "contexts": [
+                {
+                  "type": "webgl2",
+                  "ok": true
+                }
+              ],
+              "errors": [],
+              "active": 0,
+              "ready_ms": 3522
+            },
+            "frame": {
+              "measures": [
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 91,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 330,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 71,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.scalar-upload",
+                  "ms": 157,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 38,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 70,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 1,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 277,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.scalar-upload",
+                  "ms": 165,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 2539,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.scalar-upload",
+                  "ms": 238,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 0,
+                  "detail": null
+                }
+              ],
+              "reads": [
+                "http://127.0.0.1:33720/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C1%2C1&dataset=dataset",
+                "http://127.0.0.1:33720/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C3%2C3&dataset=dataset",
+                "http://127.0.0.1:33720/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C1%2C1&dataset=dataset"
+              ],
+              "frames": [
+                6179,
+                6494,
+                9402
+              ],
+              "contexts": [
+                {
+                  "type": "webgl2",
+                  "ok": true
+                }
+              ],
+              "errors": [],
+              "active": 0,
+              "ready_ms": 3572,
+              "started_ms": 5830
+            }
+          },
+          {
+            "renderer": "webgl",
+            "shape": [
+              301,
+              1626,
+              2036
+            ],
+            "io": {
+              "stride_1_ms": 25.037,
+              "stride_2_ms": 139.976,
+              "stride_3_ms": 65.239,
+              "stride_4_ms": 36.173
+            },
+            "initial": {
+              "measures": [
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 94,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 23,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 17,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 88,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 163,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 99,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 276,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 2568,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.scalar-upload",
+                  "ms": 142,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 0,
+                  "detail": null
+                }
+              ],
+              "reads": [
+                "http://127.0.0.1:40045/api/data?path=%2Fzeta&selection=0%2C0%3A1626%2C0%3A2036&stride=1%2C1626%2C2036&dataset=dataset",
+                "http://127.0.0.1:40045/api/data?path=%2Ftime&selection=0%3A301&stride=1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:40045/api/data?path=%2Fzeta&selection=0%2C0%3A1626%2C0%3A2036&stride=1%2C3%2C3&dataset=dataset",
+                "http://127.0.0.1:40045/api/data?path=%2Flon&selection=0%3A1626%2C0%3A2036&stride=1%2C1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:40045/api/data?path=%2Flat&selection=0%3A1626%2C0%3A2036&stride=1%2C1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:40045/api/data?path=%2Fzeta&selection=0%2C0%3A1626%2C0%3A2036&stride=1%2C1%2C1&dataset=dataset"
+              ],
+              "frames": [
+                3594,
+                3601
+              ],
+              "contexts": [
+                {
+                  "type": "webgl2",
+                  "ok": true
+                }
+              ],
+              "errors": [],
+              "active": 0,
+              "ready_ms": 3601
+            },
+            "frame": {
+              "measures": [
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 121,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 369,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 81,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.scalar-upload",
+                  "ms": 155,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 38,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 69,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 1,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 291,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.scalar-upload",
+                  "ms": 179,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 2624,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.scalar-upload",
+                  "ms": 233,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 0,
+                  "detail": null
+                }
+              ],
+              "reads": [
+                "http://127.0.0.1:40045/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C1%2C1&dataset=dataset",
+                "http://127.0.0.1:40045/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C3%2C3&dataset=dataset",
+                "http://127.0.0.1:40045/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C1%2C1&dataset=dataset"
+              ],
+              "frames": [
+                6422,
+                6751,
+                9727
+              ],
+              "contexts": [
+                {
+                  "type": "webgl2",
+                  "ok": true
+                }
+              ],
+              "errors": [],
+              "active": 0,
+              "ready_ms": 3693,
+              "started_ms": 6034
+            }
+          }
+        ]
+      },
+      "after": {
+        "median": {
+          "initial_ms": 986,
+          "frame_ms": 48,
+          "frame_reads": 1,
+          "frame_geometry_attempts": 0,
+          "frame_raster_map_builds": 0,
+          "io": {
+            "stride_1_ms": 22.029,
+            "stride_2_ms": 11.314,
+            "stride_3_ms": 7.79,
+            "stride_4_ms": 6.741
+          }
+        },
+        "runs": [
+          {
+            "renderer": "webgl",
+            "shape": [
+              301,
+              1626,
+              2036
+            ],
+            "io": {
+              "stride_1_ms": 22.029,
+              "stride_2_ms": 11.712,
+              "stride_3_ms": 7.657,
+              "stride_4_ms": 6.741
+            },
+            "initial": {
+              "measures": [
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 102,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 34,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 51,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 127,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 197,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 1,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 371,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.scalar-upload",
+                  "ms": 1,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 0,
+                  "detail": null
+                }
+              ],
+              "reads": [
+                "http://127.0.0.1:41121/api/data?path=%2Fzeta&selection=0%2C0%3A1626%2C0%3A2036&stride=1%2C3%2C3&dataset=dataset",
+                "http://127.0.0.1:41121/api/data?path=%2Ftime&selection=0%3A301&stride=1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:41121/api/data?path=%2Flon&selection=0%3A1626%2C0%3A2036&stride=1%2C1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:41121/api/data?path=%2Flat&selection=0%3A1626%2C0%3A2036&stride=1%2C1&dataset=dataset&wire=f64"
+              ],
+              "frames": [
+                981,
+                986
+              ],
+              "contexts": [
+                {
+                  "type": "webgl2",
+                  "ok": true
+                }
+              ],
+              "errors": [],
+              "active": 0,
+              "ready_ms": 986
+            },
+            "frame": {
+              "measures": [
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 24,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.scalar-upload",
+                  "ms": 1,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 0,
+                  "detail": null
+                }
+              ],
+              "reads": [
+                "http://127.0.0.1:41121/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C3%2C3&dataset=dataset"
+              ],
+              "frames": [
+                1954
+              ],
+              "contexts": [
+                {
+                  "type": "webgl2",
+                  "ok": true
+                }
+              ],
+              "errors": [],
+              "active": 0,
+              "ready_ms": 46,
+              "started_ms": 1908
+            }
+          },
+          {
+            "renderer": "webgl",
+            "shape": [
+              301,
+              1626,
+              2036
+            ],
+            "io": {
+              "stride_1_ms": 21.128,
+              "stride_2_ms": 11.264,
+              "stride_3_ms": 7.79,
+              "stride_4_ms": 6.828
+            },
+            "initial": {
+              "measures": [
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 116,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 29,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 39,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 148,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 218,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 368,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.scalar-upload",
+                  "ms": 1,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 0,
+                  "detail": null
+                }
+              ],
+              "reads": [
+                "http://127.0.0.1:44549/api/data?path=%2Fzeta&selection=0%2C0%3A1626%2C0%3A2036&stride=1%2C3%2C3&dataset=dataset",
+                "http://127.0.0.1:44549/api/data?path=%2Ftime&selection=0%3A301&stride=1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:44549/api/data?path=%2Flon&selection=0%3A1626%2C0%3A2036&stride=1%2C1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:44549/api/data?path=%2Flat&selection=0%3A1626%2C0%3A2036&stride=1%2C1&dataset=dataset&wire=f64"
+              ],
+              "frames": [
+                1003,
+                1007
+              ],
+              "contexts": [
+                {
+                  "type": "webgl2",
+                  "ok": true
+                }
+              ],
+              "errors": [],
+              "active": 0,
+              "ready_ms": 1007
+            },
+            "frame": {
+              "measures": [
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 25,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.scalar-upload",
+                  "ms": 1,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 0,
+                  "detail": null
+                }
+              ],
+              "reads": [
+                "http://127.0.0.1:44549/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C3%2C3&dataset=dataset"
+              ],
+              "frames": [
+                1919
+              ],
+              "contexts": [
+                {
+                  "type": "webgl2",
+                  "ok": true
+                }
+              ],
+              "errors": [],
+              "active": 0,
+              "ready_ms": 48,
+              "started_ms": 1871
+            }
+          },
+          {
+            "renderer": "webgl",
+            "shape": [
+              301,
+              1626,
+              2036
+            ],
+            "io": {
+              "stride_1_ms": 23.885,
+              "stride_2_ms": 11.314,
+              "stride_3_ms": 7.86,
+              "stride_4_ms": 6.335
+            },
+            "initial": {
+              "measures": [
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 110,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 29,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 29,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 164,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 212,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.geometry",
+                  "ms": 383,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.scalar-upload",
+                  "ms": 1,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 0,
+                  "detail": null
+                }
+              ],
+              "reads": [
+                "http://127.0.0.1:37167/api/data?path=%2Fzeta&selection=0%2C0%3A1626%2C0%3A2036&stride=1%2C3%2C3&dataset=dataset",
+                "http://127.0.0.1:37167/api/data?path=%2Ftime&selection=0%3A301&stride=1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:37167/api/data?path=%2Flon&selection=0%3A1626%2C0%3A2036&stride=1%2C1&dataset=dataset&wire=f64",
+                "http://127.0.0.1:37167/api/data?path=%2Flat&selection=0%3A1626%2C0%3A2036&stride=1%2C1&dataset=dataset&wire=f64"
+              ],
+              "frames": [
+                969,
+                974
+              ],
+              "contexts": [
+                {
+                  "type": "webgl2",
+                  "ok": true
+                }
+              ],
+              "errors": [],
+              "active": 0,
+              "ready_ms": 974
+            },
+            "frame": {
+              "measures": [
+                {
+                  "name": "ncx.slice.fetch",
+                  "ms": 24,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.slice.decode",
+                  "ms": 0,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.scalar-upload",
+                  "ms": 1,
+                  "detail": null
+                },
+                {
+                  "name": "ncx.mesh.draw",
+                  "ms": 0,
+                  "detail": null
+                }
+              ],
+              "reads": [
+                "http://127.0.0.1:37167/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C3%2C3&dataset=dataset"
+              ],
+              "frames": [
+                1880
+              ],
+              "contexts": [
+                {
+                  "type": "webgl2",
+                  "ok": true
+                }
+              ],
+              "errors": [],
+              "active": 0,
+              "ready_ms": 49,
+              "started_ms": 1831
+            },
+            "zoom": {
+              "reads": [
+                "http://127.0.0.1:37167/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C3%2C2&dataset=dataset",
+                "http://127.0.0.1:37167/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C2%2C2&dataset=dataset",
+                "http://127.0.0.1:37167/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C1%2C1&dataset=dataset"
+              ]
+            },
+            "export": {
+              "ms": 4671,
+              "width": 2882,
+              "height": 2064,
+              "reads": [
+                "http://127.0.0.1:37167/api/data?path=%2Fzeta&selection=300%2C0%3A1626%2C0%3A2036&stride=1%2C1%2C1&dataset=dataset"
+              ]
+            }
+          }
+        ]
+      }
+    }
+  },
+  "geometry": {
+    "before": {
+      "shape": [
+        1626,
+        2036
+      ],
+      "runs": 3,
+      "samples": [
+        {
+          "stride": 1,
+          "median_ms": 2753.912462,
+          "geometry_bytes": 374283372,
+          "scalar_upload_bytes": 79365000
+        },
+        {
+          "stride": 3,
+          "median_ms": 336.670755000001,
+          "geometry_bytes": 42514508,
+          "scalar_upload_bytes": 8803152
+        }
+      ]
+    },
+    "after": {
+      "shape": [
+        1626,
+        2036
+      ],
+      "runs": 3,
+      "samples": [
+        {
+          "stride": 1,
+          "median_ms": 2933.9229530000002,
+          "geometry_bytes": 189156948,
+          "scalar_upload_bytes": 13242144
+        },
+        {
+          "stride": 3,
+          "median_ms": 331.5182929999992,
+          "geometry_bytes": 21993340,
+          "scalar_upload_bytes": 1472072
+        }
+      ]
+    },
+    "method": "Synthetic curved grid with the same spatial dimensions; three builds per stride; explicit GC between samples; includes hit index and excludes source coordinates, worker copies and GPU buffers."
+  }
+}

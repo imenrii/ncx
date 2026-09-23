@@ -1,5 +1,4 @@
 import {
-  colorForValue,
   paletteBytes,
   type ColormapChoice,
   type ColorRange,
@@ -8,6 +7,7 @@ import {
 import { canvasPng, validateCanvasSize } from "./capture";
 import type { Bounds, MeshGeometry } from "./mesh";
 import { PERFORMANCE_MEASURE, measurePerformance } from "../data/performance";
+import { meshPixelTriangles, paintMeshPixels } from "./meshRaster";
 
 const VERTEX_SHADER = `#version 300 es
 layout(location = 0) in vec2 source_position;
@@ -92,8 +92,6 @@ export function createMeshRenderer(canvas: HTMLCanvasElement): MeshSurface {
   try {
     return new MeshRenderer(canvas);
   } catch {
-    // ponytail: a flat Canvas fallback keeps remote desktops usable; retain
-    // WebGL2 as the fast path unless fallback performance becomes measurable.
     return new CanvasMeshRenderer(canvas);
   }
 }
@@ -103,6 +101,7 @@ class MeshRenderer implements MeshSurface {
   private readonly program: WebGLProgram;
   private readonly positionBuffer: WebGLBuffer;
   private readonly valueBuffer: WebGLBuffer;
+  private readonly indexBuffer: WebGLBuffer;
   private readonly palette: WebGLTexture;
   private uploadedGeometry: MeshGeometry | undefined;
   private uploadedValues: Float32Array | undefined;
@@ -119,6 +118,7 @@ class MeshRenderer implements MeshSurface {
     this.program = createProgram(gl, VERTEX_SHADER, FRAGMENT_SHADER);
     this.positionBuffer = required(gl.createBuffer(), "position buffer");
     this.valueBuffer = required(gl.createBuffer(), "value buffer");
+    this.indexBuffer = required(gl.createBuffer(), "index buffer");
     this.palette = required(gl.createTexture(), "palette texture");
 
     gl.useProgram(this.program);
@@ -166,15 +166,21 @@ class MeshRenderer implements MeshSurface {
     if (geometryChanged) {
       gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
       gl.bufferData(gl.ARRAY_BUFFER, geometry.positions, gl.STATIC_DRAW);
+      if (geometry.indices) {
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, geometry.indices, gl.STATIC_DRAW);
+      }
       this.uploadedGeometry = geometry;
     }
     if (geometryChanged || this.uploadedValues !== sourceValues) measurePerformance(PERFORMANCE_MEASURE.meshScalarUpload, () => {
-      const expandedValues = new Float32Array(geometry.scalarIndices.length);
-      for (let index = 0; index < expandedValues.length; index += 1) {
-        expandedValues[index] = sourceValues[geometry.scalarIndices[index]] ?? Number.NaN;
+      const vertexValues = geometry.indices ? sourceValues : new Float32Array(geometry.scalarIndices.length);
+      if (!geometry.indices) {
+        for (let index = 0; index < vertexValues.length; index += 1) {
+          vertexValues[index] = sourceValues[geometry.scalarIndices[index]] ?? Number.NaN;
+        }
       }
       gl.bindBuffer(gl.ARRAY_BUFFER, this.valueBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, expandedValues, gl.DYNAMIC_DRAW);
+      gl.bufferData(gl.ARRAY_BUFFER, vertexValues, gl.DYNAMIC_DRAW);
       this.uploadedValues = sourceValues;
     });
 
@@ -214,7 +220,8 @@ class MeshRenderer implements MeshSurface {
     measurePerformance(PERFORMANCE_MEASURE.meshDraw, () => {
       gl.clearColor(0.933, 0.933, 0.933, 1);
       gl.clear(gl.COLOR_BUFFER_BIT);
-      gl.drawArrays(gl.TRIANGLES, 0, geometry.scalarIndices.length);
+      if (geometry.indices) gl.drawElements(gl.TRIANGLES, geometry.indices.length, gl.UNSIGNED_INT, 0);
+      else gl.drawArrays(gl.TRIANGLES, 0, geometry.scalarIndices.length);
     });
   }
 
@@ -253,6 +260,7 @@ class MeshRenderer implements MeshSurface {
     const gl = this.gl;
     gl.deleteBuffer(this.positionBuffer);
     gl.deleteBuffer(this.valueBuffer);
+    gl.deleteBuffer(this.indexBuffer);
     gl.deleteTexture(this.palette);
     gl.deleteProgram(this.program);
   }
@@ -260,6 +268,7 @@ class MeshRenderer implements MeshSurface {
 
 class CanvasMeshRenderer implements MeshSurface {
   private readonly context: CanvasRenderingContext2D;
+  private raster?: { geometry: MeshGeometry; key: string; triangles: Int32Array; image: ImageData };
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     const context = canvas.getContext("2d", { alpha: false });
@@ -314,46 +323,21 @@ class CanvasMeshRenderer implements MeshSurface {
       this.canvas.height = height;
     }
     const context = this.context;
-    context.setTransform(1, 0, 0, 1, 0, 0);
-    context.fillStyle = "#eeeeee";
-    context.fillRect(0, 0, width, height);
-    const localMinimumX = settings.view.minimumX - geometry.origin.x;
-    const localMinimumY = settings.view.minimumY - geometry.origin.y;
-    const dataWidth = settings.view.maximumX - settings.view.minimumX;
-    const dataHeight = settings.view.maximumY - settings.view.minimumY;
-    const screenX = (value: number) => ((value - localMinimumX) / dataWidth) * width;
-    const screenY = (value: number) => (1 - (value - localMinimumY) / dataHeight) * height;
-
-    for (let vertex = 0; vertex < geometry.scalarIndices.length; vertex += 3) {
-      const values = [
-        Number(sourceValues[geometry.scalarIndices[vertex]]),
-        Number(sourceValues[geometry.scalarIndices[vertex + 1]]),
-        Number(sourceValues[geometry.scalarIndices[vertex + 2]]),
-      ];
-      const value = values.every(Number.isFinite)
-        ? (values[0] + values[1] + values[2]) / 3
-        : Number.NaN;
-      const color = colorForValue(value, settings.range, settings.scale, settings.colormap);
-      context.fillStyle = color ? `rgb(${color.join(" ")})` : "#eeeeee";
-      context.beginPath();
-      context.moveTo(
-        screenX(geometry.positions[vertex * 2]),
-        screenY(geometry.positions[vertex * 2 + 1]),
-      );
-      context.lineTo(
-        screenX(geometry.positions[(vertex + 1) * 2]),
-        screenY(geometry.positions[(vertex + 1) * 2 + 1]),
-      );
-      context.lineTo(
-        screenX(geometry.positions[(vertex + 2) * 2]),
-        screenY(geometry.positions[(vertex + 2) * 2 + 1]),
-      );
-      context.closePath();
-      context.fill();
+    const key = JSON.stringify([width, height, settings.view.minimumX, settings.view.maximumX,
+      settings.view.minimumY, settings.view.maximumY]);
+    if (this.raster?.geometry !== geometry || this.raster.key !== key) {
+      const triangles = measurePerformance(PERFORMANCE_MEASURE.meshRasterMap,
+        () => meshPixelTriangles(geometry, settings.view, width, height));
+      this.raster = { geometry, key, triangles, image: context.createImageData(width, height) };
     }
+    const { triangles, image } = this.raster;
+    measurePerformance(PERFORMANCE_MEASURE.meshRasterPaint, () => {
+      paintMeshPixels(geometry, sourceValues, triangles, image.data, settings.range, settings.scale, settings.colormap);
+      context.putImageData(image, 0, 0);
+    });
   }
 
-  destroy(): void {}
+  destroy(): void { this.raster = undefined; }
 }
 
 function createProgram(

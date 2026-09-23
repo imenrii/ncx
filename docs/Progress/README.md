@@ -16,6 +16,8 @@ Plans describe proposed work. A plan does not change a shipped contract.
 | [Steering interface](steering.md) | Source-backed variables, bounded reads, terminal layout, and plot ownership | Design record; manual implementation in [Steering](../steering.md) |
 | [Steering runtime research](steering-runtime-research.md) | First-party GitHub evidence for runtime and execution choices | Research |
 | [Steering profile](steering-profile.md) | Pre-Steering performance comparison, metadata ownership, and panel 2 anomalies | Measured investigation and proposals |
+| [Steering refactor performance](steering-refactor-performance.md) | Content reuse, bounded read overlap, workspace ownership, and before/after measurements | Measured 2026-09-22 |
+| [Structured-field performance](structured-performance.md) | Stable spatial sampling, bounded reads, indexed grids, and Canvas raster reuse | Measured 2026-09-22 |
 | [Paired panel performance](steering-panel-performance.md) | Global time, editable probes, and comparison with pre-Steering | Measured 2026-09-21 |
 | [Frame performance](steering-frame-performance.md) | Implemented probes/panels, shared reads, and release measurements | Measured 2026-09-21 |
 | [Variables, probes, and dynamic panels](steering-bindings.md) | Shared plot ownership, probe semantics, frame API, and reuse priorities | Implemented core; remaining proposals marked |

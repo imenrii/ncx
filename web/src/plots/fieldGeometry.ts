@@ -1,4 +1,4 @@
-import { fetchCoordinate, fetchStaticSlice } from "../data/api.ts";
+import { fetchStaticSlice } from "../data/api.ts";
 import { attributeNumber, attributeNumbers, type DataSlice, type Metadata, type Probe, type Variable } from "../data/model.ts";
 import type { DisplayDimensions } from "../data/selection.ts";
 import { PERFORMANCE_MEASURE, measurePerformanceAsync } from "../data/performance.ts";
@@ -7,10 +7,18 @@ import { prepareMesh } from "./meshBuild.ts";
 import type { MeshGeometry, MeshHit } from "./mesh.ts";
 import { geographicCoordinateVariables } from "./projection.ts";
 
+type StaticReader = typeof fetchStaticSlice;
+
+async function coordinateValues(variable: Variable, read: StaticReader): Promise<Float64Array> {
+  const slice = await read(variable, "f64");
+  if (!(slice.values instanceof Float64Array)) throw new Error(`${variable.path} is not an f64 coordinate`);
+  return slice.values;
+}
+
 export type FieldGeometry = MeshGeometry & { edgeFaces?: Int32Array };
 
-export async function loadRectilinearAxis(metadata: Metadata, variable: Variable) {
-  const values = await fetchCoordinate(variable);
+export async function loadRectilinearAxis(metadata: Metadata, variable: Variable, read: StaticReader = fetchStaticSlice) {
+  const values = await coordinateValues(variable, read);
   const boundsReference = variable.capabilities.references.bounds?.[0];
   if (!boundsReference) {
     const result = buildRectilinearAxis(values);
@@ -29,7 +37,7 @@ export async function loadRectilinearAxis(metadata: Metadata, variable: Variable
   }
 
   try {
-    const bounds = await fetchStaticSlice(boundsVariable, "f64");
+    const bounds = await read(boundsVariable, "f64");
     if (!(bounds.values instanceof Float64Array)) {
       throw new Error(`${boundsPath} is not numeric`);
     }
@@ -56,6 +64,7 @@ export async function buildGeometry(
   display: DisplayDimensions,
   slice: DataSlice,
   signal?: AbortSignal,
+  read: StaticReader = fetchStaticSlice,
 ): Promise<FieldGeometry> {
   const hint = variable.view_hint;
   if (hint.kind === "curvilinear") {
@@ -74,8 +83,8 @@ export async function buildGeometry(
       throw new Error("selected display dimensions do not match the curvilinear coordinates");
     }
     const [xValues, yValues] = await Promise.all([
-      fetchCoordinate(xVariable),
-      fetchCoordinate(yVariable),
+      coordinateValues(xVariable, read),
+      coordinateValues(yVariable, read),
     ]);
     const coordinateShape = xVariable.dimensions.map((dimension) => dimension.length);
     if (
@@ -106,6 +115,7 @@ export async function buildGeometry(
       xValues,
       yValues,
       geometry,
+      read,
     );
   }
 
@@ -114,9 +124,9 @@ export async function buildGeometry(
     const yVariable = requiredVariable(metadata, hint.y);
     const connectivityVariable = requiredVariable(metadata, hint.face_node_connectivity);
     const [xValues, yValues, connectivitySlice] = await Promise.all([
-      fetchCoordinate(xVariable),
-      fetchCoordinate(yVariable),
-      fetchStaticSlice(connectivityVariable),
+      coordinateValues(xVariable, read),
+      coordinateValues(yVariable, read),
+      read(connectivityVariable),
     ]);
     if (
       xVariable.dimensions.length !== 1 ||
@@ -151,6 +161,7 @@ export async function buildGeometry(
       xValues,
       yValues,
       geometry,
+      read,
     );
     if (hint.location !== "edge") return projected;
     const topology = requiredVariable(metadata, hint.mesh);
@@ -160,7 +171,7 @@ export async function buildGeometry(
       metadata,
       reference,
     );
-    const edgeFaces = await fetchStaticSlice(edgeFacesVariable);
+    const edgeFaces = await read(edgeFacesVariable);
     const edgeDimension = topology.capabilities.edge_dimension;
     const edgeAxis = edgeDimension
       ? edgeFacesVariable.dimensions.findIndex((dimension) => dimension.name === edgeDimension)
@@ -241,18 +252,19 @@ async function addGeographicCoordinates(
   xValues: Float64Array,
   yValues: Float64Array,
   geometry: MeshGeometry,
+  read: StaticReader,
 ): Promise<MeshGeometry> {
   const coordinates = geographicCoordinateVariables(metadata, variable, xVariable.dimensions);
   if (!coordinates) return geometry;
-  const coordinateValues = (coordinate: Variable) =>
+  const readGeographic = (coordinate: Variable) =>
     coordinate.path === xVariable.path
       ? Promise.resolve(xValues)
       : coordinate.path === yVariable.path
         ? Promise.resolve(yValues)
-        : fetchCoordinate(coordinate);
+        : coordinateValues(coordinate, read);
   const [longitude, latitude] = await Promise.all([
-    coordinateValues(coordinates.longitude),
-    coordinateValues(coordinates.latitude),
+    readGeographic(coordinates.longitude),
+    readGeographic(coordinates.latitude),
   ]);
   if (longitude.length !== xValues.length || latitude.length !== xValues.length) {
     throw new Error("geographic node coordinates do not match the rendered mesh coordinates");

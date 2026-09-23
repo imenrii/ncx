@@ -79,6 +79,7 @@ TypeScript model/decoder, and focused tests together.
   them; use `node web/scripts/sync-colormaps.mjs` when their upstream tables
   change.
 - UI design, typography always comply with `/home/snd2/prog/jackcho/Style/Web` instructions
+- Sync to `/home/snd2/prog/jackcho/Style/Web/*` generically whenever a new design is agreed and dropped.
 - Always check with visuals to make sure nothing is broken
 
 Fonts live in `res/` and are embedded at compile time; see `res/README.md` for

@@ -2,6 +2,35 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { buildCurvilinearGeometry, buildUgridGeometry, edgesToFaces, findMeshHit } from "./mesh.ts";
+import { meshPixelTriangles, paintMeshPixels } from "./meshRaster.ts";
+import { colorForValue } from "./color.ts";
+
+test("indexed grids preserve probes and flat raster colours across frames, masks, and clipping", () => {
+  const x = Float64Array.of(0, 1, 0, 1), y = Float64Array.of(0, 0, 1, 1);
+  const geometry = buildCurvilinearGeometry(x, y, 2, 2, 2, 2, 1, 1);
+  assert.equal(geometry.positions.length, 8);
+  assert.deepEqual([...geometry.indices!], [0, 1, 3, 0, 3, 2]);
+  assert.equal(findMeshHit(geometry, .9, .9)?.coordinateIndex, 3);
+  const view = { minimumX: 0, maximumX: 2, minimumY: 0, maximumY: 1 };
+  const triangles = meshPixelTriangles(geometry, view, 8, 4);
+  const rgba = new Uint8ClampedArray(8 * 4 * 4);
+  const range = { minimum: 0, maximum: 10 };
+  const values = Float32Array.of(0, 3, 6, 9);
+  paintMeshPixels(geometry, values, triangles, rgba, range, "linear", "batlow");
+  assert.deepEqual([...rgba.slice(0, 4)], [...colorForValue(5, range, "linear", "batlow")!, 255]);
+  assert.deepEqual([...rgba.slice(28, 32)], [238, 238, 238, 255]);
+  values.fill(7);
+  paintMeshPixels(geometry, values, triangles, rgba, range, "log", "batlow_r");
+  assert.deepEqual([...rgba.slice(0, 4)], [...colorForValue(7, range, "log", "batlow_r")!, 255]);
+  values[3] = NaN;
+  paintMeshPixels(geometry, values, triangles, rgba, range, "linear", "batlow");
+  assert.ok(Array.from(rgba).every((byte, i) => byte === (i % 4 === 3 ? 255 : 238)));
+  for (const indices of [Int32Array.of(0, 1, 2), Int32Array.of(2, 1, 0)]) {
+    const mesh = buildUgridGeometry(x.slice(0, 3), y.slice(0, 3), indices, 1, 3, 0, [], "node");
+    assert.ok(meshPixelTriangles(mesh, geometry.bounds, 4, 4).some(value => value === 0));
+  }
+  assert.throws(() => meshPixelTriangles(geometry, view, Infinity, 4), /size|dimension/i);
+});
 
 test("omits curvilinear quads with invalid coordinates", () => {
   const x = Float64Array.of(0, 1, 2, 0, 1, 2);

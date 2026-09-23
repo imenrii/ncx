@@ -87,7 +87,7 @@ variables and live display objects. Variables support lazy arithmetic:
 ```python
 t = sources.s1["/CLK"]
 t += 1.45
-plots.curve.show(t)
+panels[0].show(t)
 ```
 
 Enter submits a command; Shift+Enter adds a line. Completion, Ctrl+R history

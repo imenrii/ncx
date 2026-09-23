@@ -4,7 +4,7 @@ import type { DataSlice, DimensionSelection, Metadata, SliceRequest, Variable } 
 import { attributeText, meshDimension } from "../data/model.ts";
 import { describeTime } from "../data/time.ts";
 import { SERIES_COLORS, SERIES_DASHES, type CurveSeries } from "../plots/curveSeries.ts";
-import { LIMITS, type Binding, type CatalogSource, type Expression, type PlotInput, type PlotTarget, type Reference } from "./model.ts";
+import { LIMITS, type Binding, type CatalogSource, type Expression, type PlotInput, type Reference } from "./model.ts";
 
 const attributes = (name: string, unit: string) => [
   { name: "long_name", dtype: "char", value: name }, { name: "units", dtype: "char", value: unit },
@@ -68,7 +68,7 @@ function compose(base: DimensionSelection, local: DimensionSelection): Dimension
 }
 
 /** Project the logical selection once, then let the existing field readers use it. */
-export function bindInput(input: PlotInput, catalog: readonly CatalogSource[], target: PlotTarget,
+export function bindInput(input: PlotInput, catalog: readonly CatalogSource[], target: "auto" | "field" | "curve" | "value",
   evaluate?: (expression: Expression, request: SliceRequest, signal?: AbortSignal) => Promise<DataSlice>): Binding {
   const expression = "expression" in input ? input.expression : undefined;
   const value = "array" in input ? input.array : expression;
@@ -114,7 +114,7 @@ export function bindInput(input: PlotInput, catalog: readonly CatalogSource[], t
   });
   const variable: Variable = {
     path, name, dtype: "double", dataset_id: id,
-    value_kind: value?.unit_kind ?? "absolute",
+    value_kind: value?.unit_kind ?? source?.variable.value_kind ?? "absolute",
     dimensions: dims.map((dim, i) => ({ path: dim, name: dim.split("/").pop() || dim, length: shape[i] })),
     attributes: [...attributes(name, unit),
       ...(origin ? [{ name: "source", dtype: "char", value: `sources.${origin.source}[${JSON.stringify(origin.path)}]` },
@@ -145,7 +145,7 @@ export function bindInput(input: PlotInput, catalog: readonly CatalogSource[], t
     variables: [variable, ...dependencies],
   };
   const sourceId = source?.metadata.dataset_id;
-  const release = registerArraySource({ metadata, read: async (request, signal) => {
+  const read: Binding["read"] = async (request, signal) => {
     signal?.throwIfAborted();
     const current = metadata.variables.find(v => v.path === request.path);
     if (!current) throw new Error("Unknown published variable");
@@ -166,46 +166,82 @@ export function bindInput(input: PlotInput, catalog: readonly CatalogSource[], t
     });
     const result = await sourceSlice(original, { ...request, dataset: sourceId, path: original.path, selection }, signal);
     return { ...result, request };
-  } });
-  return { sourceDataset: source?.metadata.dataset_id, metadata, variable, release, bytes: bytes + coordinateBytes, delta: (value?.unit_kind ?? source?.variable.value_kind) === "delta", origin, expression,
+  };
+  return { sourceDataset: source?.metadata.dataset_id, metadata, variable, read, bytes: bytes + coordinateBytes, geometryBytes: target === "field" ? geometryBytes(metadata, variable) : 0, delta: (value?.unit_kind ?? source?.variable.value_kind) === "delta", origin, expression,
     selectionLabel: source?.variable.dimensions.flatMap((d, i) => typeof origin!.selection[i] === "number" ? [`${d.name}=${origin!.selection[i]}`] : []).join(", ") ?? "" };
 }
 
-export async function loadCurve(binding: Binding, index: number, signal: AbortSignal): Promise<CurveSeries> {
-  const variable = binding.variable;
-  const dimension = variable.dimensions[0];
-  const selection = [{ start: 0, stop: dimension.length, stride: 1 }];
-  arrayBytes([dimension.length], 16, LIMITS.readBytes);
-  const y = await fetchSlice({ dataset: variable.dataset_id, path: variable.path, selection, wire: "f64" }, signal);
+export function readStatic(binding: Binding, variable: Variable, wire?: SliceRequest["wire"], signal?: AbortSignal) {
+  return binding.read({ dataset: binding.metadata.dataset_id, path: variable.path, wire,
+    selection: variable.dimensions.map(d => ({ start: 0, stop: d.length, stride: 1 })) }, signal);
+}
+
+export async function readCoordinate(binding: Binding, variable: Variable, signal?: AbortSignal): Promise<Float64Array> {
+  const slice = await readStatic(binding, variable, "f64", signal);
+  if (!(slice.values instanceof Float64Array)) throw new Error("Invalid coordinate type");
+  return slice.values;
+}
+
+export async function loadCurve(binding: Binding, selection: DimensionSelection[], signal: AbortSignal): Promise<CurveSeries> {
+  const axis = selection.findIndex(s => typeof s !== "number");
+  if (axis < 0 || selection.filter(s => typeof s !== "number").length !== 1) throw new Error("A curve requires one ranged dimension");
+  const { variable } = binding;
+  const dimension = variable.dimensions[axis];
+  const selected = selection[axis];
+  const shape = selectionShape(selection, variable.dimensions.map(d => d.length));
+  arrayBytes(shape, 16, LIMITS.readBytes);
+  const y = await binding.read({ dataset: variable.dataset_id, path: variable.path, selection, wire: "f64" }, signal);
   const coordinate = binding.metadata.variables.find(v => v.path === dimension.path && v.dimensions.length === 1);
-  const rawX = coordinate ? (await fetchSlice({ dataset: variable.dataset_id, path: coordinate.path, selection, wire: "f64" }, signal)).values
-    : Float64Array.from({ length: dimension.length }, (_, i) => i);
+  const rawX = coordinate ? (await binding.read({ dataset: variable.dataset_id, path: coordinate.path,
+    selection: [selected], wire: "f64" }, signal)).values : Float64Array.from({ length: shape[0] }, (_, i) =>
+      typeof selected === "number" ? selected : selected.start + i * selected.stride);
   const time = describeTime(coordinate);
   if (y.values.some(v => Number.isFinite(v) && Math.abs(v) > 3.4028234663852886e38)) throw new Error("Plot values exceed float32 range");
-  return { id: binding.metadata.dataset_id, label: variable.name, primary: index === 0,
+  return { id: binding.metadata.dataset_id, label: variable.name, primary: true,
     x: Float64Array.from(rawX, x => time ? time.originMs + x * time.multiplierMs : x), y: Float32Array.from(y.values),
     absoluteTime: Boolean(time), xUnit: time ? "time" : coordinate ? attributeText(coordinate, "units") ?? dimension.name : dimension.name,
     calendar: coordinate?.capabilities.calendar, units: attributeText(variable, "units") ?? "",
-    quantity: variable.name, difference: binding.delta, color: SERIES_COLORS[index % SERIES_COLORS.length], dash: SERIES_DASHES[index % SERIES_DASHES.length] };
+    quantity: variable.name, difference: binding.delta, color: SERIES_COLORS[0], dash: SERIES_DASHES[0] };
 }
 
-export async function validateField(binding: Binding, signal: AbortSignal, budget: number) {
-  const hint = binding.variable.view_hint;
-  const paths = hint.kind === "plain" ? [] : [hint.x, hint.y,
-    ...(hint.kind === "ugrid2d" ? [hint.face_node_connectivity] : [])];
-  let bytes = 0;
-  for (const path of new Set(paths)) {
+function geometryVariables(metadata: Metadata, variable: Variable): Variable[] {
+  const hint = variable.view_hint;
+  if (hint.kind === "plain" || !variable.dimensions.length) return [];
+  const paths = new Set([hint.x, hint.y]);
+  if (hint.kind === "ugrid2d") {
+    paths.add(hint.face_node_connectivity);
+    if (hint.location === "edge") {
+      const mesh = metadata.variables.find(v => v.path === hint.mesh);
+      for (const path of mesh?.capabilities.references.edge_face_connectivity ?? []) paths.add(path);
+    }
+  }
+  for (const pair of variable.capabilities.geographic_coordinates) {
+    paths.add(pair.longitude); paths.add(pair.latitude);
+  }
+  for (const path of [...paths]) {
+    const coordinate = metadata.variables.find(v => v.path === path);
+    for (const bounds of coordinate?.capabilities.references.bounds ?? []) paths.add(bounds);
+  }
+  return [...paths].map(path => {
+    const value = metadata.variables.find(v => v.path === path);
+    if (!value) throw new Error("Field coordinates are unavailable");
+    return value;
+  });
+}
+
+function geometryBytes(metadata: Metadata, variable: Variable): number {
+  return geometryVariables(metadata, variable).reduce((bytes, coordinate) =>
+    bytes + arrayBytes(coordinate.dimensions.map(d => d.length), 8, LIMITS.publishedBytes), 0);
+}
+
+/** Validate after reserving the geometry cost; validation never mutates a binding. */
+export async function validateField(binding: Binding, signal: AbortSignal): Promise<number> {
+  for (const variable of geometryVariables(binding.metadata, binding.variable)) {
     signal.throwIfAborted();
-    const variable = binding.metadata.variables.find(v => v.path === path);
-    if (!variable) throw new Error("Field coordinates are unavailable");
-    const width = hint.kind === "ugrid2d" && path === hint.face_node_connectivity ? 4 : 8;
-    bytes += arrayBytes(variable.dimensions.map(d => d.length), width, budget);
-    if (bytes > budget) throw new Error("Field geometry exceeds the publication budget");
-    await fetchStaticSlice(variable, width === 8 ? "f64" : undefined);
+    await readStatic(binding, variable, variable.capabilities.coordinate ? "f64" : undefined, signal);
   }
   signal.throwIfAborted();
-  binding.bytes += bytes;
-  return bytes;
+  return binding.geometryBytes;
 }
 
 export function suppliedCatalog(alias: string, series: import("../data/model.ts").SuppliedSeries): { source: CatalogSource; release: () => void } {
