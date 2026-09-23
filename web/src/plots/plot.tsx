@@ -273,9 +273,9 @@ export function ViewControls({
 }) {
   return (
     <div className="view-controls" aria-label="Plot view controls">
-      <button title="Zoom in" aria-label="Zoom in" onClick={onZoomIn}>+</button>
-      <button title="Zoom out" aria-label="Zoom out" onClick={onZoomOut}>−</button>
-      <button title="Reset view" onClick={onReset}>Reset</button>
+      <button className="key-btn" title="Zoom in" aria-label="Zoom in" onClick={onZoomIn}>+</button>
+      <button className="key-btn" title="Zoom out" aria-label="Zoom out" onClick={onZoomOut}>−</button>
+      <button className="key-btn" title="Reset view" onClick={onReset}>Reset</button>
     </div>
   );
 }

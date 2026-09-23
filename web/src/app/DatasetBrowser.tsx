@@ -28,19 +28,20 @@ export function DatasetBrowser({
       {navigation && <div className="dataset-head">{navigation}</div>}
       <div className="variable-filter">
         <input
-          className="variable-search"
+          className="field variable-search"
           type="search"
           placeholder={`Filter variables (${visibleCount} variables)`}
           value={search}
           onChange={(event) => onSearch(event.target.value)}
         />
         {supportingPaths.size > 0 && (
-          <label>
+          <label className="tick-label">
             <input
               type="checkbox"
               checked={showSupporting}
               onChange={(event) => setShowSupporting(event.target.checked)}
             />
+            <span className="tick-box" />
             Show coordinates and mesh geometry ({supportingPaths.size})
           </label>
         )}
@@ -135,19 +136,20 @@ export function CollectionBrowser({
       </div>
       <div className="variable-filter">
         <input
-          className="variable-search"
+          className="field variable-search"
           type="search"
           placeholder="Filter loaded variables"
           value={search}
           onChange={(event) => onSearch(event.target.value)}
         />
         {supportingCount > 0 && (
-          <label>
+          <label className="tick-label">
             <input
               type="checkbox"
               checked={showSupporting}
               onChange={(event) => setShowSupporting(event.target.checked)}
             />
+            <span className="tick-box" />
             Show coordinates and mesh geometry ({supportingCount})
           </label>
         )}
@@ -226,7 +228,7 @@ function VariableGroups({
         {variables.map((variable) => (
           <button
             key={variable.path}
-            className="variable-row"
+            className="row-item variable-row"
             data-supporting={supportingPaths.has(variable.path) || undefined}
             aria-selected={variable.path === selectedPath}
             title={`${variableLabel(variable)} · ${variable.dimensions.map((dimension) => dimension.name).join(", ") || "scalar"}`}

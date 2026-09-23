@@ -61,7 +61,7 @@ export function SaveDialog({
     <>
       <label className={section ? "section" : undefined} htmlFor={`${id}-${key}`}>{label}</label>
       <input
-        className={section ? "section" : undefined}
+        className={section ? "field section" : "field"}
         id={`${id}-${key}`}
         value={options[key]}
         onChange={(event) => set(key, event.target.value)}
@@ -84,7 +84,7 @@ export function SaveDialog({
 
         <span className="row-label" id={`${id}-width`}>Width</span>
         <div className="chip-row" role="group" aria-labelledby={`${id}-width`}>
-          <span className="toggle">
+          <span className="chip-toggle">
           {WIDTHS_MM.map((millimetres) => (
             <label key={millimetres} className="chip">
               <input
@@ -122,7 +122,7 @@ export function SaveDialog({
 
         <span className="row-label" id={`${id}-dpi`}>Resolution</span>
         <div className="chip-row" role="group" aria-labelledby={`${id}-dpi`}>
-          <span className="toggle">
+          <span className="chip-toggle">
           {DPI_CHOICES.map((dpi) => (
             <label key={dpi} className="chip">
               <input
@@ -140,12 +140,13 @@ export function SaveDialog({
         <p className="hint derived">= {Math.round((options.widthMm / 25.4) * options.dpi)} px wide</p>
 
         <span className="row-label section">Grid</span>
-        <label className="switch section">
+        <label className="tick-label switch section">
           <input
             type="checkbox"
             checked={options.grid}
             onChange={(event) => set("grid", event.target.checked)}
           />
+          <span className="tick-box" />
           Show grid
         </label>
 
@@ -161,10 +162,10 @@ export function SaveDialog({
         {error && <p className="export-error" role="alert">{error}</p>}
 
         <div className="dialog-actions">
-          <button type="button" onClick={() => dialog.current?.close()}>
+          <button type="button" className="btn" onClick={() => dialog.current?.close()}>
             Cancel
           </button>
-          <button type="button" className="primary" disabled={busy} onClick={() => void save()}>
+          <button type="button" className="btn primary" disabled={busy} onClick={() => void save()}>
             {busy ? "Saving…" : "Save"}
           </button>
         </div>

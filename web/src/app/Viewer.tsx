@@ -354,7 +354,7 @@ export function Viewer({
       <main className="startup">
         <strong className="brand">ncx</strong>
         <p role="status">{startupError ?? "Opening NetCDF metadata…"}</p>
-        {startupError && !chromeHidden && <nav aria-label="Available datasets">{datasets.map(dataset => <button key={dataset.id}
+        {startupError && !chromeHidden && <nav aria-label="Available datasets">{datasets.map(dataset => <button className="btn" key={dataset.id}
           disabled={dataset.id === selectedDataset} onClick={() => onSelectDataset(dataset.id)}>{dataset.label}</button>)}</nav>}
       </main>
     );
@@ -438,7 +438,7 @@ export function Viewer({
   const datasetSwitcher = !chromeHidden && datasets.length > 1 && !collection && (
     <label className="dataset-switcher">
       Dataset
-      <select value={selectedDataset} onChange={(event) => onSelectDataset(event.target.value)}>
+      <select className="field sel-native" value={selectedDataset} onChange={(event) => onSelectDataset(event.target.value)}>
         {datasets.map((dataset) => (
           <option key={dataset.id} value={dataset.id}>{dataset.label}</option>
         ))}
@@ -463,9 +463,9 @@ export function Viewer({
     overlaySource: { metadata, variable: fieldVariable, indices }, pressure: pressureOverlay, mapSource,
   };
   const topActions = <div className="topbar-actions">
-    <button className="steering-toggle" aria-controls="steering-panel" aria-expanded={steeringOpen} aria-pressed={steeringOpen}
+    <button className={`key-btn steering-toggle${steeringOpen ? " act" : ""}`} aria-controls="steering-panel" aria-expanded={steeringOpen} aria-pressed={steeringOpen}
       onClick={() => setSteeringOpen(open => !open)}>Steering</button>
-    <button className="screenshot-button" title="Save plot as PNG" disabled={view === "metadata"} onClick={() => setSaving(true)}>Save PNG</button>
+    <button className="btn screenshot-button" title="Save plot as PNG" disabled={view === "metadata"} onClick={() => setSaving(true)}>Save PNG</button>
     {sessionActions}
   </div>;
 
@@ -523,10 +523,12 @@ export function Viewer({
 
       <main className="main" data-timeline={timeline ? "shown" : "hidden"}>
         <div className="toolbar" data-pinned={steeringIntent.kind !== "default"}>
-          <nav className="view-tabs" aria-label="Variable views">
+          <nav className="view-tabs tabs" role="tablist" aria-label="Variable views">
             {(["field", "curve", "metadata"] as const).map((name) => (
               <button
                 key={name}
+                role="tab"
+                aria-selected={view === name}
                 className={view === name ? "active" : ""}
                 disabled={
                   (name === "field" && !steering.panels.some(panel => { const binding = steering.bindingFor(panel); return binding && hasFieldView(binding); })) ||
@@ -550,16 +552,16 @@ export function Viewer({
             {!chromeHidden && allowComparison && datasets.length > 1 && view !== "metadata" && <details className="source-participation">
               <summary>Sources ({plotDatasets.length})</summary>
               <div className="source-panel">
-                <label>Primary dataset <select value={selectedDataset} onChange={event => onSelectDataset(event.currentTarget.value)}>
+                <label>Primary dataset <select className="field sel-native" value={selectedDataset} onChange={event => onSelectDataset(event.currentTarget.value)}>
                   {datasets.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
                 </select></label>
-                {datasets.map(item => <label key={item.id}><input type="checkbox"
+                {datasets.map(item => <label className="tick-label" key={item.id}><input type="checkbox"
                   checked={plotDatasets.some(source => source.id === item.id)}
                   disabled={plotDatasets.length >= 6 && !plotDatasets.some(source => source.id === item.id)}
                   onChange={event => {
                     const ids = plotDatasets.map(source => source.id);
                     setSourceIds(event.currentTarget.checked ? [...ids, item.id] : ids.filter(id => id !== item.id));
-                  }} />{item.label}</label>)}
+                  }} /><span className="tick-box" />{item.label}</label>)}
               </div>
             </details>}
             {steeringIntent.kind === "default" && view === "field" && variable.view_hint.kind === "ugrid2d" && (
@@ -617,7 +619,7 @@ export function Viewer({
               <div className="control-group" role="group" aria-label="Curve dimension">
                 <label>
                   Along
-                  <select
+                  <select className="field sel-native"
                     value={curveDimension}
                     onChange={(event) => updateSelection({ type: "curve/selected", along: Number(event.target.value) })}
                   >
@@ -636,6 +638,7 @@ export function Viewer({
                   <label key={dimension.path}>
                     {dimension.name}
                     <input
+                      className="field num"
                       type="number"
                       min={0}
                       max={Math.max(0, dimension.length - 1)}
@@ -647,7 +650,7 @@ export function Viewer({
               </div>
             )}
             {view !== "metadata" && <div className="control-group" role="group" aria-label="Display units">
-              <label>Unit<select id="display-unit" value={useBeaufort ? "Bft" : targetUnit?.id ?? "native"}
+              <label>Unit<select className="field sel-native" id="display-unit" value={useBeaufort ? "Bft" : targetUnit?.id ?? "native"}
                 disabled={!sourceUnit} title={units?.reason}
                 onChange={event => {
                   setUnitId(event.target.value);
@@ -668,7 +671,7 @@ export function Viewer({
             {view !== "metadata" && (
               <>
                 {view === "curve" && <div className="control-group" role="group" aria-label="Wind overlay">
-                  <label title={windUnavailable}>Wind<select value={wind && !windUnavailable ? "on" : "off"}
+                  <label title={windUnavailable}>Wind<select className="field sel-native" value={wind && !windUnavailable ? "on" : "off"}
                     title={windUnavailable}
                     disabled={Boolean(windUnavailable)}
                     onChange={event => setWind(event.target.value === "on")}>
@@ -680,7 +683,7 @@ export function Viewer({
                   <div className="control-group" role="group" aria-label={view === "curve" ? "Value axis" : "Colour"}>
                     {view !== "curve" && <label>
                       Colour
-                      <select
+                      <select className="field sel-native"
                         value={colormap}
                         onChange={(event) => updateSelection({ type: "palette/selected", colormap: event.target.value as ColormapChoice })}
                         onWheel={(event) => {
@@ -707,7 +710,7 @@ export function Viewer({
                     </label>}
                     <label>
                       Scale
-                      <select value={view === "curve" && (useBeaufort || shownRange.minimum <= 0) ? "linear" : scale} onChange={(event) => setScale(event.target.value as ColorScale)}>
+                      <select className="field sel-native" value={view === "curve" && (useBeaufort || shownRange.minimum <= 0) ? "linear" : scale} onChange={(event) => setScale(event.target.value as ColorScale)}>
                         <option value="linear">linear</option>
                         <option value="log" disabled={view === "curve" && (useBeaufort || shownRange.minimum <= 0)}>log</option>
                         {view !== "curve" && <option value="symlog">symlog</option>}
@@ -715,7 +718,7 @@ export function Viewer({
                     </label>
                     <label>
                       Range
-                      <select
+                      <select className="field sel-native"
                         value={shownLocked ? "locked" : "auto"}
                         onChange={(event) => view === "curve" ? setCurveLocked(event.target.value === "locked") : setRangeLocked(event.target.value === "locked")}
                       >
@@ -726,6 +729,7 @@ export function Viewer({
                     <label className="range-values">
                       Min
                       <input
+                        className="field num"
                         aria-label={view === "curve" ? "Value axis minimum" : "Colour range minimum"}
                         type="number"
                         step="any"
@@ -738,6 +742,7 @@ export function Viewer({
                       />
                       Max
                       <input
+                        className="field num"
                         aria-label={view === "curve" ? "Value axis maximum" : "Colour range maximum"}
                         type="number"
                         step="any"
@@ -755,7 +760,7 @@ export function Viewer({
                   <div className="control-group" role="group" aria-label="Reference layer">
                     <label>
                       Map
-                      <select value={mapSource} onChange={(event) => setMapSource(event.target.value as "none" | "coastline")}>
+                      <select className="field sel-native" value={mapSource} onChange={(event) => setMapSource(event.target.value as "none" | "coastline")}>
                         <option value="none">none</option>
                         <option value="coastline">Coastline</option>
                       </select>
@@ -767,7 +772,7 @@ export function Viewer({
           </div>
           <div className="toolbar-actions">
             {chromeHidden && topActions}
-            {view !== "metadata" && steeringIntent.kind !== "default" && <button onClick={() => steering.resetPanel(primaryPanel.id)}>Reset plot</button>}
+            {view !== "metadata" && steeringIntent.kind !== "default" && <button className="btn" onClick={() => steering.resetPanel(primaryPanel.id)}>Reset plot</button>}
           </div>
           {saving && (
             <SaveDialog
@@ -939,7 +944,7 @@ function CoordinateSelect({
   onChange: (path: string | undefined) => void;
 }) {
   return (
-    <select aria-label={label} value={value ?? ""} onChange={(event) => onChange(event.target.value || undefined)}>
+    <select className="field sel-native" aria-label={label} value={value ?? ""} onChange={(event) => onChange(event.target.value || undefined)}>
       <option value="">index</option>
       {candidates.map((candidate) => (
         <option key={candidate.path} value={candidate.path}>{candidate.path}</option>
@@ -977,11 +982,11 @@ function Timeline({
   return (
     <div className="timeline">
       <div className="playback" aria-label="Dimension playback">
-        <button className="to-start" disabled={value <= 0} title="First sample" aria-label="First sample" onClick={() => { onPlay(0); onChange(0); }} />
-        <button className="back" disabled={value <= 0} title="Play backward" aria-label="Play backward" aria-pressed={playing === -1} onClick={() => onPlay(-1)} />
-        <button className="stop" title="Stop" aria-label="Stop" aria-pressed={playing === 0} onClick={() => onPlay(0)} />
-        <button className="forward" disabled={value >= last} title="Play forward" aria-label="Play forward" aria-pressed={playing === 1} onClick={() => onPlay(1)} />
-        <button className="to-end" disabled={value >= last} title="Last sample" aria-label="Last sample" onClick={() => { onPlay(0); onChange(last); }} />
+        <button className="key-btn to-start" disabled={value <= 0} title="First sample" aria-label="First sample" onClick={() => { onPlay(0); onChange(0); }} />
+        <button className="key-btn back" disabled={value <= 0} title="Play backward" aria-label="Play backward" aria-pressed={playing === -1} onClick={() => onPlay(-1)} />
+        <button className="key-btn stop" title="Stop" aria-label="Stop" aria-pressed={playing === 0} onClick={() => onPlay(0)} />
+        <button className="key-btn forward" disabled={value >= last} title="Play forward" aria-label="Play forward" aria-pressed={playing === 1} onClick={() => onPlay(1)} />
+        <button className="key-btn to-end" disabled={value >= last} title="Last sample" aria-label="Last sample" onClick={() => { onPlay(0); onChange(last); }} />
       </div>
       <strong>
         {timeline.dimension.name}
@@ -1124,7 +1129,7 @@ function OffsetInput({ value, onChange }: { value: number; onChange: (value: num
   const [text, setText] = useState(String(value));
   const [invalid, setInvalid] = useState(false);
   useEffect(() => { setText(String(value)); setInvalid(false); }, [value]);
-  return <input id="curve-y-offset" type="number" step="any" value={text} aria-invalid={invalid}
+  return <input className="field num" id="curve-y-offset" type="number" step="any" value={text} aria-invalid={invalid}
     onChange={event => {
       setText(event.currentTarget.value);
       try {
@@ -1145,7 +1150,7 @@ function DimensionSelect({
   onChange: (value: number) => void;
 }) {
   return (
-    <select value={value ?? 0} onChange={(event) => onChange(Number(event.target.value))}>
+    <select className="field sel-native" value={value ?? 0} onChange={(event) => onChange(Number(event.target.value))}>
       {variable.dimensions.map((dimension, index) => (
         <option key={dimension.path} value={index}>{dimension.name} ({dimension.length})</option>
       ))}

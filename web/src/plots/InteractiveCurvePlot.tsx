@@ -130,7 +130,7 @@ export function InteractiveCurvePlot({
   } : undefined;
 
   return <div className="plot-frame curve-frame" ref={frame}>
-    {xRange && <button className="curve-range-reset" onClick={() => onXRange(undefined)}>Reset X</button>}
+    {xRange && <button className="btn curve-range-reset" onClick={() => onXRange(undefined)}>Reset X</button>}
     <svg className="curve-svg" width={size.width} height={size.height}
       aria-label={`${valueLabel} curve along ${dimension}`} tabIndex={0}
       onDoubleClick={() => onXRange(undefined)}

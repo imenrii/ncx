@@ -259,7 +259,7 @@ export function HubGate() {
       <div className="hub-active">
         <App allowComparison={false} sessionActions={<>
           <button
-            className="hub-open-another"
+            className="btn hub-open-another"
             onClick={() => {
               const current = currentHubSessionRecord();
               setAddress(current?.address ?? "");
@@ -270,7 +270,7 @@ export function HubGate() {
           >
             Open another address
           </button>
-          <button className="hub-close" onClick={close}>Close Session</button>
+          <button className="btn hub-close" onClick={close}>Close Session</button>
           {modeLabel}
         </>} />
         {activeError && <p className="hub-error hub-active-error" role="alert">{activeError}</p>}
@@ -300,6 +300,7 @@ export function HubGate() {
             <form className="hub-open-panel" onSubmit={submitAddress}>
               <label className="hub-label" htmlFor="Credential">Credential</label>
               <input
+                className="field"
                 id="Credential"
                 disabled={policy?.mode === "local"}
                 list="hub-saved-credentials"
@@ -316,6 +317,7 @@ export function HubGate() {
               </datalist>
               <label className="hub-label" htmlFor="hub-address">Dataset address</label>
               <input
+                className="field"
                 id="hub-address"
                 list="hub-saved-addresses"
                 value={target.path}
@@ -333,9 +335,9 @@ export function HubGate() {
               {error && <p className="hub-error" role="alert">{error}</p>}
               <div className="dialog-actions">
                 {currentHubSessionRecord() && (
-                  <button type="button" onClick={cancelToActive}>Cancel</button>
+                  <button type="button" className="btn" onClick={cancelToActive}>Cancel</button>
                 )}
-                <button type="submit" disabled={opening || state === "prompt" || !target.path.trim()}>
+                <button type="submit" className="btn primary" disabled={opening || state === "prompt" || !target.path.trim()}>
                   {state === "prompt" ? "Connect…" : opening ? "Opening…" : "Open dataset"}
                 </button>
               </div>
@@ -358,6 +360,7 @@ export function HubGate() {
             <p><code>{address}</code></p>
             <label htmlFor="hub-password">SSH password</label>
             <input
+              className="field"
               id="hub-password"
               type="password"
               value={password}
@@ -368,8 +371,8 @@ export function HubGate() {
             />
             {error && <p className="hub-error" role="alert">{error}</p>}
             <div className="dialog-actions">
-              <button type="button" onClick={cancelToActive}>Cancel</button>
-              <button type="submit" className="primary" disabled={opening || !password}>
+              <button type="button" className="btn" onClick={cancelToActive}>Cancel</button>
+              <button type="submit" className="btn primary" disabled={opening || !password}>
                 {opening ? "Connecting…" : "Connect"}
               </button>
             </div>

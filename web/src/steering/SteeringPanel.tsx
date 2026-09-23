@@ -118,11 +118,11 @@ export function SteeringPanel({ session, open, displays }: { session: SteeringSe
     <div className="steering-terminal">
       <div className="steering-head"><span>Python</span>
         <span className="steering-state" role="status">{session.state === "loading" ? "Loading Python…" : session.state === "busy" ? "Running…" : ""}</span>
-        {(session.state === "busy" || session.state === "loading") && <button onClick={() => session.stop()}>Stop</button>}
-        {(session.state === "closed" || session.state === "failed") && <button onClick={() => void session.open()}>Start Python</button>}
+        {(session.state === "busy" || session.state === "loading") && <button className="btn" onClick={() => session.stop()}>Stop</button>}
+        {(session.state === "closed" || session.state === "failed") && <button className="btn" onClick={() => void session.open()}>Start Python</button>}
         <TerminalHelp />
-        <details className="steering-menu"><summary aria-label="Terminal options" title="Terminal options">···</summary>
-          <div><button onClick={event => { session.clearLog(); event.currentTarget.closest("details")!.open = false; }}>Clear log</button>
+        <details className="pop steering-menu"><summary aria-label="Terminal options" title="Terminal options">···</summary>
+          <div className="sheet" data-align="right"><button onClick={event => { session.clearLog(); event.currentTarget.closest("details")!.open = false; }}>Clear log</button>
             <button onClick={event => { session.reset(); event.currentTarget.closest("details")!.open = false; }}>Reset workspace</button></div>
         </details>
       </div>
@@ -213,7 +213,7 @@ function TerminalHelp() {
     </button>
     <dialog ref={dialog} className="steering-help" aria-labelledby="steering-help-title">
       <header><h2 id="steering-help-title">Steering quick reference</h2>
-        <button type="button" autoFocus onClick={() => dialog.current?.close()}>Close</button>
+        <button type="button" className="btn" autoFocus onClick={() => dialog.current?.close()}>Close</button>
       </header>
       <p>Click an Outline entry to insert its name. Use your file’s paths and dimension names.</p>
       <details open><summary>Quick start</summary>
@@ -276,7 +276,7 @@ function ObjectResult({ value, session, displays }: { value: ObjectDescription; 
 
 function ErrorResult({ error, edit }: { error: ConsoleError; edit: (code: string) => void }) {
   return <div className="steering-error">
-    <div><strong>{error.message}</strong><button onClick={() => edit(error.code)}>Edit command</button></div>
+    <div><strong>{error.message}</strong><button className="btn" onClick={() => edit(error.code)}>Edit command</button></div>
     {error.source && <pre className="steering-error-source"><span>{error.line ?? ""}</span><code>{error.source.slice(0, error.column ?? 0)}<mark>{error.source.slice(error.column ?? 0, (error.column ?? 0) + 1) || " "}</mark>{error.source.slice((error.column ?? 0) + 1)}</code></pre>}
     {error.traceback && <details><summary>Traceback</summary><pre>{error.traceback}</pre></details>}
   </div>;
@@ -289,8 +289,8 @@ const SourceOutline = memo(function SourceOutline({ source, insert }: { source: 
     {variables.slice(page * 100, (page + 1) * 100).map(variable => <button key={variable.path}
       title={`${variable.dimensions.map(d => d.length).join(" × ") || "scalar"} · ${variable.dtype} · source`}
       onClick={() => insert(`sources.${source.alias}[${JSON.stringify(variable.path)}]`)}>{variable.path}</button>)}
-    {variables.length > 100 && <div className="steering-pages"><button disabled={page === 0} onClick={() => setPage(page - 1)}>Previous</button>
-      <button disabled={(page + 1) * 100 >= variables.length} onClick={() => setPage(page + 1)}>Next</button></div>}
+    {variables.length > 100 && <div className="steering-pages"><button className="btn" disabled={page === 0} onClick={() => setPage(page - 1)}>Previous</button>
+      <button className="btn" disabled={(page + 1) * 100 >= variables.length} onClick={() => setPage(page + 1)}>Next</button></div>}
   </details>;
 });
 

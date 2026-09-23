@@ -1,0 +1,397 @@
+/* Style web components. Requires ../tokens.css (tokens and font profiles).
+   Every value comes from a token; this file states no colour or type size.
+   Metrics:
+     footprint 28 px (7u): a flat box is 28, a cast box is 26 + 2 cast, and a
+       segment inside a cast case is 24 + 2 border + 2 cast;
+     text inset 8 px (2u) at both sides, inside the border;
+     gap 6 px between a glyph and its label, 4 px between a number and its unit;
+     type --size-tick; --mono-strong marks a key or a chosen segment.
+   Documentation: README.md. Live catalogue: index.html. */
+
+/* Without border-box a declared 16 px box measures 18 px. */
+*, *::before, *::after { box-sizing: border-box; }
+
+/* Pressed controls use a light grey over the paper surface. */
+:root { --pressed: var(--ink-faint); }
+
+/* Data roles share the family and the untracked metrics. */
+button, input, select, textarea, .val, .chip, code, pre {
+  font-family: var(--mono);
+  font-weight: var(--mono-weight);
+  font-style: normal;
+  line-height: var(--mono-ui-leading);
+  letter-spacing: normal;
+  word-spacing: normal;
+  font-kerning: none;
+  font-variant-numeric: normal;
+  font-variant-ligatures: none;
+  font-synthesis: none;
+  font-feature-settings: var(--mono-features);
+}
+input, textarea, .val, code, pre {
+  font-feature-settings: var(--mono-literal-features);
+  line-height: var(--mono-literal-leading);
+}
+button, input, select, output { font-size: var(--size-tick); color: inherit; }
+
+/* --- Key (the button with thickness) --------------------------------------
+   26 px box + 2 px cast = 28 px (7u), the footprint of an ordinary button, so
+   the two share a row. 1 px --ink border. A hairline cast, never a blur. Hover
+   is texture; press removes the thickness and adds a light grey background. */
+.key-btn {
+  display: inline-flex;
+  min-width: var(--hit);
+  min-height: 26px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  box-shadow: 0 2px 0 var(--ink);
+  background: var(--paper);
+  font-weight: var(--mono-strong);
+  cursor: pointer;
+}
+.key-btn:hover:not(:disabled) { background: var(--dither), var(--paper); }
+.key-btn:active:not(:disabled), .key-btn[aria-pressed="true"] {
+  box-shadow: none;
+  transform: translateY(2px);
+  background: var(--pressed);
+}
+.key-btn:disabled {
+  box-shadow: none;
+  transform: translateY(2px);
+  border-color: var(--ink-weak);
+  background: var(--ink-faint);
+  color: var(--ink-weak);
+  cursor: default;
+}
+.key-btn.act { color: var(--accent); border-color: var(--accent); }
+.key-btn.armed { color: var(--paper); background: var(--error-ink); border-color: var(--error-ink); }
+
+/* --- Ordinary button (no thickness) ---------------------------------------
+   28 px box, the same footprint as a key and its cast. Use it for a command
+   that must not compete with the key beside it, such as Cancel next to Save. */
+.btn {
+  display: inline-flex;
+  min-width: var(--hit);
+  min-height: 28px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  background: var(--paper);
+  cursor: pointer;
+}
+.btn:hover:not(:disabled) { background: var(--dither), var(--paper); }
+.btn:active:not(:disabled) { background: var(--pressed); }
+/* Primary: the one command a dialog exists for. Amber is the ground of things
+   you operate; the weight carries it in greyscale. */
+.btn.primary:not(:disabled) { background: var(--amber); font-weight: var(--mono-strong); }
+.btn.primary:hover:not(:disabled) { background: var(--dither), var(--amber); }
+.btn.primary:active:not(:disabled) { background: var(--amber-deep); }
+.btn:disabled {
+  border-color: var(--ink-weak);
+  background: var(--ink-faint);
+  color: var(--ink-weak);
+  cursor: default;
+}
+
+/* --- Well (a key inside a bordered strip keeps the quiet border) ---------- */
+.well-btn {
+  display: inline-flex; min-height: 28px; align-items: center; gap: 6px;
+  padding: 0 8px; border: 1px solid var(--line); border-radius: 0;
+  background: var(--paper); cursor: pointer;
+}
+.well-btn:hover:not(:disabled) { background: var(--dither), var(--paper); }
+.well-btn:active:not(:disabled) { background: var(--pressed); }
+
+/* --- Segmented control ---------------------------------------------------
+   It carries a cast, so it takes the key's footprint: 24 px segments + 2 px
+   border + 2 px cast = 28 px. */
+.seg { display: inline-flex; border: 1px solid var(--ink); box-shadow: 0 2px 0 var(--ink); background: var(--paper); }
+/* Flex, so an icon segment centres and does not sit on a text baseline. */
+.seg > button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 24px; padding: 0 8px; border: 0; border-left: 1px solid var(--ink);
+  background: transparent; cursor: pointer;
+}
+.seg > button:first-child { border-left: 0; }
+.seg > button:hover { background: var(--dither), transparent; }
+.seg > button[aria-pressed="true"] { background: var(--pressed); font-weight: var(--mono-strong); }
+
+/* --- Tabs ---------------------------------------------------------------- */
+.tabs { display: flex; border-bottom: 1px solid var(--line); }
+.tabs > button { position: relative; min-width: 66px; min-height: 40px; border: 0; background: transparent; cursor: pointer; }
+.tabs > button[aria-selected="true"] { color: var(--accent); font-weight: var(--mono-strong); }
+.tabs > button[aria-selected="true"]::after {
+  content: ""; position: absolute; right: 8px; bottom: 0; left: 8px; height: 2px; background: var(--accent);
+}
+
+/* --- Fields -------------------------------------------------------------- */
+.field { min-height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: 0; background: var(--paper); }
+.field:hover:not(:disabled) { border-color: var(--ink-weak); }
+.field:disabled { color: var(--ink-weak); background: var(--ink-faint); }
+.field[readonly] { color: var(--ink-medium); background: var(--panel); }
+.num { width: calc(8.75ch + 4px); padding: 0 4px 0 8px; text-align: right; }
+
+.chip-row { display: flex; flex-wrap: wrap; align-items: start; gap: 8px; }
+.chip-toggle { display: inline-flex; border: 1px solid var(--ink); box-shadow: 0 2px 0 var(--ink); }
+.chip-toggle .chip { position: relative; display: inline-flex; align-items: center; min-height: 24px; padding: 0 8px; border-left: 1px solid var(--ink); font-size: var(--size-tick); background: var(--paper); cursor: pointer; }
+.chip-toggle .chip:first-child { border-left: 0; }
+.chip-toggle input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.chip-toggle .chip:hover { background: var(--dither), var(--paper); }
+.chip-toggle .chip:has(:checked) { background: var(--pressed); font-weight: var(--mono-strong); }
+.chip-toggle .chip:has(:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+.chip.custom[data-on="true"] { box-shadow: none; transform: translateY(2px); background: var(--pressed); font-weight: var(--mono-strong); }
+/* Number and unit share the save dialog chip's border and cast. */
+.chip.custom {
+  display: inline-flex; align-items: center; gap: 4px; min-height: 26px;
+  padding: 0 8px; border: 1px solid var(--ink);
+  box-shadow: 0 2px 0 var(--ink); background: var(--paper);
+}
+.chip.custom:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+.chip.custom input {
+  width: 4ch; min-width: 0; min-height: 24px; padding: 0;
+  border: 0; background: transparent; text-align: right; appearance: textfield;
+}
+/* No spinner: it would split the number from its unit. Arrow keys still step. */
+.chip.custom input::-webkit-inner-spin-button, .chip.custom input::-webkit-outer-spin-button { appearance: none; }
+.chip.custom input:focus { outline: none; }
+.chip.custom .unit { font-size: var(--size-tick); color: var(--ink-quiet); }
+@media (pointer: coarse) { .chip.custom, .chip.custom input { min-height: 44px; } }
+
+/* --- Structural label and data value ------------------------------------- */
+.key-label {
+  font-family: var(--label-face); font-feature-settings: normal; word-spacing: normal;
+  font-size: var(--size-micro); letter-spacing: var(--track-caps); text-transform: uppercase; color: var(--ink-quiet);
+}
+.val { font-size: var(--size-tick); color: var(--ink); }
+
+/* --- Row --------------------------------------------------------------- */
+.row-item { display: block; width: 100%; padding: 4px 12px 4px 20px; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.row-item:hover { background: var(--dither), transparent; }
+.row-item[aria-selected="true"] { box-shadow: inset 3px 0 var(--ink); background: var(--dither), transparent; }
+.row-item > span { display: block; font-size: var(--size-tick); }
+.row-item > small { display: block; font-size: var(--size-micro); color: var(--ink-quiet); }
+
+/* --- State badge --------------------------------------------------------- */
+.state { display: inline-block; padding: 0 4px; border: 1px solid currentColor; background: var(--panel); font-family: var(--mono); font-size: var(--size-micro); }
+.state[data-state="draft"] { color: var(--accent); background: var(--accent-pale); }
+.state[data-state="running"] { color: #1e5c31; background: #eef5ee; }
+.state[data-state="stopping"] { color: var(--warn-ink); background: var(--warn-bg); }
+.state[data-state="failed"] { color: var(--error-ink); background: var(--error-bg); }
+
+/* --- Popover surface (one treatment: hairline cast, no blur) -------------- */
+details.pop { position: relative; display: inline-block; }
+/* Block-level summary: an inline one sits on a line box, and the descender
+   space under it moves the sheet down by a few pixels. */
+details.pop > summary { display: flex; list-style: none; cursor: pointer; }
+details.pop > summary::marker, details.pop > summary::-webkit-details-marker { content: ""; display: none; }
+.sheet {
+  position: absolute; z-index: 40; top: calc(100% + 1px); left: 0;
+  width: max-content; padding: 4px;
+  border: 1px solid var(--ink); box-shadow: 0 2px 0 var(--ink); background: var(--paper);
+}
+.sheet[data-align="right"] { right: 0; left: auto; }
+/* The sheet clears the control's visual foot by 1 px, and a key's cast is part
+   of its foot. */
+details.pop > summary.key-btn + .sheet { top: calc(100% + 2px + 1px); }
+
+/* Caret: geometry, not a character. */
+.caret::after {
+  content: ""; display: inline-block; width: 0; height: 0; margin-left: 6px;
+  border-top: 4px solid currentColor; border-right: 3px solid transparent; border-left: 3px solid transparent;
+}
+
+/* --- Focus --------------------------------------------------------------- */
+:focus:not(:focus-visible) { outline: none; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* ===========================================================================
+   Tickbox — original bevel with a dithered recessed field
+   =========================================================================== */
+.tick-label { display: inline-flex; min-height: var(--hit); align-items: center; gap: 6px; font-size: var(--size-tick); font-family: var(--mono); user-select: none; }
+.tick-label > input { position: fixed; margin: 0; border: none; background: 0; opacity: 0; appearance: none; }
+.tick-box { position: relative; flex: none; width: 16px; height: 16px; }
+.tick-box {
+  background: var(--paper);
+  box-shadow: inset -1px -1px #fff, inset 1px 1px #808080,
+    inset -2px -2px #dfdfdf, inset 2px 2px #0a0a0a;
+}
+.tick-box::before { content: ""; position: absolute; inset: 2px; }
+:active + .tick-box::before, :disabled + .tick-box::before {
+  background: var(--dither), var(--paper);
+}
+
+/* The original 7 × 7 tick leaves the spare pixel to the right and below. */
+:checked + .tick-box::after { content: ""; position: absolute; top: 4px; left: 4px; width: 7px; height: 7px; background: var(--ink); mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='7' height='7' shape-rendering='crispEdges'%3E%3Crect x='0' y='2' width='1' height='1'/%3E%3Crect x='0' y='3' width='1' height='1'/%3E%3Crect x='0' y='4' width='1' height='1'/%3E%3Crect x='1' y='3' width='1' height='1'/%3E%3Crect x='1' y='4' width='1' height='1'/%3E%3Crect x='1' y='5' width='1' height='1'/%3E%3Crect x='2' y='4' width='1' height='1'/%3E%3Crect x='2' y='5' width='1' height='1'/%3E%3Crect x='2' y='6' width='1' height='1'/%3E%3Crect x='3' y='3' width='1' height='1'/%3E%3Crect x='3' y='4' width='1' height='1'/%3E%3Crect x='3' y='5' width='1' height='1'/%3E%3Crect x='4' y='2' width='1' height='1'/%3E%3Crect x='4' y='3' width='1' height='1'/%3E%3Crect x='4' y='4' width='1' height='1'/%3E%3Crect x='5' y='1' width='1' height='1'/%3E%3Crect x='5' y='2' width='1' height='1'/%3E%3Crect x='5' y='3' width='1' height='1'/%3E%3Crect x='6' y='0' width='1' height='1'/%3E%3Crect x='6' y='1' width='1' height='1'/%3E%3Crect x='6' y='2' width='1' height='1'/%3E%3C/svg%3E"); }
+:disabled:checked + .tick-box::after { background: var(--ink-quiet); }
+.tick-label:has(:disabled) { color: var(--ink-weak); }
+.tick-label:has(:focus-visible) { outline: 1px dotted var(--ink); outline-offset: 0; }
+
+@media (pointer: coarse) { .tick-label { min-height: 44px; } }
+@media (forced-colors: active) { .tick-label > input { position: static; opacity: 1; appearance: auto; } .tick-box { display: none; } }
+
+/* ===========================================================================
+   Range histogram — two-head range over a dithered curve
+   =========================================================================== */
+/* One grid, so the curve and the rail share column 2 and cannot drift apart. */
+.rh { display: grid; grid-template-columns: max-content minmax(0, 1fr) max-content; gap: 4px 6px; align-items: center; width: 320px; max-width: 100%; }
+.rh-head { grid-area: 1 / 1 / 2 / 4; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.rh-surface { grid-area: 2 / 2 / 3 / 3; position: relative; }
+.rh-scheme { grid-area: 4 / 1 / 5 / 4; font-family: var(--mono); font-size: var(--size-tick); }
+.rh-selection { position: absolute; top: 0; bottom: 0; border: 1px solid var(--accent); border-top: 0; background: var(--accent-pale); opacity: .65; pointer-events: none; }
+.rh-curve { touch-action: none; cursor: crosshair; }
+.rh-curve:focus-visible { outline: none; border-bottom: 2px solid var(--accent); }
+.rh-num[data-edge="lo"] { grid-area: 3 / 1; }
+.rh-rail { grid-area: 3 / 2; }
+.rh-num[data-edge="hi"] { grid-area: 3 / 3; }
+.rh-count { font-family: var(--mono); font-size: var(--size-micro); font-feature-settings: var(--mono-literal-features); color: var(--ink-medium); }
+
+/* Stable masks keep dots in place while the range changes. */
+.rh-curve {
+  display: block; width: 100%; height: 24px;
+  border-bottom: 1px solid var(--ink); background: var(--stock-edge);
+  image-rendering: pixelated; cursor: crosshair;
+}
+
+/* Global data extremes, shown while the pointer is on the curve. They share
+   the readout columns and alignment, and their baseline sits on the curve's
+   baseline: a canvas has no text, so its baseline is its bottom edge. */
+.rh-curve, .rh-ext { align-self: last baseline; }
+.rh-ext {
+  grid-row: 2; width: 6ch; visibility: hidden;
+  font-family: var(--mono); font-size: var(--size-tick); font-feature-settings: var(--mono-literal-features);
+  line-height: 1; color: var(--ink-quiet);
+}
+.rh-ext[data-edge="lo"] { grid-column: 1; text-align: right; }
+.rh-ext[data-edge="hi"] { grid-column: 3; text-align: left; }
+.rh:has(.rh-curve:hover) .rh-ext { visibility: visible; }
+
+/* Boxless readouts: the number is the label. Arrows still step the edge. */
+.rh-num {
+  width: 6ch; padding: 0; border: 0; background: transparent; appearance: textfield;
+  font-family: var(--mono); font-size: var(--size-tick); color: var(--ink);
+}
+.rh-num::-webkit-outer-spin-button, .rh-num::-webkit-inner-spin-button { appearance: none; }
+.rh-num[data-edge="lo"] { text-align: right; }
+.rh-num[data-edge="hi"] { text-align: left; }
+.rh-rail { position: relative; height: 18px; cursor: pointer; }
+.rh-rail::before { content: ""; position: absolute; top: 8px; right: 0; left: 0; height: 1px; background: var(--ink-weak); }
+.rh-span { position: absolute; top: 7px; height: 3px; background: var(--ink); }
+.rh-rail > input[type="range"] {
+  position: absolute; top: 0; left: 0; width: 100%; height: 18px; margin: 0;
+  appearance: none; background: transparent; pointer-events: none;
+}
+.rh-rail > input[type="range"]::-moz-range-track { height: 18px; background: transparent; }
+.rh-rail > input[type="range"]::-webkit-slider-runnable-track { height: 18px; background: transparent; }
+.rh-rail > input[type="range"]::-moz-range-thumb { width: 10px; height: 18px; border: 1px solid var(--ink); border-radius: 0; background: var(--paper); pointer-events: auto; }
+.rh-rail > input[type="range"]::-webkit-slider-thumb { width: 10px; height: 18px; appearance: none; border: 1px solid var(--ink); border-radius: 0; background: var(--paper); pointer-events: auto; }
+.rh-rail > input[type="range"]:focus-visible::-moz-range-thumb { outline: 2px solid var(--accent); }
+.rh-rail > input[type="range"]:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--accent); }
+
+@media (pointer: coarse) {
+  .rh-rail, .rh-rail > input[type="range"] { height: 44px; }
+  .rh-rail::before { top: 21px; }
+  .rh-span { top: 20px; }
+  .rh-rail > input[type="range"]::-moz-range-thumb { width: 16px; height: 44px; }
+  .rh-rail > input[type="range"]::-webkit-slider-thumb { width: 16px; height: 44px; }
+}
+
+/* ===========================================================================
+   Colour popover — the indicator reuses the tickbox well
+   =========================================================================== */
+.swatch-btn { display: inline-flex; min-height: var(--hit); align-items: center; gap: 6px; padding: 0 4px 0 0; border: 0; background: transparent; font-family: var(--mono); font-size: var(--size-tick); cursor: pointer; }
+.swatch-box { position: relative; display: block; flex: none; width: 16px; height: 16px; border: 1px solid var(--ink); background: var(--ink); }
+.swatch-btn:hover .swatch-box { box-shadow: 0 0 0 1px var(--paper), 0 0 0 2px var(--ink); }
+details[open] > .swatch-btn .swatch-box { box-shadow: inset 0 0 0 1px var(--paper); }
+
+.cp { display: grid; gap: 8px; width: 216px; padding: 8px; }
+.cp-field { position: relative; height: 112px; border: 1px solid var(--ink); cursor: crosshair; touch-action: none; }
+.cp-field > .dot { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border: 1px solid var(--paper); box-shadow: 0 0 0 1px var(--ink); pointer-events: none; }
+.cp-hue { position: relative; height: 14px; border: 1px solid var(--ink); cursor: ew-resize; touch-action: none; background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); }
+.cp-hue > .dot { position: absolute; top: -1px; bottom: -1px; width: 3px; margin-left: -1px; background: var(--ink); box-shadow: 0 0 0 1px var(--paper); pointer-events: none; }
+.cp-rgb { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+.cp-rgb label { display: flex; align-items: center; gap: 3px; min-width: 0; }
+.cp-rgb input { width: 100%; min-width: 0; padding: 0 2px; text-align: right; }
+.cp-hex { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px; align-items: center; }
+.cp-hex input { width: 100%; }
+/* One row, never two: the strip needs no label, because a row of colours under
+   the numbers can only be the recent ones. */
+.cp-hist { display: flex; flex-wrap: nowrap; gap: 3px; align-items: center; min-height: 20px; overflow: hidden; }
+.cp-hist button { position: relative; width: 20px; height: 20px; padding: 0; border: 1px solid var(--ink); cursor: pointer; }
+.cp-hist button[aria-pressed="true"]::after {
+  content: ""; position: absolute; inset: 0; margin: auto; width: 7px; height: 7px; background: var(--paper);
+  filter: drop-shadow(0 0 1px var(--ink));
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='7' height='7'%3E%3Cpath d='M7 0H6v1H5v1H4v1H3v1H2V3H1V2H0v3h1v1h1v1h1V6h1V5h1V4h1V3h1V0z'/%3E%3C/svg%3E") center / 7px 7px no-repeat;
+}
+@media (pointer: coarse) { .cp-hist button { width: 32px; height: 32px; } .cp-field { height: 140px; } .cp-hue { height: 24px; } }
+
+/* ===========================================================================
+   Dropdowns — checklist sheet and token field
+   =========================================================================== */
+.sel-native {
+  min-height: 28px; max-width: 21ch; padding: 0 4px 0 8px; border: 1px solid var(--line); border-radius: 0;
+  background: var(--paper); font-family: var(--mono); font-size: var(--size-tick);
+}
+.sel-native:hover { border-color: var(--ink-weak); }
+
+.list { display: grid; min-width: 15rem; max-height: min(15rem, 40vh); overflow: auto; }
+.list > button, .list > label {
+  display: flex; min-height: 28px; align-items: center; gap: 8px; width: 100%;
+  padding: 0 8px; border: 0; background: transparent; text-align: left;
+  line-height: var(--line-height-tight);
+  font-family: var(--mono); font-size: var(--size-tick); cursor: pointer;
+}
+.list > button > small, .list > label > small { margin-left: auto; color: var(--ink-quiet); font: inherit; font-size: var(--size-micro); }
+.list > button:hover, .list > label:hover { background: var(--dither), transparent; }
+.list > button[aria-selected="true"] { box-shadow: inset 3px 0 var(--ink); background: var(--pressed); font-weight: var(--mono-strong); }
+.list > button[data-active="true"] { outline: 2px solid var(--accent); outline-offset: -2px; }
+.list-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; padding: 2px 8px; border-bottom: 1px solid var(--line); }
+.list-head .well-btn { min-height: 24px; }
+@media (pointer: coarse) { .list > button, .list > label { min-height: 44px; } }
+
+/* Token field. The remove mark is 98.css's close glyph as a mask, not
+   a character. */
+.list-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 8px; border-top: 1px solid var(--line); }
+.list-filter { width: 100%; min-height: 28px; padding: 0 8px; border: 0; border-bottom: 1px solid var(--line); background: var(--paper); font-family: var(--mono); font-size: var(--size-tick); }
+.tokens { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-height: 28px; max-width: 30rem; padding: 2px 4px; border: 1px solid var(--line); background: var(--paper); cursor: pointer; }
+.tokens > .tok { display: inline-flex; align-items: center; gap: 4px; padding: 0 2px 0 4px; border: 1px solid var(--ink); background: var(--panel); font-family: var(--mono); font-size: var(--size-micro); }
+.tokens > .tok > button { min-width: var(--hit); min-height: 20px; padding: 0; border: 0; background: transparent; color: var(--ink); cursor: pointer; }
+.tokens > .tok > button::before { content: ""; display: block; width: 8px; height: 7px; margin: auto; background: currentColor; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='7'%3E%3Cpath d='M0 0h2v1h1v1h2V1h1V0h2v1H7v1H6v1H5v1h1v1h1v1h1v1H6V6H5V5H3v1H2v1H0V6h1V5h1V4h1V3H2V2H1V1H0V0z'/%3E%3C/svg%3E"); }
+.tokens > .tok > button:hover { background: var(--dither), transparent; }
+.tokens > .ghost { color: var(--ink-quiet); font-family: var(--mono); font-size: var(--size-tick); }
+
+/* ===========================================================================
+   Line style — sidebar panel
+   Dash samples in a dropdown; a custom number chip owns the weight in mm.
+   =========================================================================== */
+.ls { display: grid; gap: 4px; }
+.ls > .key-label { margin-top: 4px; }
+.ls-colour { display: flex; align-items: center; justify-content: space-between; }
+.ls-controls { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); gap: 4px; align-items: start; }
+/* The 1fr cell is too narrow for the 8 px inset; 4 px each side keeps it symmetric. */
+.ls-controls .chip.custom { min-width: 0; padding: 0 4px; gap: 2px; }
+.ls-controls .chip.custom input { width: 100%; font-size: var(--size-micro); appearance: textfield; }
+.ls-controls .chip.custom .unit { font-size: var(--size-micro); }
+.ls-controls input::-webkit-inner-spin-button, .ls-controls input::-webkit-outer-spin-button { appearance: none; }
+.ls-dash { width: 100%; min-width: 0; }
+.ls-dash > summary { width: 100%; justify-content: space-between; }
+.ls-dash svg { width: 100%; min-width: 0; height: 16px; }
+.ls-dash .sheet { width: 100%; }
+.dash-options { display: grid; max-height: 280px; overflow-y: auto; }
+.dash-options button { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 0 8px; border: 0; background: var(--paper); cursor: pointer; }
+.dash-options button:hover { background: var(--dither), var(--paper); }
+.dash-options button[aria-selected="true"] { background: var(--pressed); }
+.dash-options button:focus-visible { outline-offset: -2px; }
+@media (pointer: coarse) { .dash-options button { min-height: 44px; } }
+
+/* Coarse pointers. Last, so it overrides every box above. */
+@media (pointer: coarse) {
+  /* The cast is not part of the target, so a key's box clears 44 px itself. */
+  .key-btn, .btn, .well-btn, .field, .seg > button, .chip-toggle .chip { min-height: 44px; }
+}

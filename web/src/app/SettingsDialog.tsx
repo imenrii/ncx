@@ -54,10 +54,10 @@ export function SettingsDialog({ metadata, variable, currentSize, settings, onAp
       <h3>Field view</h3>
       <span className="row-label" id={`${id}-wind`}>Wind vector display</span>
       <div className="chip-row" role="group" aria-labelledby={`${id}-wind`}>
-        <span className="toggle">
-          {(["arrow", "barb"] as const).map(style => <button type="button" className="chip" key={style}
+        <span className="seg">
+          {(["arrow", "barb"] as const).map(style => <button type="button" key={style}
             aria-label={style === "arrow" ? "Wind arrow" : "Wind barb"} title={style === "arrow" ? "Arrow" : "Barb"}
-            aria-pressed={draft.windStyle === style} data-on={draft.windStyle === style}
+            aria-pressed={draft.windStyle === style}
             onClick={() => setDraft(current => ({ ...current, windStyle: style }))}>
             <WindMark style={style} compact />
           </button>)}
@@ -66,7 +66,7 @@ export function SettingsDialog({ metadata, variable, currentSize, settings, onAp
       <span className="row-label" id={`${id}-components`}>Vector components</span>
       <div className="settings-pair" role="group" aria-labelledby={`${id}-components`}>
         {(["u", "v"] as const).map(axis => <label key={axis}>{axis.toUpperCase()}
-          <select aria-label={axis === "u" ? "Eastward wind component" : "Northward wind component"}
+          <select className="field sel-native" aria-label={axis === "u" ? "Eastward wind component" : "Northward wind component"}
             value={selected[axis]} onChange={event => setComponent(axis, event.currentTarget.value)}>
             <option value="" disabled>Select variable</option>
             {choices.map(item => <option key={item.path} value={item.path}>{item.path}</option>)}
@@ -74,7 +74,7 @@ export function SettingsDialog({ metadata, variable, currentSize, settings, onAp
         </label>)}
       </div>
       <label htmlFor={`${id}-pressure`}>Pressure component</label>
-      <select id={`${id}-pressure`} aria-label="Pressure component" value={pressure?.path ?? ""}
+      <select className="field sel-native" id={`${id}-pressure`} aria-label="Pressure component" value={pressure?.path ?? ""}
         onChange={event => {
           const path = event.currentTarget.value;
           setDraft(current => ({ ...current, pressureComponents: { ...current.pressureComponents, [dataset]: path } }));
@@ -103,7 +103,7 @@ export function SettingsDialog({ metadata, variable, currentSize, settings, onAp
             {index === 1 && <span className="unit">px</span>}
           </span>
         </span>)}
-        <button type="button" className="chip" aria-pressed={automatic} data-on={automatic}
+        <button type="button" className="key-btn" aria-pressed={automatic}
           onClick={() => {
             setAutomatic(true);
             setDimensions({ width: String(currentSize.width), height: String(currentSize.height) });
@@ -112,8 +112,8 @@ export function SettingsDialog({ metadata, variable, currentSize, settings, onAp
       </div>
       {error && <p className="export-error" role="alert">{error}</p>}
       <div className="dialog-actions">
-        <button type="button" onClick={() => dialog.current?.close()}>Cancel</button>
-        <button type="submit" className="primary">Apply</button>
+        <button type="button" className="btn" onClick={() => dialog.current?.close()}>Cancel</button>
+        <button type="submit" className="btn primary">Apply</button>
       </div>
     </form>
   </dialog>;

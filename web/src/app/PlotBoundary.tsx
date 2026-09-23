@@ -9,7 +9,7 @@ export class PlotBoundary extends Component<{ children: ReactNode }, { error?: s
   render() {
     return this.state.error ? <div className="comparison-unavailable" role="alert">
       <p>{this.state.error}</p>
-      <button onClick={() => this.setState({ error: undefined })}>Retry plot</button>
+      <button className="btn" onClick={() => this.setState({ error: undefined })}>Retry plot</button>
     </div> : this.props.children;
   }
 }

@@ -291,25 +291,10 @@ body {
   font-size: var(--size-body);
 }
 
-button,
-input,
-select,
-output {
-  font: inherit;
-  color: inherit;
-  font-feature-settings: inherit;
-}
-
-/* Web data roles share a family and untracked metrics. Profile overrides below
-   set features on the element itself; changing a variable alone on a child
-   cannot change an already computed inherited font-feature-settings value. */
-button,
-input,
-select,
-textarea,
-code,
-pre,
-.save-dialog .chip,
+/* Web data roles share a family and untracked metrics; components.css covers
+   the form controls. Profile overrides below set features on the element
+   itself; changing a variable alone on a child cannot change an already
+   computed inherited font-feature-settings value. */
 .save-dialog .hint.derived,
 .save-dialog .hint.syntax,
 .path,
@@ -385,51 +370,23 @@ pre,
   word-spacing: normal;
 }
 
-button,
-select,
-input[type="search"],
-input[type="number"] {
-  min-height: 28px;
-  border: 1px solid var(--line);
-  border-radius: 0;
-  background: var(--paper);
-}
-
+/* A button without a component class is a bare target: the component classes
+   in components.css draw every box. */
 button {
   padding: 0 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   cursor: pointer;
-  font-size: var(--size-tick);
-  font-weight: var(--mono-weight);
 }
 
 button strong, button b, .source-participation summary {
   font-weight: var(--mono-strong);
 }
 
-button:hover:not(:disabled),
-select:hover:not(:disabled),
-input:hover:not(:disabled) {
-  border-color: var(--ink-weak);
-}
-
-/* Only :focus-visible carries a ring. A pointer press already tells the reader
-   what it hit, so the ring there is noise; keyboard focus still has to be
-   visible (WCAG 2.2 SC 2.4.11), so it is not turned off, only narrowed. */
-:focus:not(:focus-visible) {
-  outline: none;
-}
-
-button:focus-visible,
-select:focus-visible,
-input:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
-  outline-offset: 1px;
-}
-
 button:disabled {
   cursor: default;
   color: var(--ink-weak);
-  background: var(--ink-faint);
 }
 
 .startup {
@@ -733,38 +690,11 @@ button:disabled {
 
 .variable-filter label {
   display: flex;
-  align-items: center;
-  gap: 4px;
   margin-top: 8px;
   color: var(--ink-medium);
   font-family: var(--ui-face);
   font-size: var(--size-micro);
   letter-spacing: var(--track-small);
-}
-
-.variable-filter input[type="checkbox"],
-.save-dialog input[type="checkbox"] {
-  display: grid;
-  width: 16px;
-  height: 16px;
-  flex: none;
-  place-items: center;
-  margin: 0;
-  padding: 0;
-  border: 1px solid var(--ink);
-  appearance: none;
-  background: var(--paper);
-  color: var(--ink);
-  font: inherit;
-}
-
-/* A cross, not a tick: the tick glyph is not in either subset this binary
-   ships, and a background image would not follow the ink colour. */
-.variable-filter input[type="checkbox"]:checked::before,
-.save-dialog input[type="checkbox"]:checked::before {
-  content: "\00d7";
-  font-size: var(--size-body);
-  line-height: 1;
 }
 
 .tree {
@@ -855,32 +785,14 @@ button:disabled {
 
 .variable-row {
   display: grid;
-  width: 100%;
   min-height: 0;
-  padding: 4px 12px 4px 20px;
-  border: 0;
-  border-radius: 0;
-  text-align: left;
-  background: transparent;
 }
 
 .variable-row[data-supporting] span {
   color: var(--ink-medium);
 }
 
-.variable-row:hover {
-  background: var(--dither), transparent;
-}
-
-/* Marker and texture answer different questions -- which row is open, and
-   which row is under the pointer -- so they must not share a channel. */
-.variable-row[aria-selected="true"] {
-  box-shadow: inset 3px 0 var(--ink);
-  background: var(--dither), transparent;
-}
-
 .variable-row span {
-  font-size: var(--size-tick);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -889,8 +801,6 @@ button:disabled {
 .variable-row small {
   overflow: hidden;
   margin-top: 1px;
-  color: var(--ink-quiet);
-  font-size: var(--size-micro);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -932,35 +842,17 @@ button:disabled {
   background: var(--paper);
 }
 
+/* The toolbar carries the rule under the tabs, and the tab row is the
+   toolbar's height, not the library's 40 px. */
 .view-tabs {
-  display: flex;
   flex: none;
   border-right: 1px solid var(--line);
+  border-bottom: 0;
 }
 
-.view-tabs button {
-  position: relative;
-  min-width: 66px;
+.view-tabs > button {
   min-height: var(--toolbar-height);
   height: 100%;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-}
-
-.view-tabs button.active {
-  color: var(--accent);
-  font-weight: var(--mono-strong);
-}
-
-.view-tabs button.active::after {
-  position: absolute;
-  right: 8px;
-  bottom: 0;
-  left: 8px;
-  height: 2px;
-  background: var(--accent);
-  content: "";
 }
 
 .display-controls {
@@ -1033,28 +925,12 @@ button:disabled {
   text-transform: none;
 }
 
-.display-controls select:disabled {
-  color: var(--ink-weak);
-  background: var(--ink-faint);
-  cursor: not-allowed;
-}
-
-.display-controls input[type="number"] {
-  width: 8.75ch;
-  padding: 0 4px;
-}
-
 .display-controls .range-values {
   gap: 4px;
 }
 
 .display-controls .range-values input {
-  width: 10.5ch;
-}
-
-.display-controls .range-values input[readonly] {
-  background: var(--panel);
-  color: var(--ink-medium);
+  width: calc(10.5ch + 4px);
 }
 
 .dimension-readout output {
@@ -1066,9 +942,6 @@ button:disabled {
 
 .screenshot-button {
   flex: none;
-  min-height: 28px;
-  font-size: var(--size-tick);
-  font-weight: var(--mono-strong);
 }
 
 .stage {
@@ -1242,10 +1115,10 @@ button:disabled {
 
 .shell[data-chrome="none"] .source-panel { top: var(--toolbar-height); }
 .curve-offset-controls label { text-transform: none; }
-.curve-offset-controls button { font-size: var(--size-tick); }
 
-.source-panel > label, .field-pane-selection > label { display: flex; gap: 8px; padding: 4px; }
-.curve-range-reset { position: absolute; right: 8px; top: 4px; z-index: 1; font-size: var(--size-tick); }
+.source-panel > label, .field-pane-selection > label { display: flex; padding: 4px; }
+.source-panel > label:not(.tick-label) { gap: 8px; }
+.curve-range-reset { position: absolute; right: 8px; top: 4px; z-index: 1; }
 .dataset-head .dataset-switcher { min-width: 0; max-width: 100%; }
 .dataset-head .dataset-switcher select { min-width: 0; max-width: 100%; }
 input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
@@ -1543,28 +1416,12 @@ input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
   color: var(--accent);
 }
 
-:is(.view-controls, .playback) button {
-  min-width: var(--corner-button, 28px);
-  min-height: var(--corner-button, 28px);
-  padding: 0 var(--view-padding, 7px);
-  border-color: var(--ink);
-  /* A hairline cast below the box, not a blur: the button has a thickness, and
-     pressing it takes the thickness away. */
-  box-shadow: 0 2px 0 var(--ink);
-  background: var(--paper);
-  font-size: var(--size-tick);
-  font-weight: var(--mono-strong);
-}
-
-:is(.view-controls, .playback) button:hover:not(:disabled) {
-  background: var(--dither), var(--paper);
-}
-
-:is(.view-controls, .playback) button:active:not(:disabled),
-.playback button[aria-pressed="true"] {
-  box-shadow: none;
-  transform: translateY(2px);
-  background: var(--dither-strong), var(--paper);
+/* Keys from components.css; the corner geometry is shared with the legend
+   subgrid, so its box is set here. */
+.view-controls button {
+  min-width: var(--corner-button);
+  min-height: var(--corner-button);
+  padding: 0 var(--view-padding);
 }
 
 .mesh-warning {
@@ -1971,16 +1828,7 @@ input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
 
 .playback button {
   width: 29px;
-  height: 28px;
   padding: 0;
-}
-
-.playback button:disabled {
-  box-shadow: none;
-  transform: translateY(2px);
-  color: var(--ink-weak);
-  border-color: var(--ink-weak);
-  background: var(--ink-faint);
 }
 
 .playback button:focus-visible {
@@ -2363,124 +2211,6 @@ i .value {
   text-transform: uppercase;
 }
 
-.save-dialog .chip-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: calc(var(--s) / 2);
-}
-
-/* One toggle per row: a single box with a thickness, divided into segments.
-   The reader compares the choices inside one object instead of three loose
-   ones, and the chosen segment is pressed into it. The radio keeps the
-   keyboard and the accessibility tree; the dot beside the words would only
-   repeat that state in a second, weaker channel. */
-.save-dialog .toggle {
-  display: inline-flex;
-  border: 1px solid var(--ink);
-  box-shadow: 0 2px 0 var(--ink);
-  background: var(--paper);
-}
-
-.save-dialog .chip {
-  display: inline-flex;
-  min-height: var(--hit);
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 0 10px;
-  border: 1px solid var(--ink);
-  box-shadow: 0 2px 0 var(--ink);
-  background: var(--paper);
-  font-family: var(--mono);
-  font-size: var(--size-tick);
-}
-
-.save-dialog .toggle .chip {
-  border: 0;
-  border-left: 1px solid var(--ink);
-  box-shadow: none;
-}
-
-.save-dialog .toggle .chip:first-child {
-  border-left: 0;
-}
-
-/* A segment cannot fall away from the box it is cut into, so the chosen one
-   darkens where a lone key would drop. */
-.save-dialog .toggle .chip:has(input:checked) {
-  transform: none;
-}
-
-/* A two-state answer is a box and a cross, not a key: pressing a key means
-   "do it", ticking a box means "it is so". The row keeps the height of a
-   control so the vertical rhythm does not break around it. */
-.save-dialog .switch {
-  display: flex;
-  min-height: var(--hit);
-  align-items: center;
-  gap: 8px;
-  font-size: var(--size-tick);
-}
-
-.save-dialog .chip input[type="radio"] {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-}
-
-.save-dialog .chip:hover {
-  background: var(--dither), var(--paper);
-}
-
-.save-dialog .chip:has(input:checked),
-.save-dialog .chip[data-on="true"] {
-  box-shadow: none;
-  transform: translateY(2px);
-  background: var(--dither-strong), var(--paper);
-  font-weight: var(--mono-strong);
-}
-
-.save-dialog .chip:has(input:focus-visible),
-.save-dialog .chip:focus-within {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-/* Spinner and unit are one control, so they share one border and the unit sits
-   inside it. Padding is asymmetric because the number is centred against the
-   unit, not against the box. */
-.save-dialog .chip.custom {
-  gap: 4px;
-  padding: 0 8px 0 0;
-}
-
-.save-dialog .chip.custom input {
-  width: 68px;
-  height: calc(var(--hit) - 2px);
-  padding: 0 0 0 8px;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: center;
-}
-
-.save-dialog .chip.custom .unit {
-  color: var(--ink-quiet);
-  font-size: var(--size-micro);
-}
-
-.save-dialog form > input {
-  min-height: var(--hit);
-  padding: 0 8px;
-  border: 1px solid var(--line);
-  background: var(--paper);
-  color: var(--ink);
-  font-family: var(--mono);
-  font-size: var(--size-body);
-}
-
 .save-dialog .hint {
   margin: 0;
   color: var(--ink-quiet);
@@ -2522,18 +2252,6 @@ i .value {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 8px;
-}
-
-.save-dialog .dialog-actions button {
-  min-height: var(--hit);
-  padding: 0 16px;
-  font-family: var(--mono);
-}
-
-.save-dialog .dialog-actions .primary {
-  border-color: var(--ink);
-  background: var(--amber);
-  font-weight: var(--mono-strong);
 }
 
 .save-dialog .export-error {
@@ -2614,12 +2332,6 @@ i .value {
   min-width: 0;
   min-height: calc(10 * var(--u));
   padding: calc(2 * var(--u)) calc(3 * var(--u));
-  border: var(--stroke-spine) solid var(--line);
-  border-radius: 0;
-  background: var(--paper);
-  color: var(--ink);
-  font-family: var(--mono);
-  font-feature-settings: var(--mono-features);
   font-size: var(--size-body);
 }
 
@@ -2638,23 +2350,12 @@ i .value {
 .hub-open-panel .dialog-actions button {
   min-height: calc(10 * var(--u));
   padding: var(--u) calc(4 * var(--u));
-  border: var(--stroke-spine) solid var(--ink);
-  background: var(--paper);
-  color: var(--ink);
-  font-family: var(--mono);
-  font-feature-settings: var(--mono-features);
-  font-size: var(--size-tick);
-  font-weight: var(--mono-strong);
 }
 
 .hub-open-panel .dialog-actions {
   display: flex;
   justify-content: flex-end;
   gap: calc(2 * var(--u));
-}
-
-.hub-open-panel .dialog-actions button:last-child {
-  background: var(--amber);
 }
 
 .hub-error {
@@ -2697,7 +2398,6 @@ i .value {
   min-width: 0;
   min-height: calc(10 * var(--u));
   padding: var(--u) calc(3 * var(--u));
-  border: 1px solid var(--line);
   font-size: var(--size-body);
 }
 
@@ -2711,12 +2411,6 @@ i .value {
 .hub-password-dialog button {
   min-height: calc(10 * var(--u));
   padding: var(--u) calc(4 * var(--u));
-}
-
-.hub-password-dialog .primary {
-  border-color: var(--ink);
-  background: var(--amber);
-  font-weight: var(--mono-strong);
 }
 
 .hub-active-error {
@@ -2764,15 +2458,14 @@ i .value {
   max-width: 24ch;
 }
 
-.settings-dialog .toggle svg {
+.settings-dialog .seg svg {
   width: 24px;
   height: 20px;
   fill: none;
   stroke: currentColor;
 }
 
-.settings-dialog .toggle svg .solid { fill: currentColor; }
-.settings-dialog .toggle .chip[data-on="true"] { transform: none; }
+.settings-dialog .seg svg .solid { fill: currentColor; }
 
 @media (pointer: coarse) {
   .settings-button { width: 45px; height: 45px; padding: 10px; }
@@ -2788,29 +2481,19 @@ i .value {
 }
 
 .settings-dialog { width: 520px; }
-.settings-dialog :is(select, button, .chip) {
-  height: var(--hit);
-  min-height: var(--hit);
-  padding-block: 0;
-}
+.settings-dialog form > select { max-width: none; }
 .settings-dialog .chip.custom {
   width: 88px;
   flex: none;
 }
 .settings-dialog .chip.custom input {
-  height: calc(var(--hit) - 2px);
-  min-height: 0;
   min-width: 0;
   width: 0;
   flex: 1;
 }
-.settings-dialog .toggle { border: 0; }
-.settings-dialog .toggle .chip { padding: 0 4px; border: 1px solid var(--ink); }
-.settings-dialog .toggle .chip:first-child { border-left: 1px solid var(--ink); }
-.settings-dialog .toggle .chip + .chip { border-left: 0; }
 .settings-dialog .settings-dimensions { flex-wrap: nowrap; align-items: center; }
 
-.settings-dialog .toggle svg path {
+.settings-dialog .seg svg path {
   stroke-width: 1.5;
   vector-effect: non-scaling-stroke;
 }
@@ -2850,21 +2533,7 @@ i .value {
 }
 
 .topbar-actions button {
-  min-height: 24px;
-  padding: 2px 8px;
   white-space: nowrap;
-}
-
-.steering-toggle {
-  box-shadow: 0 2px 0 var(--ink);
-}
-
-.steering-toggle[aria-pressed="true"] {
-  box-shadow: none;
-  transform: translateY(2px);
-  color: var(--accent);
-  border-color: var(--accent);
-  background: var(--dither-strong), var(--paper);
 }
 
 .steering[hidden] {
@@ -2988,10 +2657,6 @@ i .value {
   color: var(--ink-quiet);
 }
 
-.steering-menu {
-  position: relative;
-}
-
 .steering-head .steering-help-toggle {
   display: grid;
   place-items: center;
@@ -3109,35 +2774,22 @@ i .value {
   .steering-head .steering-help-toggle, .steering-help button { min-width: 44px; min-height: 44px; }
 }
 
-.steering-menu summary {
-  cursor: pointer;
-  list-style: none;
+.steering-menu > summary {
   min-height: 24px;
   min-width: 24px;
-  display: grid;
-  place-items: center;
-}
-
-.steering-menu summary::marker {
-  content: '';
-}
-
-.steering-menu > div {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  z-index: 30;
-  width: max-content;
-  background: var(--paper);
-  border: 1px solid var(--line);
-  padding: 4px;
+  align-items: center;
+  justify-content: center;
 }
 
 .steering-menu button {
   display: block;
   width: 100%;
-  border: 0;
+  min-height: 28px;
   text-align: left;
+}
+
+.steering-menu button:hover {
+  background: var(--dither), transparent;
 }
 
 .steering-log {

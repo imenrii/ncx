@@ -439,8 +439,10 @@ try {
   settingsButton.click();
   const settings = await waitFor(() => document.querySelector('.settings-dialog[open]'), 'settings did not open');
   if (!settings.contains(document.activeElement)) failures.push('settings did not receive focus');
-  for (const box of settings.querySelectorAll('select, button, .chip.custom')) {
-    if (Math.abs(box.getBoundingClientRect().height - 24) > 0.1) failures.push('settings box is not 24px high: ' + box.outerHTML);
+  // Style/Web/components footprint: a flat box is 28 px; a cast box is 26 px plus its 2 px cast.
+  for (const box of settings.querySelectorAll('select, .btn, .key-btn, .seg, .chip.custom')) {
+    const cast = box.matches('.key-btn, .seg, .chip.custom') ? 2 : 0;
+    if (Math.abs(box.getBoundingClientRect().height + cast - 28) > 0.1) failures.push('settings box footprint is not 28px: ' + box.outerHTML);
   }
   const dimensionChips = settings.querySelectorAll('.settings-dimensions .chip.custom');
   const numericWidth = dimensionChips[0].getBoundingClientRect().width;

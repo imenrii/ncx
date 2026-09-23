@@ -176,13 +176,13 @@ export function ComparisonFieldView({
         ].filter(Boolean).join(" · ")}</span>
       </header>
       {datasets.length > 4 && <details className="field-pane-selection"><summary>Visible panes ({selectedCount}/4)</summary>
-        {datasets.map(item => <label key={item.id}><input type="checkbox"
+        {datasets.map(item => <label className="tick-label" key={item.id}><input type="checkbox"
           checked={selectedDatasets.some(source => source.id === item.id)}
           disabled={selectedCount >= 4 && !selectedDatasets.some(source => source.id === item.id)}
           onChange={event => { const checked = event.currentTarget.checked;
             setPaneIds(checked ? [...selectedDatasets.map(source => source.id), item.id]
               : selectedDatasets.filter(source => source.id !== item.id).map(source => source.id));
-          }} />{item.label}</label>)}
+          }} /><span className="tick-box" />{item.label}</label>)}
       </details>}
       <div className="field-comparison" data-count={panes.length}>
         {panes.map((pane) => (

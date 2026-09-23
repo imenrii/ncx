@@ -79,6 +79,7 @@ TypeScript model/decoder, and focused tests together.
   them; use `node web/scripts/sync-colormaps.mjs` when their upstream tables
   change.
 - UI design, typography always comply with `/home/snd2/prog/jackcho/Style/Web` instructions
+- UI components come from `Style/Web/components/components.css`, the SSOT. `web/src/components.css` is a vendored copy: do not edit it; change the Style copy, then run `npm run style:sync` in `web/` (`style:check` fails on drift). Use the library classes (`key-btn`, `btn`, `seg`, `chip-toggle`, `tick-label`, `field`, `row-item`, `tabs`, `pop`/`sheet`) and keep only layout overrides in `style.css`.
 - Sync to `/home/snd2/prog/jackcho/Style/Web/*` generically whenever a new design is agreed and dropped.
 - Always check with visuals to make sure nothing is broken
 

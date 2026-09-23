@@ -367,7 +367,7 @@ export function MeshFieldView(props: MeshFieldViewProps) {
       <div className="plot-frame mesh-warning" ref={frame}>
         <strong>{faceCount.toLocaleString()} mesh faces</strong>
         <p>About {estimatedMegabytes.toLocaleString()} MiB of browser geometry may be needed.</p>
-        <button onClick={() => setAcceptedLargeMesh(true)}>Load mesh once</button>
+        <button className="btn" onClick={() => setAcceptedLargeMesh(true)}>Load mesh once</button>
       </div>
     );
   }

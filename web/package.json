@@ -7,8 +7,8 @@
     "dev": "vite",
     "build": "npm run style:check && tsc --noEmit && vite build && node scripts/copy-python.mjs",
     "test": "npm run style:check && node --test 'src/**/*.test.ts'",
-    "style:sync": "node scripts/sync-plot-style.mjs",
-    "style:check": "node scripts/sync-plot-style.mjs --check"
+    "style:sync": "node scripts/sync-plot-style.mjs && node scripts/sync-components.mjs",
+    "style:check": "node scripts/sync-plot-style.mjs --check && node scripts/sync-components.mjs --check"
   },
   "dependencies": {
     "@speed-highlight/core": "2.1.0",

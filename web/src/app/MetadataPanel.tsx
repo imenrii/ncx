@@ -27,7 +27,7 @@ export function MetadataPanel({ metadata, variable }: { metadata: Metadata; vari
           <div><dt>view hint</dt><dd>{variable.view_hint.kind}</dd></div>
           <div className="metadata-unit">
             <dt>{fileUnit?.trim() || bound ? "Units" : <label htmlFor="metadata-unit">Units</label>}</dt>
-            <dd>{fileUnit?.trim() ? fileUnit : bound ? "Unspecified" : <select
+            <dd>{fileUnit?.trim() ? fileUnit : bound ? "Unspecified" : <select className="field sel-native"
               id="metadata-unit"
               value={attributeText(variable, "units")?.trim() ?? ""}
               onChange={event => unitAssignments.assign(metadata, variable.path, event.currentTarget.value)}
