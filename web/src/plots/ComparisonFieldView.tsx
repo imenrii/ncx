@@ -55,8 +55,11 @@ export function ComparisonFieldView({
   onFrameLoaded,
   onAllUnavailable,
   onStatus,
+  paneIds,
 }: {
   datasets: DatasetSummary[];
+  /** Datasets with a pane; the first four with the primary when absent. */
+  paneIds?: string[];
   primaryMetadata: Metadata;
   variable: Variable;
   display: DisplayDimensions;
@@ -80,9 +83,9 @@ export function ComparisonFieldView({
   onAllUnavailable: () => void;
   onStatus: (status: string) => void;
 }) {
-  const [paneIds, setPaneIds] = useState<string[]>();
+  const paneKey = paneIds?.join("\n");
   const selectedDatasets = useMemo(() => paneIds ? datasets.filter(item => paneIds.includes(item.id)).slice(0, 4)
-    : fieldComparisonDatasets(datasets, primaryMetadata.dataset_id), [datasets, paneIds, primaryMetadata.dataset_id]);
+    : fieldComparisonDatasets(datasets, primaryMetadata.dataset_id), [datasets, paneKey, primaryMetadata.dataset_id]);
   const [panes, setPanes] = useState<Pane[]>([]);
   const [error, setError] = useState<string>();
   const [view, setView] = useState<ViewBounds>();
@@ -175,15 +178,6 @@ export function ComparisonFieldView({
           derivation,
         ].filter(Boolean).join(" · ")}</span>
       </header>
-      {datasets.length > 4 && <details className="field-pane-selection"><summary>Visible panes ({selectedCount}/4)</summary>
-        {datasets.map(item => <label className="tick-label" key={item.id}><input type="checkbox"
-          checked={selectedDatasets.some(source => source.id === item.id)}
-          disabled={selectedCount >= 4 && !selectedDatasets.some(source => source.id === item.id)}
-          onChange={event => { const checked = event.currentTarget.checked;
-            setPaneIds(checked ? [...selectedDatasets.map(source => source.id), item.id]
-              : selectedDatasets.filter(source => source.id !== item.id).map(source => source.id));
-          }} /><span className="tick-box" />{item.label}</label>)}
-      </details>}
       <div className="field-comparison" data-count={panes.length}>
         {panes.map((pane) => (
           <ComparisonPane

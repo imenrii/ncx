@@ -1,13 +1,25 @@
 import type { DatasetSummary, Source, SourceSelection, SuppliedSeries } from "./model.ts";
-import { SERIES_COLORS, SERIES_DASHES, validCurveOffset, type CurveSeries } from "../plots/curveSeries.ts";
+import { validCurveOffset, type CurveSeries } from "../plots/curveSeries.ts";
+import { lineStyle, validLineOverride, type LineOverride } from "./lineStyle.ts";
 
 export interface ResolvedSource {
   id: string;
   label: string;
   color: string;
   dash: string;
+  /** Stroke width, CSS px. */
+  width: number;
   primary: boolean;
   locked: boolean;
+}
+
+/** A source the host can add on request: an open dataset, or a series it supplies. */
+export type SourceOption = { id: string; label: string; dataset?: string; kind?: "series" };
+
+export interface SourceRequest {
+  revision: string;
+  /** Option or source IDs, in the reader's order; the first dataset is primary. */
+  sources: string[];
 }
 
 export interface SecondaryCurve {
@@ -31,6 +43,9 @@ export function createSourceFeed() {
   let explicit = false;
   let toolbar = 0;
   let offsets: Record<string, number> = {};
+  let styles: Record<string, LineOverride> = {};
+  let options: SourceOption[] | undefined;
+  let request: SourceRequest | null = null;
   let snapshot = 0;
   const listeners = new Set<() => void>();
   const notify = () => {
@@ -39,16 +54,20 @@ export function createSourceFeed() {
   };
   const resolved = (): ResolvedSource[] => {
     const primary = sources.find(source => "dataset" in source)?.id;
-    return sources.map((source, index) => ({
-      id: source.id,
-      label: "dataset" in source
-        ? source.label ?? datasets.find(dataset => dataset.id === source.dataset)?.label ?? source.dataset
-        : source.series.label,
-      color: SERIES_COLORS[index % SERIES_COLORS.length],
-      dash: SERIES_DASHES[index % SERIES_DASHES.length],
-      primary: source.id === primary,
-      locked: source.attributes?.locked ?? false,
-    }));
+    return sources.map((source, index) => {
+      const line = lineStyle(index, styles[source.id]);
+      return {
+        id: source.id,
+        label: "dataset" in source
+          ? source.label ?? datasets.find(dataset => dataset.id === source.dataset)?.label ?? source.dataset
+          : source.series.label,
+        color: line.color,
+        dash: line.dash,
+        width: line.width,
+        primary: source.id === primary,
+        locked: source.attributes?.locked ?? false,
+      };
+    });
   };
   const replace = (next: Source[]) => {
     offsets = Object.fromEntries(next.map(source => {
@@ -58,13 +77,20 @@ export function createSourceFeed() {
     sources = next;
   };
   const api = {
-    version: 1 as const,
-    capabilities: { secondaryCurve: true },
+    version: 2 as const,
+    capabilities: { secondaryCurve: true, sourceOptions: true },
     getState: () => ({
       revision: String(revision),
       selection: selection ? { ...selection } : null,
       sources: resolved(),
+      request: request ? { revision: request.revision, sources: [...request.sources] } : null,
     }),
+    /** Declare what the reader may add. The host still supplies every source. */
+    setOptions(value: unknown) {
+      const input = object(value, ["options"]);
+      options = validateOptions(input.options);
+      notify();
+    },
     setSources(value: unknown) {
       const input = object(value, ["revision", "sources", "secondary"]);
       if (input.revision !== String(revision)) throw new Error("Stale source revision");
@@ -78,6 +104,8 @@ export function createSourceFeed() {
       replace(next);
       secondary = panel;
       explicit = true;
+      // An answer, full or partial, settles the reader's request.
+      request = null;
       if (changed) {
         revision += 1;
         selection = null;
@@ -103,11 +131,34 @@ export function createSourceFeed() {
       explicit = false;
       toolbar = 0;
       offsets = {};
+      styles = {};
+      options = undefined;
+      request = null;
       revision += 1;
       suppliedRevision = -1;
       notify();
     },
     get sources() { return sources; },
+    get options() { return options; },
+    get request() { return request; },
+    /** Ask the host for a new source list; ncx does not change host sources itself. */
+    requestSources(ids: string[]) {
+      if (!options) throw new Error("The host has not declared source options");
+      const known = new Set([...options.map(option => option.id), ...sources.map(source => source.id)]);
+      if (!ids.length || ids.length > 8 || new Set(ids).size !== ids.length || ids.some(id => !known.has(id))) {
+        throw new Error("Invalid source request");
+      }
+      request = { revision: String(revision), sources: [...ids] };
+      notify();
+    },
+    styleOf(id: string) { return styles[id] ?? {}; },
+    /** Change one source's line. Style is presentation: the revision stays. */
+    setStyle(id: string, change: LineOverride) {
+      const next = { ...styles[id], ...change };
+      if (!validLineOverride(next)) throw new Error("Invalid line style");
+      styles = { ...styles, [id]: next };
+      notify();
+    },
     get secondary() { return suppliedRevision === revision ? secondary : undefined; },
     get explicit() { return explicit; },
     get toolbar() { return toolbar; },
@@ -216,6 +267,21 @@ export function validateSources(value: unknown, datasets: readonly DatasetSummar
   });
   if (new Set(sources.map(source => source.id)).size !== sources.length) throw new Error("Source IDs must be unique");
   return sources;
+}
+
+export function validateOptions(value: unknown): SourceOption[] {
+  if (!Array.isArray(value) || value.length > 64) throw new Error("At most 64 source options are allowed");
+  const result = Array.from(value, item => {
+    const option = object(item, ["id", "label", "dataset", "kind"]);
+    const id = text(option.id), label = text(option.label);
+    if (option.kind !== undefined && option.kind !== "series") throw new Error("Invalid source option kind");
+    if ((option.dataset === undefined) === (option.kind === undefined)) {
+      throw new Error("A source option names a dataset or is a series");
+    }
+    return option.kind === "series" ? { id, label, kind: "series" as const } : { id, label, dataset: text(option.dataset) };
+  });
+  if (new Set(result.map(option => option.id)).size !== result.length) throw new Error("Source option IDs must be unique");
+  return result;
 }
 
 export function validateSecondary(value: unknown): SecondaryCurve | undefined {

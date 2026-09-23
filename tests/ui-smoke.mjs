@@ -257,6 +257,33 @@ const hasCorrectAspect = (canvas) => {
   return Math.abs(dataAspect / (bounds.width / bounds.height) - 1) < 0.04;
 };
 const failures = [];
+// Display settings live in the sidebar Display dock; the toolbar keeps the slice controls.
+const openDisplay = async () => {
+  const dock = await waitFor(() => document.querySelector('.display-dock'), 'Display dock missing');
+  if (!dock.open) dock.open = true;
+  await waitFor(() => dock.querySelector('.rh-num'), 'Display dock did not open');
+  return dock;
+};
+const displayControl = (name) => {
+  const dock = document.querySelector('.display-dock');
+  if (!dock) return undefined;
+  if (name === 'Colour') return dock.querySelector('select[aria-label="Colour map"]');
+  if (name === 'Min' || name === 'Max') return dock.querySelector('.rh-num[aria-label="Range ' + (name === 'Min' ? 'minimum' : 'maximum') + '"]');
+  return [...dock.querySelectorAll('.display-pair label')].find(label => label.textContent.trim() === name)?.control ?? undefined;
+};
+const overlayToggle = (name) => [...document.querySelectorAll('.overlay-toggle')]
+  .find(button => button.querySelector('span')?.textContent.trim() === name);
+const setCoastline = async (on) => {
+  const button = await waitFor(() => overlayToggle('Coastline'), 'Coastline toggle missing');
+  if ((button.getAttribute('aria-pressed') === 'true') !== on) button.click();
+  await waitFor(() => (overlayToggle('Coastline')?.getAttribute('aria-pressed') === 'true') === on, 'Coastline toggle did not change');
+};
+// A range readout commits on Enter, as a reader types it.
+const commitReadout = (input, value) => {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, String(value));
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+};
 const checkSupportingToggle = async (root, supportingName, dataName) => {
   const toggle = document.querySelector('.variable-filter input[type="checkbox"]');
   const row = (name) => [...root.querySelectorAll('.variable-row')]
@@ -516,12 +543,12 @@ try {
   if (shell.querySelector('.sidebar-toggle,.plot-settings,[aria-label="Displayed time zone"]')) {
     failures.push("removed Variables, Display, or Time controls remain");
   }
-  for (const label of ["Wind overlay", "Colour", "Value axis", "Reference layer"]) {
-    const group = toolbar.querySelector('[aria-label="' + label + '"]');
-    if (group && (group.parentElement !== toolbar.querySelector('.display-controls') ||
-        !group.getBoundingClientRect().height || group.closest('details'))) {
-      failures.push("plot setting is not directly visible in the toolbar: " + label);
-    }
+  for (const label of ["Colour", "Value axis", "Reference layer"]) {
+    if (toolbar.querySelector('[aria-label="' + label + '"]')) failures.push("display setting remains in the toolbar: " + label);
+  }
+  const windGroup = toolbar.querySelector('[aria-label="Wind overlay"]');
+  if (windGroup && (windGroup.parentElement !== toolbar.querySelector('.display-controls') || !windGroup.getBoundingClientRect().height)) {
+    failures.push("curve Wind is not directly visible in the toolbar");
   }
   if (browserMode === "comparison") {
     await waitFor(() => !document.querySelector('.plot-loading') && window.__ncxScalarReads === 0,
@@ -569,12 +596,10 @@ try {
       const y = Float64Array.from(x, (_, index) => Math.floor(index / side));
       worker.postMessage({ kind: 'curvilinear', args: [x, y, side, side, side, side, 1, 1] });
     });
-    const map = [...document.querySelectorAll('.display-controls label')]
-      .find(label => label.textContent.trim().startsWith("Map"))?.querySelector("select");
-    if (map) {
+    const map = overlayToggle('Coastline');
+    if (map && !map.disabled) {
       window.__ncxFailCoastline = true;
-      map.value = "coastline";
-      map.dispatchEvent(new Event("change", { bubbles: true }));
+      await setCoastline(true);
       await waitFor(() => document.querySelector('[data-coastline="error"]'), "coastline failure was not reported");
       if (document.querySelector(".plot-error")) failures.push("coastline failure hid the dataset");
       document.querySelector('.screenshot-button').click();
@@ -583,20 +608,18 @@ try {
       await waitFor(() => dialog.querySelector('.export-error'), "export silently omitted a failed coastline");
       dialog.close();
       window.__ncxFailCoastline = false;
-      map.value = "none";
-      map.dispatchEvent(new Event("change", { bubbles: true }));
+      await setCoastline(false);
       await waitFor(() => !document.querySelector('.coastline-overlay'), "failed coastline did not turn off");
-      map.value = "coastline";
-      map.dispatchEvent(new Event("change", { bubbles: true }));
+      await setCoastline(true);
       await waitFor(() => document.querySelector('[data-coastline="ready"]'), "coastline retry failed");
       if (window.__ncxCoastlineFetches !== 2) failures.push("coastline failure/retry made extra requests");
-      map.value = "none";
-      map.dispatchEvent(new Event("change", { bubbles: true }));
+      await setCoastline(false);
     }
   }
   if (browserMode === "wind") {
+    await openDisplay();
     const control = (name) => [...document.querySelectorAll('.display-controls label')]
-      .find(label => label.firstChild?.textContent?.trim() === name)?.querySelector('select, input');
+      .find(label => label.firstChild?.textContent?.trim() === name)?.querySelector('select, input') ?? displayControl(name);
     const change = (name, value) => { const select = control(name); if (!select) throw new Error(name + ' control missing'); select.value = value; select.dispatchEvent(new Event('change', { bubbles: true })); };
     const tab = (name) => [...document.querySelectorAll('.view-tabs button')].find(button => button.textContent === name).click();
     const overlay = (name) => [...document.querySelectorAll('.overlay-toggle')].find(button => button.querySelector('span')?.textContent.trim() === name);
@@ -714,11 +737,11 @@ try {
     await waitFor(() => fieldCanvas()?.dataset.rendered === 'true', 'wind fixture did not render');
     const fieldTop = fieldCanvas().style.top;
     const sourceSelection = window.ncx.getState().selection.units;
-    const nativeMin = Number(control('Min').value);
+    const nativeMin = Number(control('Min').dataset.value);
     const fieldReads = window.__ncxFetches.filter(url => url.includes('/api/data?')).length;
     change('Unit', 'hPa');
     await waitFor(() => document.querySelector('.colorbar-axis .axis-label')?.textContent.includes('hPa'), 'Field display unit did not reach colorbar');
-    if (Math.abs(Number(control('Min').value) - nativeMin / 100) > 0.001) failures.push('Field range was not converted');
+    await waitFor(() => Math.abs(Number(control('Min')?.dataset.value) - nativeMin / 100) <= 0.001, 'Field range was not converted');
     if (window.ncx.getState().selection.units !== sourceSelection) failures.push('display unit changed source assignment');
     if (window.__ncxFetches.filter(url => url.includes('/api/data?')).length !== fieldReads) failures.push('display unit refetched field samples');
     change('Unit', 'Pa');
@@ -834,7 +857,7 @@ try {
     if (!stack || stack.firstElementChild.className !== 'view-controls' ||
         stack.lastElementChild !== legend) failures.push('the overlay legend does not sit under the view controls');
     const marks = [...legend.querySelectorAll('.overlay-toggle svg')].map(svg => svg.getBoundingClientRect());
-    if (marks.length !== 2 || marks.some(box => Math.abs(box.height - 14) > 0.5 || box.width / box.height > 4 ||
+    if (marks.length < 2 || marks.length > 3 || marks.some(box => Math.abs(box.height - 14) > 0.5 || box.width / box.height > 4 ||
         Math.abs(box.width - marks[0].width) > 0.5)) failures.push('overlay marks are not one equal, bounded column');
     const words = [...legend.querySelectorAll('.overlay-toggle span')].map(span => span.getBoundingClientRect());
     const reset = stack.querySelector('[title="Reset view"]');
@@ -993,7 +1016,7 @@ try {
     const rawExtent = [state.selection.start_ms, state.selection.end_ms];
     if (state.sources[1]?.id !== "tide" || !state.sources[1].locked) failures.push("supplied source attributes missing");
     if (document.querySelector(".curve-series-controls, .curve-toolbar-slot")) failures.push("obsolete series controls remain");
-    if (chromeHidden && document.querySelector(".dataset-switcher, .source-participation")) failures.push("hosted sources have two owners");
+    if (chromeHidden && document.querySelector(".source-add, .file-row")) failures.push("hosted sources have two owners");
     const legend = document.querySelector(".curve-legend");
     if (legend?.textContent.includes("MSL") || legend?.textContent.includes("CD") || legend?.querySelector("input")) {
       failures.push("legend contains controls or datum metadata");
@@ -1091,11 +1114,10 @@ try {
     try { window.ncx.setSources({ revision, sources: [] }); } catch { staleRejected = true; }
     if (!staleRejected || document.querySelector('.curve-line')) failures.push("stale inline data survived a scientific selection");
   } else if (browserMode === "collection") {
-    const summaries = await waitFor(() => {
-      const items = [...document.querySelectorAll(".collection-file > summary")];
-      return items.length === 8 ? items : null;
-    }, "directory files were not grouped into summaries");
-    const names = summaries.map((summary) => summary.querySelector("strong")?.textContent);
+    const rows = () => [...document.querySelectorAll(".file-row")];
+    const row = (name) => rows().find((item) => item.querySelector(".name")?.textContent === name);
+    await waitFor(() => rows().length === 8 ? rows() : null, "directory files were not listed");
+    const names = rows().map((item) => item.querySelector(".name")?.textContent);
     const expected = [
       "classic.nc",
       "curvilinear.nc",
@@ -1109,8 +1131,8 @@ try {
     if (JSON.stringify(names) !== JSON.stringify(expected)) {
       failures.push("collection files are not sorted: " + names.join(", "));
     }
-    if (document.querySelector(".dataset-switcher")) {
-      failures.push("directory collection still exposes the dataset dropdown");
+    if (document.querySelector(".dataset-switcher") || rows().some(item => item.textContent.includes("not inspected"))) {
+      failures.push("directory collection still exposes the dataset dropdown or placeholder labels");
     }
     if (window.__ncxFetches.some((url) => url.includes("/api/meta?dataset=file-0007"))) {
       failures.push("closed collection file fetched metadata eagerly");
@@ -1119,15 +1141,14 @@ try {
     if (beforeCatalog.datasets.find((dataset) => dataset.id === "file-0007")?.state !== "uninspected") {
       failures.push("closed collection file was inspected by the server");
     }
+    if (!document.querySelector(".source-strip .source-add")) failures.push("directory has no source strip");
 
-    summaries[3].click();
+    row("invalid.nc").click();
     await waitFor(
-      () => document.querySelector(".collection-file.unavailable .collection-error"),
+      () => row("invalid.nc")?.closest(".file")?.dataset.state === "unavailable",
       "invalid collection file did not become unavailable",
     );
-    const unavailable = [...document.querySelectorAll(".collection-file > summary")]
-      .find((summary) => summary.querySelector("strong")?.textContent === "invalid.nc");
-    if (unavailable?.querySelector("span")?.textContent !== "unavailable") {
+    if (!row("invalid.nc")?.querySelector("small")?.textContent.includes("unavailable")) {
       failures.push("invalid collection file has no visible unavailable state");
     }
     const afterCatalog = await originalFetch("/api/datasets").then((response) => response.json());
@@ -1135,20 +1156,19 @@ try {
       failures.push("server catalog did not retain the unavailable state");
     }
 
-    const updatedSummaries = [...document.querySelectorAll(".collection-file > summary")];
-    updatedSummaries[6].click();
-    const ugrid = updatedSummaries[6].parentElement;
+    row("ugrid.nc").click();
+    const ugrid = () => row("ugrid.nc")?.closest(".file");
     const nodeTemperature = await waitFor(
-      () => [...ugrid.querySelectorAll(".variable-row")]
+      () => [...(ugrid()?.querySelectorAll(".variable-row") ?? [])]
         .find((button) => button.querySelector("span")?.textContent === "node_temperature"),
-      "opening a file summary did not load its variables",
+      "choosing a file did not show its variables",
     );
     const metadataFetches = window.__ncxFetches
       .filter((url) => url.includes("/api/meta?dataset=file-0007"));
     if (metadataFetches.length !== 1) {
       failures.push("opening one collection file made " + metadataFetches.length + " metadata requests");
     }
-    const visible = [...ugrid.querySelectorAll(".variable-row span")].map((node) => node.textContent);
+    const visible = [...ugrid().querySelectorAll(".variable-row span")].map((node) => node.textContent);
     for (const supporting of ["mesh", "node_x", "node_y", "face_nodes", "edge_nodes", "edge_faces"]) {
       if (visible.includes(supporting)) failures.push("collection exposed supporting variable " + supporting);
     }
@@ -1161,12 +1181,12 @@ try {
       () => document.querySelector(".mesh-canvas[data-rendered='true']"),
       "collection UGRID variable did not render",
     );
-    await checkSupportingToggle(document.querySelectorAll('.collection-file')[6], 'mesh', 'node_temperature');
-    const projected = document.querySelectorAll('.collection-file')[7];
-    projected.querySelector('summary').click();
-    await waitFor(() => [...projected.querySelectorAll('.variable-row span')]
+    await checkSupportingToggle(ugrid(), 'mesh', 'node_temperature');
+    row("ugrid_projected.nc").click();
+    const projected = () => row("ugrid_projected.nc")?.closest(".file");
+    await waitFor(() => [...(projected()?.querySelectorAll('.variable-row span') ?? [])]
       .some(node => node.textContent === 'water_level'), 'projected collection metadata did not load');
-    const projectedNames = [...projected.querySelectorAll('.variable-row span')].map(node => node.textContent);
+    const projectedNames = [...projected().querySelectorAll('.variable-row span')].map(node => node.textContent);
     for (const name of ['Mesh2D_face_x', 'Mesh2D_face_y']) {
       if (projectedNames.includes(name)) failures.push('collection exposed projected coordinate ' + name);
     }
@@ -1208,22 +1228,22 @@ try {
     window.__ncxVisibleVariables = names();
   } else if (browserMode === "comparison") {
     if (chromeHidden) {
-      if (document.querySelector('.dataset-switcher, .source-participation')) failures.push('hosted dataset controls remain');
+      if (document.querySelector('.source-add, .file-row')) failures.push('hosted dataset controls remain');
       const state = window.ncx.getState();
       window.ncx.setSources({ revision: state.revision, sources:
         ['f', 'a', 'b', 'c', 'd', 'e'].map(id => ({ id: 'source:' + id, dataset: 'case-' + id })),
       });
     } else {
-      const dataset = await waitFor(() => document.querySelector(".dataset-switcher select"), "dataset selector did not appear");
-      dataset.value = "case-f";
-      dataset.dispatchEvent(new Event("change", { bubbles: true }));
+      const file = await waitFor(() => [...document.querySelectorAll(".file-row")].find(row => row.title === "case-f"),
+        "case-f did not appear in the Files list");
+      file.click();
     }
     await waitFor(
       () => document.querySelector(".shell")?.dataset.dataset === "case-f",
       "sixth dataset did not become primary",
     );
     if (document.querySelector('.view-tabs')?.textContent.includes('Compare')) failures.push('comparison must not replace the representation');
-    if (!chromeHidden && !document.querySelector('.source-participation')) failures.push('source participation is missing');
+    if (!chromeHidden && !document.querySelector('.source-strip .source-add')) failures.push('source participation is missing');
     const panes = await waitFor(
       () => {
         const items = [...document.querySelectorAll(".field-comparison-pane")];
@@ -1239,10 +1259,7 @@ try {
     if (!panes.every((pane) => pane.querySelector("header")?.textContent.includes("Δ 0.0 min"))) {
       failures.push("field panes did not report their actual matched timestamp delta");
     }
-    const map = [...document.querySelectorAll('.display-controls label')]
-      .find(label => label.textContent.trim().startsWith("Map"))?.querySelector("select");
-    map.value = "coastline";
-    map.dispatchEvent(new Event("change", { bubbles: true }));
+    await setCoastline(true);
     await waitFor(() => panes.every(pane => pane.querySelector('[data-coastline="ready"]')), "comparison coastlines did not render");
     if (window.__ncxCoastlineFetches !== 1) failures.push("comparison panes did not share one coastline request");
     const axes = () => [...document.querySelectorAll(".field-comparison-pane .plot-axis")]
@@ -1291,14 +1308,21 @@ try {
     if (comparisonReadsAfter - comparisonReads < panes.length) {
       failures.push("comparison export did not rerender every field pane");
     }
-    document.querySelectorAll('.field-pane-selection input:checked')[2].click();
+    const togglePane = async (label) => {
+      const tab = await waitFor(() => [...document.querySelectorAll('.source-tabs .tok')].find(item => item.title.startsWith(label)), 'missing source tab ' + label);
+      tab.querySelector('.tok-main').click();
+      const shown = await waitFor(() => [...document.querySelectorAll('.source-style .tick-label')]
+        .find(item => item.textContent.includes('Show pane'))?.querySelector('input'), 'Show pane control missing for ' + label);
+      shown.click();
+      tab.querySelector('.tok-main').click();
+      await waitFor(() => !document.querySelector('.source-style'), 'source line sheet did not close');
+    };
+    await togglePane('case-b');
     await waitFor(() => {
       const visible = [...document.querySelectorAll('.field-comparison-pane')];
       return visible.length === 3 && visible.every(pane => pane.querySelector('.field-canvas[data-rendered="true"]') && pane.getBoundingClientRect().height > 40);
     }, 'three selected field panes did not render');
-    const primaryPaneToggle = [...document.querySelectorAll('.field-pane-selection label')]
-      .find(label => label.textContent.includes('case-f')).querySelector('input');
-    primaryPaneToggle.click();
+    await togglePane('case-f');
     await waitFor(() => document.querySelectorAll('.field-comparison-pane').length === 2 &&
       document.querySelectorAll('.field-comparison .overlay-legend:not([aria-hidden="true"])').length === 1,
       'hiding the primary pane removed the shared overlay controls');
@@ -1600,13 +1624,12 @@ try {
 
   window.__ncxStep = "save dialog";
   {
-    const map = [...document.querySelectorAll('.display-controls label')]
-      .find((label) => label.textContent.trim().startsWith("Map"))?.querySelector("select");
+    const map = overlayToggle('Coastline');
     const readsBeforeExport = window.__ncxFetches.filter((url) =>
       url.includes("/api/data?") && decodeURIComponent(url).includes("path=/temperature")).length;
     const open = [...document.querySelectorAll("button")]
-      .find((button) => button.textContent.trim() === "Save PNG");
-    if (!open) failures.push("Save PNG button is missing");
+      .find((button) => button.textContent.trim() === "Export PNG");
+    if (!open) failures.push("Export PNG button is missing");
     else {
       open.click();
       await waitFor(() => document.querySelector("dialog.save-dialog[open]"), "save dialog did not open");
@@ -1616,7 +1639,8 @@ try {
       if (widths.length !== 3) failures.push("save dialog is missing its width presets");
       if (dpis.length !== 3) failures.push("save dialog is missing its dpi presets");
       if (!widths.some((input) => input.checked)) failures.push("no width preset is selected");
-      const fields = [...dialog.querySelectorAll("form > input")];
+      dialog.querySelector(".save-lettering").open = true;
+      const fields = [...dialog.querySelectorAll(".save-lettering-fields input")];
       if (fields.length !== 4) failures.push("save dialog is missing its lettering fields");
       // Prefilled from the live figure, not blank.
       if (!fields.some((input) => input.value.trim())) {
@@ -1627,7 +1651,10 @@ try {
         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(fields[index], names[index] + " $x^{2}$");
         fields[index].dispatchEvent(new Event("input", { bubbles: true }));
       }
-      await waitFor(() => [...dialog.querySelectorAll(".preview")].every(preview => preview.textContent.includes("x²")), "delimited math preview did not update");
+      const previewBefore = dialog.querySelector(".save-sheet img")?.src;
+      await waitFor(() => { const image = dialog.querySelector(".save-sheet img"); return image?.complete && image.src !== previewBefore; },
+        "export preview did not redraw the edited lettering");
+      if (!/\\d[\\d,]* × \\d[\\d,]* px/.test(dialog.querySelector(".save-size")?.textContent ?? "")) failures.push("export size readout is missing");
       window.__ncxExpectedMathLabels = names.map(name => name + " x2");
       const plainExport = await saveOpenDialog(dialog);
       // The title band has no field or tick marks. Image dimensions and a
@@ -1641,8 +1668,7 @@ try {
       let mappedExport;
       if (map) {
         if (window.__ncxCoastlineFetches !== 0) failures.push("coastline fetched before it was requested");
-        map.value = "coastline";
-        map.dispatchEvent(new Event("change", { bubbles: true }));
+        await setCoastline(true);
         const coast = await waitFor(() => document.querySelector('[data-coastline="ready"] path[d]:not([d=""])'), "coastline did not render");
         const paint = getComputedStyle(coast);
         if (paint.opacity !== "1" || paint.fill !== "none" || paint.mixBlendMode !== "normal") failures.push("coastline is not a solid unfilled stroke");
@@ -1664,38 +1690,29 @@ try {
         failures.push("coastline composition did not change the exported pixels");
       }
       if (map) {
-        map.value = "none";
-        map.dispatchEvent(new Event("change", { bubbles: true }));
+        await setCoastline(false);
         await waitFor(() => !document.querySelector(".coastline-overlay"), "coastline did not turn off");
-        map.value = "coastline";
-        map.dispatchEvent(new Event("change", { bubbles: true }));
+        await setCoastline(true);
         await waitFor(() => document.querySelector('[data-coastline="ready"]'), "cached coastline did not return");
         if (window.__ncxCoastlineFetches !== 1) failures.push("coastline toggle missed its cache");
-        map.value = "none";
-        map.dispatchEvent(new Event("change", { bubbles: true }));
+        await setCoastline(false);
       }
     }
   }
 
   window.__ncxStep = "range controls";
-  const rangeSelect = [...document.querySelectorAll(".display-controls label")]
-    .find((label) => label.textContent.trim().startsWith("Range"))?.querySelector("select");
-  if (!document.querySelector('input[aria-label="Colour range minimum"]') ||
-      !document.querySelector('input[aria-label="Colour range maximum"]')) {
-    failures.push("automatic colour range values are not exposed");
-  }
+  await openDisplay();
+  if (!displayControl('Min') || !displayControl('Max')) failures.push("automatic colour range values are not exposed");
+  if (!document.querySelector('.display-dock .rh-curve')) failures.push("colour range histogram is missing");
+  const rangeSelect = displayControl('Range');
   rangeSelect.value = "locked";
   rangeSelect.dispatchEvent(new Event("change", { bubbles: true }));
-  const minimum = await waitFor(() => {
-    const input = document.querySelector('input[aria-label="Colour range minimum"]');
-    return input && !input.readOnly ? input : null;
-  }, "locked range controls did not enable");
+  await waitFor(() => document.querySelector('.display-dock .display-title .state'), "locked range state is not shown");
   const noStyleFetch = window.__ncxFetches.length;
-  minimum.value = "300";
-  minimum.dispatchEvent(new Event("input", { bubbles: true }));
-  const maximum = document.querySelector('input[aria-label="Colour range maximum"]');
-  maximum.value = "304";
-  maximum.dispatchEvent(new Event("input", { bubbles: true }));
+  commitReadout(displayControl('Max'), 304);
+  commitReadout(displayControl('Min'), 300);
+  await waitFor(() => displayControl('Min').dataset.value === "300" && displayControl('Max').dataset.value === "304",
+    "range readouts did not commit");
   await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   if (window.__ncxFetches.length !== noStyleFetch) failures.push("range-only edit fetched scalar data");
 
@@ -1747,7 +1764,7 @@ try {
   fieldPointer("pointerup", 0.75, 0.75);
   await waitFor(() => axisExtent() !== axisBeforeZoom, "field persistence zoom did not update axes");
   const fieldViewBeforeTab = axisExtent();
-  if (!document.querySelector('button[title="Save plot as PNG"]')) failures.push("plot PNG control is missing");
+  if (document.querySelector('.screenshot-button')?.textContent.trim() !== "Export PNG") failures.push("plot PNG control is missing");
 
   window.__ncxStep = "probe";
   fieldPointer("pointerdown", 0.63, 0.44);
@@ -1799,7 +1816,7 @@ try {
     failures.push("curve controls do not identify their series correctly");
   }
   const offsetInput = offsetControls?.querySelector('input[type="number"]');
-  const rangeInput = document.querySelector('.range-values input');
+  const rangeInput = document.querySelector('.toolbar .display-controls input.field:not(#curve-y-offset)');
   if (offsetInput && rangeInput) {
     const offsetType = getComputedStyle(offsetInput);
     const rangeType = getComputedStyle(rangeInput);

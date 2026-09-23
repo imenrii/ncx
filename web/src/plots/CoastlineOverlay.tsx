@@ -20,7 +20,7 @@ export function CoastlineOverlay({ bounds, plot, onStatus }: {
       if (!live) return;
       const error = cause instanceof Error ? cause.message : String(cause);
       setLoaded({ resolution, error });
-      onStatus(`Coastline unavailable: ${error}. Turn Map off and on to retry.`);
+      onStatus(`Coastline unavailable: ${error}. Turn Coastline off and on to retry.`);
     });
     return () => { live = false; };
   }, [resolution, onStatus]);

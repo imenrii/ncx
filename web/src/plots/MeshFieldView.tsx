@@ -39,6 +39,7 @@ import {
   type ViewBounds,
 } from "./view";
 import { createMeshRenderer, type MeshSurface } from "./webgl";
+import { usePublishDisplayValues } from "../app/controls/displayValues";
 
 interface MeshFieldViewProps extends FieldProps {
   controlledView?: ViewBounds;
@@ -216,6 +217,7 @@ export function MeshFieldView(props: MeshFieldViewProps) {
     [values, props.colormap],
   );
   const activeRange = props.rangeLocked || props.sharedRange ? props.range : automaticRange;
+  usePublishDisplayValues(values);
   useEffect(() => {
     if (
       !props.rangeLocked &&

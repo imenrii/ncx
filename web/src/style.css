@@ -295,22 +295,15 @@ body {
    the form controls. Profile overrides below set features on the element
    itself; changing a variable alone on a child cannot change an already
    computed inherited font-feature-settings value. */
-.save-dialog .hint.derived,
-.save-dialog .hint.syntax,
 .path,
 .path i,
-.dataset-switcher select,
-.dataset-head span,
 .variable-search,
 .tree summary,
 .warnings summary,
 .variable-row span,
 .variable-row small,
-.display-controls select,
-.display-controls input,
 .dimension-readout output,
 .curve-legend,
-.source-participation summary,
 .field-comparison-pane > header,
 .scalar-value small,
 .metadata-panel h2,
@@ -339,8 +332,7 @@ pre,
 .dimension-readout output,
 .variable-row small,
 .metadata-summary dd,
-.metadata-panel tbody td,
-.save-dialog .hint.syntax {
+.metadata-panel tbody td {
   --mono-features: var(--mono-literal-features);
   font-feature-settings: var(--mono-features);
   line-height: var(--mono-literal-leading);
@@ -359,13 +351,10 @@ pre,
 }
 
 /* Structural labels do not inherit Gorton's alternate glyph sets. */
-.dataset-switcher,
 .display-controls label,
 .metadata-panel th,
 .metadata-summary dt,
-.timeline-dimension,
-.save-dialog .row-label,
-.save-dialog form > label:not(.switch) {
+.timeline-dimension {
   font-feature-settings: normal;
   word-spacing: normal;
 }
@@ -380,7 +369,7 @@ button {
   cursor: pointer;
 }
 
-button strong, button b, .source-participation summary {
+button strong, button b {
   font-weight: var(--mono-strong);
 }
 
@@ -607,26 +596,6 @@ button:disabled {
   font-style: normal;
 }
 
-.dataset-switcher {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 8px;
-  border-right: 1px solid var(--line);
-  color: var(--ink-quiet);
-  font-size: var(--size-tick);
-  letter-spacing: var(--track-small);
-  font-weight: 400;
-  text-transform: uppercase;
-  font-family: var(--label-face);
-  letter-spacing: var(--track-caps);
-}
-
-.dataset-switcher select {
-  min-width: 15ch;
-  text-transform: none;
-}
-
 .shell[data-embedded="true"] .topbar .brand,
 .shell[data-embedded="true"] .topbar .path {
   display: none;
@@ -656,21 +625,6 @@ button:disabled {
   /* Rules go warm with the ground; the cool greys read as dirt on stock. */
   --line: var(--stock-edge);
   --line-faint: color-mix(in srgb, var(--stock-edge) 55%, var(--stock));
-}
-
-.sidebar:has(> .dataset-head) {
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
-}
-
-.dataset-head {
-  display: flex;
-  justify-content: flex-end;
-  padding: 12px 12px 8px;
-}
-
-.dataset-head span {
-  color: var(--ink-quiet);
-  font-size: var(--size-micro);
 }
 
 .variable-filter {
@@ -742,45 +696,185 @@ button:disabled {
   transform: rotate(90deg);
 }
 
-.collection-file > summary {
+/* Files: one row per file. The name wraps in full rather than truncating;
+   the plotted line sits in a fixed gutter so names keep one left edge. */
+.files-head {
   display: flex;
-  align-items: center;
+  align-items: baseline;
+  justify-content: space-between;
   gap: 8px;
+  padding: 8px 12px 4px;
+  border-bottom: 1px solid var(--line-faint);
 }
 
-.collection-file > summary strong {
-  min-width: 0;
+.files-head .val {
+  color: var(--ink-quiet);
+  font-size: var(--size-micro);
+}
+
+.file-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  column-gap: 6px;
+  align-items: center;
+  width: 100%;
+  min-height: 0;
+  padding: 5px 12px 5px 6px;
+  border: 0;
+  border-bottom: 1px solid var(--line-faint);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.file-row:hover:not(:disabled) {
+  background: var(--dither), transparent;
+}
+
+.file-row[aria-current="true"] {
+  box-shadow: inset 3px 0 var(--ink);
+  background: var(--dither), transparent;
+  cursor: default;
+}
+
+.file-row > .name {
+  font-size: var(--size-tick);
+  overflow-wrap: anywhere;
+}
+
+.file-row[aria-current="true"] > .name {
+  font-weight: var(--mono-strong);
+}
+
+.file-row > small {
+  grid-column: 2;
+  color: var(--ink-quiet);
+  font-size: var(--size-micro);
+}
+
+.file[data-state="unavailable"] .file-row > small {
+  color: var(--error-ink);
+}
+
+.file-variables {
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.file-variables .variable-group > summary {
+  padding-left: 20px;
+}
+
+.file-variables .variable-row {
+  padding-left: 32px;
+}
+
+/* The plotted line, in the colour, dash and weight the plot uses. */
+.swatch-line {
+  width: 24px;
+  height: 8px;
+  flex: none;
+  overflow: visible;
+}
+
+/* Display: the foot of the sidebar. It opens upward; the tree shrinks. */
+.display-dock {
+  border-top: 1px solid var(--ink);
+  background: var(--stock);
+}
+
+.display-dock > summary {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 12px 0 8px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.display-dock > summary::-webkit-details-marker {
+  display: none;
+}
+
+.display-dock > summary:hover {
+  background: var(--dither), transparent;
+}
+
+/* A drawn caret that points the way the body opens: up. */
+.display-dock > summary::before {
+  content: "";
+  border-right: 3.5px solid transparent;
+  border-bottom: 5px solid currentColor;
+  border-left: 3.5px solid transparent;
+}
+
+.display-dock[open] > summary::before {
+  transform: rotate(180deg);
+}
+
+.display-dock > summary .val {
   overflow: hidden;
+  color: var(--ink-medium);
+  font-size: var(--size-micro);
+  text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.collection-file > summary span {
-  flex: none;
-  margin-left: auto;
-  color: var(--ink-quiet);
-  font-weight: var(--mono-weight);
+.display-body {
+  display: grid;
+  gap: 8px;
+  max-height: min(60vh, 32rem);
+  overflow: auto;
+  padding: 8px 12px 12px;
+  border-top: 1px solid var(--line);
 }
 
-.collection-file > .variable-group > summary {
-  padding-left: 20px;
+.display-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 20px;
 }
 
-.collection-file .variable-row {
-  padding-left: 32px;
+.display-body .rh {
+  width: 100%;
 }
 
-.collection-note,
-.collection-error {
-  margin: 0;
-  padding: 8px 20px;
-  color: var(--ink-quiet);
-  font-size: var(--size-tick);
-  letter-spacing: var(--track-small);
+/* Readouts carry six significant digits; the library's 6ch fits four. */
+.display-body .rh-num,
+.display-body .rh-ext {
+  width: 7.5ch;
 }
 
-.collection-error {
-  color: var(--error-ink);
+.display-row {
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.display-row .field,
+.display-pair .field {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+}
+
+/* Scale and range share one row: labels above, two native selects. */
+.display-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: auto auto;
+  grid-auto-flow: column;
+  gap: 2px 8px;
+}
+
+.display-line {
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
 }
 
 .variable-row {
@@ -831,6 +925,73 @@ button:disabled {
 
 .main[data-timeline="hidden"] {
   grid-template-rows: auto minmax(0, 1fr);
+}
+
+.main:has(> .source-strip) {
+  grid-template-rows: auto auto minmax(0, 1fr) var(--timeline-height);
+}
+
+.main[data-timeline="hidden"]:has(> .source-strip) {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+/* Sources: one row of tabs that shrink like browser tabs and never wrap. */
+.source-strip {
+  position: relative;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper);
+}
+
+/* Tabs come from the Style tab row; the strip adds only its own states. */
+.source-tabs {
+  flex: 1;
+}
+
+/* A source without a pane in the field view. Not colour alone: struck through. */
+.source-tabs > .tok[data-hidden="true"] .name {
+  color: var(--ink-quiet);
+  text-decoration: line-through;
+}
+
+.source-add {
+  flex: none;
+}
+
+.source-add .sheet {
+  width: 20rem;
+  padding: 0;
+}
+
+.source-add .list {
+  min-width: 0;
+}
+
+.source-style {
+  position: absolute;
+  top: calc(100% + 1px);
+  z-index: 40;
+  display: grid;
+  gap: 8px;
+  width: 16rem;
+  padding: 8px;
+}
+
+.source-style-head {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+}
+
+.source-style-head .val {
+  font-weight: var(--mono-strong);
+  overflow-wrap: anywhere;
 }
 
 .toolbar {
@@ -923,14 +1084,6 @@ button:disabled {
   font-size: var(--size-tick);
   font-weight: var(--mono-weight);
   text-transform: none;
-}
-
-.display-controls .range-values {
-  gap: 4px;
-}
-
-.display-controls .range-values input {
-  width: calc(10.5ch + 4px);
 }
 
 .dimension-readout output {
@@ -1093,34 +1246,9 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
-.source-participation { flex: none; padding: 4px 8px; }
-.source-participation summary { cursor: pointer; min-height: var(--hit); }
-
-.source-panel {
-  position: fixed;
-  top: calc(var(--topbar-height) + var(--toolbar-height));
-  right: 8px;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 12px;
-  max-width: calc(100vw - 16px);
-  max-height: calc(100vh - 120px);
-  overflow: auto;
-  padding: 16px;
-  border: 1px solid var(--line);
-  background: var(--paper);
-}
-
-.shell[data-chrome="none"] .source-panel { top: var(--toolbar-height); }
 .curve-offset-controls label { text-transform: none; }
 
-.source-panel > label, .field-pane-selection > label { display: flex; padding: 4px; }
-.source-panel > label:not(.tick-label) { gap: 8px; }
 .curve-range-reset { position: absolute; right: 8px; top: 4px; z-index: 1; }
-.dataset-head .dataset-switcher { min-width: 0; max-width: 100%; }
-.dataset-head .dataset-switcher select { min-width: 0; max-width: 100%; }
 input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
 
 .curve-head {
@@ -1165,7 +1293,6 @@ input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
 }
 
 .comparison-field-figure > .field-comparison { flex: 1; }
-.field-pane-selection { padding: 4px 8px; }
 
 .field-comparison {
   display: grid;
@@ -2139,17 +2266,21 @@ i .value {
 }
 
 /* -----------------------------------------------------------------------
-   Save dialog.
+   Export PNG dialog.
 
    Native <dialog>: the backdrop, the focus trap, Escape-to-close and the
-   modal semantics are the element's, not ours. Only the surface is styled.
+   modal semantics are the element's, not ours. The preview is the saved
+   file drawn smaller, so the reader sees the page before it is written.
    ----------------------------------------------------------------------- */
 .save-dialog {
-  min-width: 320px;
-  max-width: 92vw;
+  --label: 5.5rem;
+  width: min(60rem, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
   padding: 0;
+  overflow: auto;
   border: 1px solid var(--ink);
   border-radius: 0;
+  box-shadow: 0 2px 0 var(--ink);
   background: var(--stock);
   color: var(--ink);
 }
@@ -2158,39 +2289,24 @@ i .value {
   background: rgb(16 20 24 / 38%);
 }
 
-/* One datum. Every control's left edge lands on it, every label is flush
-   right of it across a fixed gutter, and the rows below a control hang from it
-   too -- so the dialog is read down a single line rather than scanned.
-
-   One vertical unit as well: 1s between rows, 0.5s from a control to the line
-   that reports on it, 2s between sections. Nothing here picks its own gap. */
 .save-dialog form {
-  --s: 8px;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  row-gap: var(--s);
-  column-gap: calc(var(--s) * 1.5);
-  /* Right padding runs wider than left because the left is not empty: the
-     label column is ragged, and its short rows already read as white. Equal
-     numbers here look like a block pushed against the right wall. */
-  padding: calc(var(--s) * 2) calc(var(--s) * 4) calc(var(--s) * 2.5) calc(var(--s) * 2.5);
   font-family: var(--ui-face);
 }
 
-.save-dialog form > * {
-  grid-column: 2;
+.save-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 8px 2px 16px;
+  border-bottom: 1px solid var(--ink);
+  background: var(--amber);
 }
 
-/* Both cells of a row carry the section rule, or the row centres them against
-   each other and the datum breaks. */
-.save-dialog form > .section {
-  margin-top: var(--s);
-}
-
-.save-dialog h2 {
-  grid-column: 1 / -1;
-  margin: 0 0 calc(var(--s) / 2);
+.save-head h2 {
+  margin: 0;
   font-family: var(--ui-face);
   font-feature-settings: var(--ui-features);
   font-size: var(--size-title);
@@ -2198,65 +2314,202 @@ i .value {
   letter-spacing: var(--track-small);
 }
 
-.save-dialog .row-label,
-.save-dialog form > label:not(.switch) {
-  font-family: var(--label-face);
-  font-feature-settings: normal;
-  word-spacing: normal;
-  grid-column: 1;
-  justify-self: end;
-  color: var(--ink-quiet);
-  font-size: var(--size-micro);
-  letter-spacing: var(--track-caps);
-  text-transform: uppercase;
+.save-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
 }
 
-.save-dialog .hint {
+/* Rulers on two edges of the sheet: width above, height to the left. */
+.save-preview {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  grid-template-rows: 20px auto auto;
+  gap: 4px;
+  align-content: start;
   margin: 0;
+  padding: 16px 20px 16px 12px;
+  border-right: 1px solid var(--stock-edge);
+}
+
+.ruler {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-medium);
+  font-family: var(--mono);
+  font-size: var(--size-micro);
+  white-space: nowrap;
+}
+
+.ruler::before,
+.ruler::after {
+  content: "";
+  flex: 1;
+  border: 0 solid var(--ink-weak);
+}
+
+.ruler-width {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.ruler-width::before,
+.ruler-width::after {
+  height: 7px;
+  background: linear-gradient(var(--ink-weak), var(--ink-weak)) center / 100% 1px no-repeat;
+}
+
+.ruler-width::before { border-left-width: 1px; }
+.ruler-width::after { border-right-width: 1px; }
+
+/* Read bottom to top, as a y axis title is. */
+.ruler-height {
+  grid-column: 1;
+  grid-row: 2;
+  justify-content: center;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}
+
+.ruler-height::before,
+.ruler-height::after {
+  width: 7px;
+  background: linear-gradient(to right, var(--ink-weak), var(--ink-weak)) center / 1px 100% no-repeat;
+}
+
+.ruler-height::before { border-top-width: 1px; }
+.ruler-height::after { border-bottom-width: 1px; }
+
+.save-sheet {
+  grid-column: 2;
+  grid-row: 2;
+  display: grid;
+  place-items: center;
+  min-height: 160px;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+}
+
+.save-sheet img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.save-sheet[aria-busy="true"] {
+  background: var(--dither), var(--paper);
+}
+
+.save-size {
+  grid-column: 2;
+  grid-row: 3;
+  font-family: var(--mono);
+  font-size: var(--size-tick);
+}
+
+.save-size small {
   color: var(--ink-quiet);
   font-size: var(--size-micro);
 }
 
-/* Reported, not entered: half a unit under the control it derives from, and
-   indented onto that control's own text edge so it cannot be mistaken for one
-   more thing to fill in. */
-.save-dialog .hint.derived {
-  margin-top: calc(var(--s) / -2);
-  padding-left: 8px;
-  font-size: var(--size-micro);
-  font-family: var(--mono);
-  font-feature-settings: var(--mono-features);
-  letter-spacing: normal;
-  word-spacing: normal;
+/* One datum: every label is flush right of a fixed column, every control's
+   left edge lands on the same line, including the lettering fields. */
+.save-form {
+  display: grid;
+  grid-template-columns: var(--label) minmax(0, 1fr);
+  gap: 10px 12px;
+  align-items: center;
+  align-content: start;
+  padding: 16px 20px;
 }
 
-/* The syntax note belongs to no single field, so it opens its own section. */
-.save-dialog .hint.syntax {
-  margin-top: var(--s);
-  padding-left: 8px;
-  font-size: var(--size-micro);
-  font-family: var(--mono);
-  font-feature-settings: var(--mono-features);
-  letter-spacing: normal;
-  word-spacing: normal;
+.save-form > .key-label,
+.save-lettering-fields > .key-label {
+  justify-self: end;
+  font-feature-settings: normal;
 }
 
-.save-dialog .hint .preview {
-  font-family: var(--plot-face);
-  font-size: var(--size-body);
-  color: var(--ink);
+.save-lettering {
+  grid-column: 1 / -1;
+}
+
+.save-lettering > summary {
+  display: grid;
+  grid-template-columns: var(--label) minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+  min-height: var(--hit);
+  cursor: pointer;
+  list-style: none;
+}
+
+.save-lettering > summary::-webkit-details-marker {
+  display: none;
+}
+
+.save-lettering > summary .key-label {
+  justify-self: end;
+}
+
+/* A drawn caret on the value side: it turns when the fields open. */
+.save-lettering > summary .val::before {
+  content: "";
+  display: inline-block;
+  margin-right: 8px;
+  vertical-align: 0.05em;
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+  border-left: 5px solid currentColor;
+}
+
+.save-lettering[open] > summary .val::before {
+  transform: rotate(90deg);
+}
+
+.save-lettering > summary .val {
+  color: var(--ink-quiet);
+  font-size: var(--size-micro);
+}
+
+.save-lettering-fields {
+  display: grid;
+  grid-template-columns: var(--label) minmax(0, 1fr);
+  gap: 10px 12px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.save-form .field {
+  width: 100%;
+}
+
+.save-file {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.save-file .unit {
+  display: grid;
+  place-items: center;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-left: 0;
+  background: var(--panel);
+  color: var(--ink-quiet);
+  font-family: var(--mono);
+  font-size: var(--size-tick);
 }
 
 .save-dialog .dialog-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--stock-edge);
 }
 
 .save-dialog .export-error {
-  grid-column: 1 / -1;
-  margin: 0;
+  margin: 0 20px 8px;
   padding: 8px;
   color: var(--error-ink);
   background: var(--error-bg);
@@ -2264,6 +2517,15 @@ i .value {
   font-feature-settings: var(--ui-features);
   font-size: var(--size-body);
   line-height: var(--line-height);
+}
+
+.save-sheet .export-error {
+  margin: 8px;
+}
+
+@media (max-width: 760px) {
+  .save-body { grid-template-columns: minmax(0, 1fr); }
+  .save-preview { border-right: 0; border-bottom: 1px solid var(--stock-edge); }
 }
 
 .hub-active {
@@ -2544,7 +2806,7 @@ i .value {
   grid-column: 1 / -1;
   grid-row: 3;
   display: grid;
-  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: 5px minmax(0, 1fr);
   min-height: 0;
 }
@@ -2562,7 +2824,7 @@ i .value {
   background: var(--accent-pale);
 }
 
-.steering-outline, .steering-terminal {
+.steering-terminal {
   min-height: 0;
   min-width: 0;
   font-family: "Commit Mono Web", ui-monospace, monospace;
@@ -2584,87 +2846,118 @@ i .value {
   word-spacing: normal;
 }
 
-.steering-outline {
-  background: var(--stock);
-  border-right: 1px solid var(--stock-edge);
-  overflow: auto;
-}
-
-.steering-outline h2 {
-  margin: 0;
-  min-height: 25px;
-  padding: 3px 12px;
-  font: var(--size-micro)/1.5 var(--label-face);
-  text-transform: uppercase;
-  letter-spacing: var(--track-caps);
-  border-bottom: 1px solid var(--stock-edge);
-}
-
-.steering-group {
-  padding: 2px 0;
-  border-bottom: 1px solid var(--stock-edge);
-}
-
-.steering-group summary {
-  cursor: pointer;
-  min-height: 24px;
-  padding: 2px 12px;
-}
-
-.steering-group button {
-  display: flex;
-  gap: 8px;
-  width: 100%;
-  min-height: 24px;
-  padding: 2px 12px 2px 28px;
-  border: 0;
-  text-align: left;
-  background: transparent;
-  overflow-wrap: anywhere;
-}
-
-.steering-group button::before {
-  content: '>';
-  color: var(--ink-quiet);
-}
-
-.steering-group button:hover {
-  background: var(--dither), transparent;
-}
-
 .steering-terminal {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   background: var(--paper);
 }
 
+/* Quiet by default: a label, a state word only when Python is not ready,
+   Insert, and a drawn options mark. */
 .steering-head {
+  position: relative;
   display: flex;
-  gap: 12px;
+  gap: 8px;
   align-items: center;
-  min-height: 25px;
-  padding: 0 12px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--line);
+  min-height: 28px;
+  padding: 0 4px 0 12px;
+  background: var(--stock);
+  border-bottom: 1px solid var(--stock-edge);
 }
 
-.steering-head button {
-  min-height: 24px;
-  padding: 0 8px;
+.steering-spacer {
+  flex: 1;
 }
 
-.steering-state {
+.steering-head .btn {
+  min-height: 22px;
+}
+
+/* The terminal sits at the foot of the window: its sheets open upward. */
+.steering-head details.pop > .sheet {
+  top: auto;
+  bottom: calc(100% + 1px);
+}
+
+.steering-insert .sheet {
+  width: 20rem;
+  padding: 0;
+}
+
+.steering-insert .list {
+  min-width: 0;
+}
+
+.steering-insert .list > button > code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.steering-none {
+  padding: 4px 8px;
   color: var(--ink-quiet);
 }
 
-.steering-head .steering-help-toggle {
+.steering-dots,
+.steering-stop {
   display: grid;
   place-items: center;
-  min-width: 24px;
-  margin-left: auto;
+  min-width: 28px;
+  min-height: 24px;
   padding: 0;
   border: 0;
   background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.steering-dots:hover,
+.steering-stop:hover {
+  background: var(--dither), transparent;
+}
+
+/* Drawn marks, not characters: three dots and a stop square. */
+.steering-dots::before {
+  content: "";
+  width: 3px;
+  height: 3px;
+  background: currentColor;
+  box-shadow: -6px 0 currentColor, 6px 0 currentColor;
+}
+
+.steering-stop::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  background: currentColor;
+}
+
+.steering-starters {
+  display: grid;
+  gap: 2px;
+  max-width: 36rem;
+  padding: 4px 12px 0 36px;
+}
+
+.steering-starters button {
+  padding: 4px 8px;
+  border: 1px dashed var(--line);
+  background: transparent;
+  color: var(--ink-medium);
+  text-align: left;
+  cursor: pointer;
+}
+
+.steering-starters button:hover {
+  background: var(--dither), transparent;
+  color: var(--ink);
+}
+
+.steering-starters pre {
+  margin: 0;
+  white-space: pre-wrap;
 }
 
 .steering-help {
@@ -2771,25 +3064,19 @@ i .value {
 }
 
 @media (pointer: coarse) {
-  .steering-head .steering-help-toggle, .steering-help button { min-width: 44px; min-height: 44px; }
+  .steering-dots, .steering-stop, .steering-help button { min-width: 44px; min-height: 44px; }
 }
 
-.steering-menu > summary {
-  min-height: 24px;
-  min-width: 24px;
-  align-items: center;
-  justify-content: center;
+.steering-menu {
+  margin-left: 4px;
 }
 
-.steering-menu button {
-  display: block;
-  width: 100%;
-  min-height: 28px;
-  text-align: left;
+.steering-menu > .sheet {
+  padding: 0;
 }
 
-.steering-menu button:hover {
-  background: var(--dither), transparent;
+.steering-menu .list {
+  min-width: 12rem;
 }
 
 .steering-log {
@@ -2805,7 +3092,15 @@ i .value {
 
 .steering-entry > span {
   text-align: center;
-  color: var(--accent);
+  color: var(--ink-quiet);
+}
+
+.steering-entry.command:not(:first-child) {
+  margin-top: 6px;
+}
+
+.steering-entry:not(.command):not(.error) {
+  color: var(--ink-medium);
 }
 
 .steering-entry pre {
@@ -2829,9 +3124,29 @@ i .value {
 }
 
 .steering-command > label {
-  color: var(--accent);
+  color: var(--ink);
+  font-weight: var(--mono-strong);
   text-align: center;
   padding-top: 2px;
+}
+
+.steering-command > .steering-stop {
+  justify-self: center;
+  min-height: 24px;
+}
+
+.steering-input-stack textarea::placeholder {
+  color: var(--ink-quiet);
+}
+
+/* Focus is an accent rule along the input's top edge: a full ring would box
+   the one line the terminal is about. */
+.steering-input-stack textarea:focus-visible {
+  outline: none;
+}
+
+.steering-command:has(textarea:focus-visible) {
+  box-shadow: inset 0 2px var(--accent);
 }
 
 .steering-input-stack {

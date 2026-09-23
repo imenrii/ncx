@@ -21,7 +21,7 @@ function feed() {
 }
 
 test("source feed is readable before mount, detached, ordered, and atomic", () => {
-  assert.deepEqual(createSourceFeed().api.getState(), { revision: "0", selection: null, sources: [] });
+  assert.deepEqual(createSourceFeed().api.getState(), { revision: "0", selection: null, sources: [], request: null });
   const state = feed();
   const sources: Source[] = [{ id: "custom-a", dataset: "a", label: "A" }, inline, { id: "b", dataset: "b" }];
   state.api.setSources({ revision: state.api.getState().revision, sources });
@@ -226,4 +226,47 @@ test("a new viewer clears supplied data and cannot reuse a prior revision", () =
   state.configure(datasets);
   state.defaults([{ id: "b", dataset: "b" }]);
   assert.equal(state.sources[0].id, "b");
+});
+
+test("a line style is presentation: it keeps the revision and follows its source", () => {
+  const state = feed();
+  state.api.setSources({ revision: state.api.getState().revision, sources: [{ id: "a", dataset: "a" }, inline] });
+  const before = state.api.getState();
+  assert.equal(before.sources[0].width, 1.75);
+  state.setStyle("tide", { color: "#aa0000", pattern: [6, 3], widthMm: 0.5 });
+  const after = state.api.getState();
+  assert.equal(after.revision, before.revision);
+  assert.deepEqual(after.sources[1], { ...before.sources[1], color: "#aa0000", dash: "11.34 5.67", width: 0.5 * 96 / 25.4 });
+  assert.deepEqual(after.sources[0], before.sources[0]);
+  // Width alone scales the palette dash; the pattern is kept when the width changes.
+  state.setStyle("a", { widthMm: 0.926 });
+  assert.equal(state.api.getState().sources[0].dash, "none");
+  state.setStyle("tide", { widthMm: 1 });
+  assert.equal(state.api.getState().sources[1].dash, "22.68 11.34");
+  assert.throws(() => state.setStyle("a", { color: "red" }), /Invalid line style/);
+  assert.throws(() => state.setStyle("a", { pattern: [5, 5] }), /Invalid line style/);
+});
+
+test("host options bound the reader's request; an answer settles it", () => {
+  const state = feed();
+  assert.throws(() => state.requestSources(["a"]), /not declared/);
+  state.api.setOptions({ options: [
+    { id: "a", label: "Run A", dataset: "a" }, { id: "c", label: "Run C", dataset: "c" },
+    { id: "tide", label: "Tide", kind: "series" },
+  ] });
+  assert.equal(state.options?.length, 3);
+  assert.throws(() => state.api.setOptions({ options: [{ id: "x", label: "X" }] }), /dataset or is a series/);
+  assert.throws(() => state.api.setOptions({ options: [{ id: "x", label: "X", dataset: "x", kind: "series" }] }), /dataset or is a series/);
+  assert.throws(() => state.api.setOptions({ options: [{ id: "x", label: "X", dataset: "x", colour: "red" }] }), /Unknown/);
+  assert.throws(() => state.requestSources(["a", "unknown"]), /Invalid source request/);
+  assert.throws(() => state.requestSources(["a", "a"]), /Invalid source request/);
+  state.requestSources(["c", "a", "tide"]);
+  const pending = state.api.getState();
+  assert.deepEqual(pending.request, { revision: pending.revision, sources: ["c", "a", "tide"] });
+  pending.request!.sources.push("mutated");
+  assert.deepEqual(state.api.getState().request?.sources, ["c", "a", "tide"]);
+  state.api.setSources({ revision: pending.revision, sources: [{ id: "a", dataset: "a" }] });
+  assert.equal(state.api.getState().request, null);
+  state.reset();
+  assert.equal(state.options, undefined);
 });

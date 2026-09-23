@@ -23,7 +23,7 @@ export interface CaptureLayout {
 
 export type PlotCapture = (width: number, height: number) => Promise<{ blob: Blob; sampling: string }>;
 
-export interface CurveLegendEntry { description: string; color: string; dash: string }
+export interface CurveLegendEntry { description: string; color: string; dash: string; width?: number }
 export type CurveCapture = (consume: (svg: SVGSVGElement) => void, samplingScale?: number) => void;
 const curveCaptures = new WeakMap<HTMLElement, CurveCapture>();
 

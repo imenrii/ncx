@@ -81,8 +81,9 @@ The resulting binary is located at `target/release/ncx`.
 
 ### Steering
 
-The **Steering** topbar button opens a Python/NumPy console with an Outline of
-variables and live display objects. Variables support lazy arithmetic:
+The **Steering** topbar button opens a Python/NumPy console. **Insert**
+(Ctrl+I) puts a source variable, workspace name, or display handle at the
+cursor. Variables support lazy arithmetic:
 
 ```python
 t = sources.s1["/CLK"]
@@ -92,8 +93,11 @@ panels[0].show(t)
 
 Enter submits a command; Shift+Enter adds a line. Completion, Ctrl+R history
 search, expandable results, and concise errors support interactive editing.
-Python and Dask load locally on first open. Computation runs in a worker with
-a Stop control, using the existing bounded source reads and plot renderers.
+The terminal head shows a state word only while Python is not ready. An empty
+log offers three examples; a press puts one in the input. Python and Dask load
+locally on first open. Computation runs in a worker; while a command runs, the
+`>>` prompt becomes its Stop key. The three-dot menu has Clear log, Reset
+workspace, and Quick reference.
 Use `p = frame.append(variable)` to add a panel. Field and Curve derive from
 its one binding; a field-backed panel shows a curve after its probe is placed.
 Read `p.probe.position`, move it with `await p.probe.move(longitude=..., latitude=...)`,
@@ -106,7 +110,7 @@ and the CSP required by embedding hosts.
 
 ### URL Parameters
 
-- **Clean Embeds**: Append `chrome=none` to the viewer URL to hide the header, status bar, Settings button, dataset switcher, and source controls. The host owns source order; variable navigation stays available.
+- **Clean Embeds**: Append `chrome=none` to the viewer URL to hide the header, status bar, Settings button, and the Files list. The host owns source membership; the source tabs, variable navigation, and Display stay available.
 - **Embedded Mode**: Use `embedded=1` for clean iframe integrations.
 
 ### Sources and embedded API
@@ -117,7 +121,7 @@ one through four panes. Unavailable sources keep their place and error; ncx
 never promotes a secondary source silently. Cross-dataset selections require
 compatible quantities, units, and explicit location or coordinate mappings.
 
-Same-origin hosts call `window.ncx = {version: 1, getState, setSources}`.
+Same-origin hosts call `window.ncx = {version: 2, getState, setSources, setOptions}`.
 The API is also present in standalone viewers, before React mounts. ncx sends
 no messages or requests to the host. The host must poll; it must not inspect
 the iframe DOM. Start even a single hosted dataset with `--dataset id=path`
@@ -134,11 +138,15 @@ to keep its dataset ID stable.
     start_ms?: number, end_ms?: number
   } | null,
   sources: {
-    id: string, label: string, color: string, dash: string,
+    id: string, label: string, color: string, dash: string, width: number,
     primary: boolean, locked: boolean
-  }[]
+  }[],
+  request: { revision: string, sources: string[] } | null
 }
 ```
+
+`width` is the stroke width in CSS px; `dash` is an SVG dash array in px or
+`none`. Both follow the reader's line style for that source.
 
 The selection uses source metadata, including session unit selections, not
 converted display units. Curve extents are the raw UTC
@@ -171,6 +179,25 @@ are dataset IDs. The getter includes unavailable sources and reports ncx's
 actual palette. Inline series use generic location, quantity, and unit matching;
 a locked series has no provider-specific behavior.
 
+`setOptions({options})` declares up to 64 sources the reader may add. Each is
+`{id, label, dataset}` or `{id, label, kind: "series"}`; the dataset need not be
+open yet. With options declared, ncx shows **Add**, a remove key on each tab,
+and **Make primary**. These never change host sources. They write
+`getState().request`: the option or source IDs the reader wants, in order. The
+host reads it when it polls and answers with `setSources()`, which settles the
+request. Until then a requested source shows as a dashed, waiting tab.
+
+#### Source tabs and line styles
+
+With two or more sources, or in a directory or hosted session, the plotted
+sources show as one row of tabs under the toolbar. Tabs shrink like browser
+tabs and never wrap. The primary is first, bold, and stands on an ink foot. A
+tab opens its line: colour, dash, and weight in millimetres, and in a field
+comparison **Show pane** (four panes at most). The viewer keeps one style per
+source: the same record drives the curve, its legend, export, `getState()`,
+and the **Display** line of the primary. Style changes do not change the
+revision.
+
 One shared **Y offset** in the toolbar sets the absolute offset of every
 unlocked series, including new sources. New locked sources start at zero.
 Locking retains the current offset; unlocking adopts the toolbar value.
@@ -181,11 +208,15 @@ or extraction change resets the unlocked offsets. Representation changes and
 raw-extent arrival preserve compatible offsets. Display-unit changes convert
 offset deltas; locked physical offsets survive them. There are no X offsets. Legends contain
 only names and line swatches; axes, crosshairs, and export retain scientific
-metadata. Scale, Range, Min, Max, Colour, and Map appear directly in the
-toolbar alongside view, selection, units, Y offset, and Save PNG. Curve Wind is
-a toolbar control; the field overlays have their own plot legend.
-Controls wrap when needed; there is no Display menu. The Time control and its
-zone-switching state are removed. The validated `display_zone` URL value fixes
+metadata. The toolbar keeps what selects the slice: view, axes, indices,
+units, Y offset, and curve Wind. **Display**, at the foot of the sidebar and
+closed by default, keeps how it is drawn. Its summary states the colour map,
+scale, and range while it is closed. In the field view it has the colour map
+and a range histogram; in the curve view it has the value axis and the primary
+source's line. A drag across the histogram, or a new edge value, locks the
+range; a double-click or **auto** returns it to the data. Scale and Range share
+one row. The field overlays (Pressure, Wind vector, Coastline) have their own
+plot legend. The Time control and its zone-switching state are removed. The validated `display_zone` URL value fixes
 the display zone for the viewer; without it, the viewer uses UTC.
 
 The gear button opens Settings. Field view settings select arrows or wind barbs,
@@ -201,7 +232,10 @@ arrow keys to resize it. Home/End select the width limits. Its default width is
 the plot. Small screens scroll horizontally. With `chrome=none`, the settings
 button is in the toolbar.
 
-Standalone dataset navigation and source participation stay available.
+With several datasets, the sidebar lists **Files**. Names wrap in full; a
+plotted file shows its line; the primary file opens in place to its variables.
+Choosing another file makes it primary. The source tabs' **Add** plots more
+files, six datasets at most.
 `sessionStorage` keeps dataset/path/view by dataset ID and restores them before
 defaults on reload. Storage failures use normal defaults. Rebuild the web assets
 and then Rust after UI changes: Rust embeds `web/dist` at compile time.
@@ -382,7 +416,7 @@ arrows or pressure-gradient calculations are used.
 
 ### Coastline Reference
 
-For longitude/latitude fields, select **Map → Coastline** to draw solid coastline
+For longitude/latitude fields, press **Coastline** in the plot's overlay legend to draw solid coastline
 lines without labels or shading. This uses public-domain [Natural Earth](https://www.naturalearthdata.com/about/terms-of-use/)
 data from the version-pinned `nvkelso/natural-earth-vector` GitHub repository.
 The browser downloads only the detail level needed for the view (110m, 50m, or
@@ -392,13 +426,19 @@ about 10 MB and is not suitable for precise harbour boundaries.
 Downloads and parsed geometry are shared across panes and cached for the page
 lifetime. Downloads also use the browser HTTP cache. Pan, animation, and PNG
 export reuse loaded data; zoom can request a different detail level. No download
-starts while Map is set to none. If a download fails, the dataset remains usable.
-Turn Map off and on to retry. Export requires the selected coastline to be ready,
-or Map to be set to none.
+starts while Coastline is off. If a download fails, the dataset remains usable.
+Turn Coastline off and on to retry. Export requires the coastline to be ready,
+or Coastline to be off.
 
 ### Exporting Figures
 
-In **Save figure**, enclose LaTeX in `$...$` in the title, subtitle, and axis
+**Export PNG** shows the file before it is written: the same composition,
+redrawn as width, resolution, grid, or lettering change, with width and height
+rulers in millimetres and one line for the pixel size, resolution, and an
+estimated file size. Lettering is closed by default; the file name has a fixed
+`.png`. **Copy image** puts the PNG on the clipboard where the browser allows it.
+
+In the Lettering fields, enclose LaTeX in `$...$` in the title, subtitle, and axis
 labels. For example: `Wind speed ($m s^{-1}$)` or `$\theta$`. Text outside
 these delimiters stays literal. Use `\$` for a literal dollar sign.
 
@@ -517,7 +557,7 @@ styles are unchanged. Wichary describes the font's history in
 
 ### Generic secondary curve panel
 
-The source API retains version 1 and adds capabilities.secondaryCurve=true.
+The source API adds capabilities.secondaryCurve=true.
 setSources accepts optional secondary={label, sources, error?, difference?}. Its sources
 are ordinary supplied series with optional color/dash copied from existing
 source styles; no calculation or provider policy enters ncx. Secondary input
@@ -531,5 +571,5 @@ margins. Secondary Y range is automatic and independent. An explicit difference=
 marks delta values for unit conversion and includes a zero reference. Ordinary
 secondary series use ordinary unit conversion. Each panel requires matching
 quantity, units, and location across its sources; signed ranges use linear scale. Primary display offsets never change
-secondary samples. Both panels appear in Save PNG. getState remains metadata
+secondary samples. Both panels appear in Export PNG. getState remains metadata
 only and reports the feature capability; ncx does not request data from its host.

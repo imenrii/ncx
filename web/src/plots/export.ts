@@ -196,9 +196,70 @@ function retitleAxis(root: SVGElement, index: number, text: string): void {
 
 /** Save every visible plot pane as one print-ready PNG. */
 export async function exportPlotPng(name: string, options?: ExportOptions): Promise<void> {
-  const figure = activeFigure();
   const settings = options ?? defaultExportOptions();
-  if (!figure?.classList.contains("steering-frame")) return capturePlotPng(name, settings);
+  const png = await inExportLayout(settings, async () => {
+    const composed = await composeCapture(settings);
+    return pngSampling(await canvasPng(await rasterize(composed)), composed.sampling);
+  });
+  const download = URL.createObjectURL(png);
+  const link = document.createElement("a");
+  link.href = download;
+  link.download = `${name.replace(/[^a-z0-9._-]+/gi, "_") || "ncx-plot"}.png`;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(download), 0);
+}
+
+/** Put the print-ready PNG on the clipboard. */
+export async function copyPlotPng(options: ExportOptions): Promise<void> {
+  if (typeof ClipboardItem === "undefined" || !navigator.clipboard?.write) throw new Error("This browser cannot copy images");
+  // Safari needs the promise inside the item so the write keeps its user gesture.
+  const png = inExportLayout(options, async () => {
+    const composed = await composeCapture(options);
+    return pngSampling(await canvasPng(await rasterize(composed)), composed.sampling);
+  });
+  await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
+}
+
+export interface ExportPreview {
+  url: string;
+  /** Size of the saved file, not of the preview image. */
+  pixelWidth: number;
+  pixelHeight: number;
+  heightMm: number;
+  /** Estimated from the preview's compression; PNG size is not exactly proportional. */
+  approximateBytes: number;
+}
+
+/** The same composition as the saved file, drawn at `previewWidth` pixels. */
+export async function previewPlotPng(options: ExportOptions, previewWidth: number, signal?: AbortSignal): Promise<ExportPreview> {
+  const full = exportPixelWidth(options.widthMm, options.dpi);
+  return inExportLayout(options, async () => {
+    // A closed or superseded preview gives its turn away without capturing.
+    signal?.throwIfAborted();
+    const composed = await composeCapture(options, Math.min(full, previewWidth));
+    const png = await canvasPng(await rasterize(composed));
+    const ratio = composed.layout.pixelHeight / composed.layout.pixelWidth;
+    const pixelHeight = Math.max(1, Math.round(full * ratio));
+    return {
+      url: URL.createObjectURL(png), pixelWidth: full, pixelHeight, heightMm: options.widthMm * ratio,
+      approximateBytes: png.size * (full * pixelHeight) / (composed.layout.pixelWidth * composed.layout.pixelHeight),
+    };
+  });
+}
+
+// Captures run one at a time: a preview and a save must not both change the
+// figure's layout or its pane captures at once.
+let exportQueue: Promise<unknown> = Promise.resolve();
+function inExportLayout<T>(settings: ExportOptions, work: () => Promise<T>): Promise<T> {
+  const run = exportQueue.then(() => inPrintLayout(settings, work));
+  exportQueue = run.catch(() => undefined);
+  return run;
+}
+
+/** Steering frames are laid out at the print width while the capture runs. */
+async function inPrintLayout<T>(settings: ExportOptions, work: () => Promise<T>): Promise<T> {
+  const figure = activeFigure();
+  if (!figure?.classList.contains("steering-frame")) return work();
   const original = figure.getAttribute("style");
   const profile = PLOT_STYLE.panels;
   const width = settings.widthMm * 96 / 25.4;
@@ -232,7 +293,7 @@ export async function exportPlotPng(name: string, options?: ExportOptions): Prom
   try {
     await document.fonts.ready;
     for (let i = 0; i < 4; i++) await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-    await capturePlotPng(name, settings);
+    return await work();
   } finally {
     delete figure.dataset.export;
     if (original === null) figure.removeAttribute("style"); else figure.setAttribute("style", original);
@@ -240,7 +301,11 @@ export async function exportPlotPng(name: string, options?: ExportOptions): Prom
   }
 }
 
-async function capturePlotPng(name: string, options?: ExportOptions): Promise<void> {
+interface ComposedCapture { markup: string; layout: ReturnType<typeof planCaptureLayout>; sampling: string[] }
+
+/** A preview (`pixelWidth` given) leaves the frames' export marks alone. */
+async function composeCapture(options: ExportOptions, pixelWidth?: number): Promise<ComposedCapture> {
+  const marking = pixelWidth === undefined;
   const figure = activeFigure();
   const frames = figure && Array.from(figure.querySelectorAll<HTMLElement>(".plot-frame"))
     .filter((frame) => {
@@ -249,7 +314,7 @@ async function capturePlotPng(name: string, options?: ExportOptions): Promise<vo
     });
   if (!figure || !frames?.length) throw new Error("The current view has no plot to save");
   if (frames.some(frame => frame.querySelector('[data-coastline]:not([data-coastline="ready"])'))) {
-    throw new Error("Coastline is not ready. Wait for it to load, or set Map to none before export.");
+    throw new Error("Coastline is not ready. Wait for it to load, or turn Coastline off before export.");
   }
 
   if (frames.some(frame => frame.querySelector('[data-wind]:not([data-wind="ready"])'))) {
@@ -261,7 +326,7 @@ async function capturePlotPng(name: string, options?: ExportOptions): Promise<vo
   }
 
   await document.fonts.ready;
-  const settings = options ?? defaultExportOptions();
+  const settings = options;
   const content = figure.classList.contains("steering-frame") ? figure : figure.querySelector<HTMLElement>(".field-comparison");
   // Long rotated axis titles may extend beyond their SVG viewport. Reserve
   // their full painted bounds before adding the title band; otherwise
@@ -283,7 +348,7 @@ async function capturePlotPng(name: string, options?: ExportOptions): Promise<vo
   const layout = planCaptureLayout(
     contentRect,
     frames.map((frame) => frame.getBoundingClientRect()),
-    exportPixelWidth(settings.widthMm, settings.dpi),
+    pixelWidth ?? exportPixelWidth(settings.widthMm, settings.dpi),
     bandHeight,
   );
 
@@ -324,7 +389,7 @@ async function capturePlotPng(name: string, options?: ExportOptions): Promise<vo
   }
 
   const sampling: string[] = [];
-  for (const frame of frames) delete frame.dataset.exportCaptured;
+  if (marking) for (const frame of frames) delete frame.dataset.exportCaptured;
   for (let index = 0; index < frames.length; index += 1) {
     const frame = frames[index];
     const source = frame.querySelector<SVGSVGElement>("svg.plot-svg, svg.curve-svg");
@@ -343,7 +408,7 @@ async function capturePlotPng(name: string, options?: ExportOptions): Promise<vo
       sampling.push(captured.sampling);
       const blob = captured.blob;
       appendImage(body, await blobDataUrl(blob), canvasRect, contentRect);
-      frame.dataset.exportCaptured = "true";
+      if (marking) frame.dataset.exportCaptured = "true";
     }
 
     let furniture!: SVGSVGElement;
@@ -368,6 +433,10 @@ async function capturePlotPng(name: string, options?: ExportOptions): Promise<vo
     body.append(group);
   }
 
+  return { markup: new XMLSerializer().serializeToString(output), layout, sampling };
+}
+
+async function rasterize({ markup, layout }: ComposedCapture): Promise<HTMLCanvasElement> {
   const raster = document.createElement("canvas");
   raster.width = layout.pixelWidth;
   raster.height = layout.pixelHeight;
@@ -376,7 +445,6 @@ async function capturePlotPng(name: string, options?: ExportOptions): Promise<vo
   context.fillStyle = PLOT_STYLE.paper;
   context.fillRect(0, 0, raster.width, raster.height);
 
-  const markup = new XMLSerializer().serializeToString(output);
   const url = URL.createObjectURL(new Blob([markup], { type: "image/svg+xml;charset=utf-8" }));
   try {
     const image = new Image();
@@ -393,13 +461,7 @@ async function capturePlotPng(name: string, options?: ExportOptions): Promise<vo
     URL.revokeObjectURL(url);
   }
 
-  const png = pngSampling(await canvasPng(raster), sampling);
-  const download = URL.createObjectURL(png);
-  const link = document.createElement("a");
-  link.href = download;
-  link.download = `${name.replace(/[^a-z0-9._-]+/gi, "_") || "ncx-plot"}.png`;
-  link.click();
-  window.setTimeout(() => URL.revokeObjectURL(download), 0);
+  return raster;
 }
 
 function enclosingRect(rects: DOMRect[]): CaptureRect {

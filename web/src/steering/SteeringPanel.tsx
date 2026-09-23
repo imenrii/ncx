@@ -1,8 +1,8 @@
-import { memo, useEffect, useRef, useState, useSyncExternalStore, useCallback } from "react";
+import { Fragment, useEffect, useRef, useState, useSyncExternalStore, useCallback, type RefObject } from "react";
 import { highlightHTML } from "@speed-highlight/core";
 import type { SteeringSession } from "./session";
 import { atHistoryEdge, indentLines, insertLine, type Edit } from "./editor";
-import type { CatalogSource, Completion, ConsoleError, Displays, ObjectDescription } from "./model";
+import type { Completion, ConsoleError, Displays, ObjectDescription } from "./model";
 
 export function SteeringPanel({ session, open, displays }: { session: SteeringSession; open: boolean; displays: Displays }) {
   useSyncExternalStore(session.subscribe, session.getSnapshot);
@@ -90,6 +90,12 @@ export function SteeringPanel({ session, open, displays }: { session: SteeringSe
   const recall = (text: string) => { edit({ text, start: text.length, end: text.length }); setHistoryIndex(session.history.length); setSearch(undefined); };
   const matches = search === undefined ? [] : session.history.map((text, index) => ({ text, index })).reverse().filter(item => item.text.toLowerCase().includes(search.toLowerCase())).slice(0, 20);
 
+  const help = useRef<HTMLDialogElement>(null);
+  const running = session.state === "busy" || session.state === "loading";
+  const stateWord = session.state === "loading" ? "loading" : session.state === "busy" ? "running"
+    : session.state === "failed" ? "failed" : session.state === "closed" ? "stopped" : undefined;
+  const closeMenu = (event: { currentTarget: Element }) => { event.currentTarget.closest("details")!.open = false; };
+
   return <section ref={panel} id="steering-panel" className="steering" aria-label="Steering terminal" hidden={!open} style={{ height }}>
     <div className="steering-resize" role="separator" tabIndex={0} aria-label="Resize Steering panel" aria-orientation="horizontal"
       aria-valuemin={160} aria-valuemax={maximum} aria-valuenow={height}
@@ -102,32 +108,28 @@ export function SteeringPanel({ session, open, displays }: { session: SteeringSe
         drag.current = { y: event.clientY, height };
       }} onPointerMove={event => { if (drag.current) resize(drag.current.height + drag.current.y - event.clientY); }}
       onPointerUp={() => { drag.current = undefined; }} onPointerCancel={() => { drag.current = undefined; }} onLostPointerCapture={() => { drag.current = undefined; }} />
-    <aside className="steering-outline" aria-label="Outline">
-      <h2>Outline</h2>
-      {session.catalog.map(source => <SourceOutline key={source.alias} source={source} insert={insert} />)}
-      {session.names.length > 0 && <details open className="steering-group"><summary>Variables</summary>
-        {session.names.map(name => <button key={name.name} title={name.summary} onClick={() => insert(name.name)}>{name.name}</button>)}
-      </details>}
-      <details open className="steering-group steering-displays"><summary>Displays</summary>
-        <button onClick={() => insert("frame")}>frame</button>
-        {session.panels.map((panel, index) => <details open key={panel.id}><summary>{`panels[${index}]`}</summary>
-          {["data", "probe"].map(name => <button key={name} onClick={() => insert(`panels[${index}].${name}`)}>{name}</button>)}
-        </details>)}
-      </details>
-    </aside>
     <div className="steering-terminal">
-      <div className="steering-head"><span>Python</span>
-        <span className="steering-state" role="status">{session.state === "loading" ? "Loading Python…" : session.state === "busy" ? "Running…" : ""}</span>
-        {(session.state === "busy" || session.state === "loading") && <button className="btn" onClick={() => session.stop()}>Stop</button>}
-        {(session.state === "closed" || session.state === "failed") && <button className="btn" onClick={() => void session.open()}>Start Python</button>}
-        <TerminalHelp />
-        <details className="pop steering-menu"><summary aria-label="Terminal options" title="Terminal options">···</summary>
-          <div className="sheet" data-align="right"><button onClick={event => { session.clearLog(); event.currentTarget.closest("details")!.open = false; }}>Clear log</button>
-            <button onClick={event => { session.reset(); event.currentTarget.closest("details")!.open = false; }}>Reset workspace</button></div>
+      {/* Words only where a word is needed: the state shows only when Python is not ready. */}
+      <div className="steering-head">
+        <span className="key-label">Python</span>
+        {stateWord && <span className="state" role="status" data-state={session.state === "failed" ? "failed" : session.state === "closed" ? undefined : "running"}>{stateWord}</span>}
+        <span className="steering-spacer" />
+        <InsertMenu session={session} insert={insert} />
+        <details className="pop steering-menu">
+          <summary className="steering-dots" aria-label="Terminal options" title="Terminal options" />
+          <div className="sheet" data-align="right"><div className="list">
+            <button onClick={event => { session.clearLog(); closeMenu(event); }}>Clear log</button>
+            <button onClick={event => { session.reset(); closeMenu(event); }}>Reset workspace</button>
+            <button onClick={event => { closeMenu(event); help.current?.showModal(); }}>Quick reference</button>
+          </div></div>
         </details>
       </div>
       <div className="steering-log" ref={log} role="log" aria-label="Python command log" aria-live="polite"
         onScroll={event => { const node = event.currentTarget; followLog.current = node.scrollHeight - node.scrollTop - node.clientHeight < 24; }}>
+        {session.log.length === 0 && <div className="steering-starters" aria-label="Examples">
+          {STARTERS.map(code => <button key={code} type="button" title="Put this example in the input"
+            onClick={() => edit({ text: code, start: code.length, end: code.length })}><Highlighted code={code} /></button>)}
+        </div>}
         {session.log.map(line => <div className={`steering-entry ${line.kind}`} key={line.id}>
           <span aria-hidden="true">{line.kind === "command" ? ">>" : ""}</span>
           {line.kind === "command" ? <Highlighted code={line.text} />
@@ -157,12 +159,16 @@ export function SteeringPanel({ session, open, displays }: { session: SteeringSe
             <span>{item.label}</span><small>{item.detail}</small>
           </button>)}</div>
         </div>}
-        <div className="steering-command"><label htmlFor="steering-input">&gt;&gt;</label>
+        <div className="steering-command">
+          {/* While a command runs, the prompt becomes its Stop key. */}
+          {running
+            ? <button type="button" className="steering-stop" aria-label="Stop" title="Stop" onClick={() => session.stop()} />
+            : <label htmlFor="steering-input">&gt;&gt;</label>}
           <div className="steering-input-stack"><pre aria-hidden="true" dangerouslySetInnerHTML={{ __html: highlight }} />
             <textarea id="steering-input" ref={input} value={session.input} rows={1} spellCheck={false} autoCapitalize="off" autoComplete="off"
+              placeholder={session.state === "closed" || session.state === "failed" ? "Enter starts Python" : "Shift+Enter for a new line"}
               aria-label="Python command" aria-autocomplete="list" aria-controls="steering-completions"
               aria-expanded={Boolean(completion?.items.length)} aria-activedescendant={completion?.items.length ? `steering-completion-${candidate}` : undefined}
-              title="Enter submits; Shift+Enter inserts a line; Ctrl+Space completes; Ctrl+R searches history"
               onChange={event => { session.setInput(event.currentTarget.value); setCursor(event.currentTarget.selectionStart); }}
               onSelect={event => setCursor(event.currentTarget.selectionStart)}
               onBlur={() => { completionVersion.current++; setCompletion(undefined); }}
@@ -172,8 +178,14 @@ export function SteeringPanel({ session, open, displays }: { session: SteeringSe
                 if (event.ctrlKey && event.key.toLowerCase() === "r") {
                   event.preventDefault(); setCompletion(undefined); setSearch(""); setSearchIndex(0); return;
                 }
+                if (event.ctrlKey && event.key.toLowerCase() === "i") {
+                  event.preventDefault();
+                  const menu = panel.current?.querySelector<HTMLDetailsElement>(".steering-insert");
+                  if (menu) { menu.open = true; requestAnimationFrame(() => menu.querySelector<HTMLInputElement>("input")?.focus()); }
+                  return;
+                }
                 if (event.ctrlKey && event.code === "Space") { event.preventDefault(); void requestCompletion(true); return; }
-                if (event.key === "Escape") { event.preventDefault(); completionVersion.current++; setCompletion(undefined); return; }
+                if (event.key === "Escape" && completion) { event.preventDefault(); completionVersion.current++; setCompletion(undefined); return; }
                 if (completion?.items.length && ["ArrowUp", "ArrowDown"].includes(event.key)) {
                   event.preventDefault(); setCandidate(index => (index + (event.key === "ArrowUp" ? -1 : 1) + completion.items.length) % completion.items.length); return;
                 }
@@ -198,24 +210,65 @@ export function SteeringPanel({ session, open, displays }: { session: SteeringSe
         </div>
       </div>
     </div>
+    <TerminalHelp dialog={help} />
   </section>;
 }
 
-function TerminalHelp() {
-  const dialog = useRef<HTMLDialogElement>(null);
+/** Examples for an empty log. A press puts one in the input; it does not run it. */
+const STARTERS = [
+  't = sources.s1["/temperature"]\npanels[0].show(t)',
+  'frame.append(t - t.isel({"time": 0}))',
+  "await panels[0].probe.move(longitude=115.75, latitude=22.5)",
+];
+
+/** Names to insert at the cursor: source variables, workspace names, and displays. */
+function InsertMenu({ session, insert }: { session: SteeringSession; insert: (reference: string) => void }) {
+  const [filter, setFilter] = useState("");
+  const wanted = filter.trim().toLowerCase();
+  const rows: { group: string; reference: string; label: string; detail?: string }[] = [
+    ...session.catalog.flatMap(source => source.metadata.variables.filter(variable => variable.capabilities.numeric).map(variable => ({
+      group: `${source.alias} · ${source.label}`, reference: `sources.${source.alias}[${JSON.stringify(variable.path)}]`,
+      label: variable.path, detail: variable.dimensions.map(d => d.length).join(" × ") || "scalar",
+    }))),
+    ...session.names.map(name => ({ group: "Workspace", reference: name.name, label: name.name, detail: name.summary })),
+    { group: "Displays", reference: "frame", label: "frame" },
+    ...session.panels.flatMap((_, index) => ["", ".data", ".probe"].map(member => ({
+      group: "Displays", reference: `panels[${index}]${member}`, label: `panels[${index}]${member}`,
+    }))),
+  ];
+  // ponytail: the first 200 matches; a filter narrows a larger file.
+  const shown = rows.filter(row => !wanted || row.label.toLowerCase().includes(wanted)).slice(0, 200);
+  return <details className="pop steering-insert" onToggle={event => { if (!event.currentTarget.open) setFilter(""); }}>
+    <summary className="btn caret" title="Insert a name (Ctrl+I)">Insert</summary>
+    <div className="sheet" data-align="right">
+      <input className="list-filter" placeholder="Filter" aria-label="Filter names" value={filter}
+        onChange={event => setFilter(event.currentTarget.value)}
+        onKeyDown={event => {
+          if (event.key !== "Enter" || !shown[0]) return;
+          event.preventDefault();
+          event.currentTarget.closest("details")!.open = false;
+          insert(shown[0].reference);
+        }} />
+      <div className="list">
+        {shown.map((row, index) => <Fragment key={row.reference}>
+          {row.group !== shown[index - 1]?.group && <div className="list-head"><span className="key-label">{row.group}</span></div>}
+          <button type="button" title={row.reference} onClick={event => { event.currentTarget.closest("details")!.open = false; insert(row.reference); }}>
+            <code>{row.label}</code>{row.detail && <small>{row.detail}</small>}
+          </button>
+        </Fragment>)}
+        {!shown.length && <span className="steering-none">No match</span>}
+      </div>
+    </div>
+  </details>;
+}
+
+function TerminalHelp({ dialog }: { dialog: RefObject<HTMLDialogElement | null> }) {
   return <>
-    <button className="steering-help-toggle" aria-label="Terminal help" title="Terminal help" aria-haspopup="dialog"
-      onClick={() => dialog.current?.showModal()}>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-        <path d="M6 3H3v18h3M18 3h3v18h-3M9 9a3 3 0 1 1 5 2.2c-1.2.8-2 1.3-2 2.8" />
-        <path d="M12 17v1" strokeWidth="2" />
-      </svg>
-    </button>
     <dialog ref={dialog} className="steering-help" aria-labelledby="steering-help-title">
       <header><h2 id="steering-help-title">Steering quick reference</h2>
         <button type="button" className="btn" autoFocus onClick={() => dialog.current?.close()}>Close</button>
       </header>
-      <p>Click an Outline entry to insert its name. Use your file’s paths and dimension names.</p>
+      <p><b>Insert</b> (<kbd>Ctrl+I</kbd>) puts a name at the cursor. Use your file’s paths and dimension names.</p>
       <details open><summary>Quick start</summary>
         <Highlighted code={'t = sources.s1["/CLK"]\nt += 1.45\npanels[0].show(t)'} />
         <p>Source data stays unchanged. Call <code>show()</code> again to update a plot.</p>
@@ -251,8 +304,9 @@ function TerminalHelp() {
           <div><dt><kbd>Ctrl+Space</kbd> / <kbd>Tab</kbd></dt><dd>List / accept completions</dd></div>
           <div><dt><kbd>↑</kbd> / <kbd>↓</kbd></dt><dd>Recall history at the first / last line</dd></div>
           <div><dt><kbd>Ctrl+R</kbd></dt><dd>Search history</dd></div>
+          <div><dt><kbd>Ctrl+I</kbd></dt><dd>Insert a name</dd></div>
         </dl>
-        <p>Stop interrupts a running command. Terminal options contain Clear log and Reset workspace.</p>
+        <p>While a command runs, the prompt becomes a Stop key. The options menu has Clear log and Reset workspace.</p>
       </details>
     </dialog>
   </>;
@@ -281,18 +335,6 @@ function ErrorResult({ error, edit }: { error: ConsoleError; edit: (code: string
     {error.traceback && <details><summary>Traceback</summary><pre>{error.traceback}</pre></details>}
   </div>;
 }
-
-const SourceOutline = memo(function SourceOutline({ source, insert }: { source: CatalogSource; insert: (reference: string) => void }) {
-  const [page, setPage] = useState(0);
-  const variables = source.metadata.variables.filter(variable => variable.capabilities.numeric);
-  return <details open className="steering-group"><summary title={source.label}>Sources{source.alias.slice(1)}</summary>
-    {variables.slice(page * 100, (page + 1) * 100).map(variable => <button key={variable.path}
-      title={`${variable.dimensions.map(d => d.length).join(" × ") || "scalar"} · ${variable.dtype} · source`}
-      onClick={() => insert(`sources.${source.alias}[${JSON.stringify(variable.path)}]`)}>{variable.path}</button>)}
-    {variables.length > 100 && <div className="steering-pages"><button className="btn" disabled={page === 0} onClick={() => setPage(page - 1)}>Previous</button>
-      <button className="btn" disabled={(page + 1) * 100 >= variables.length} onClick={() => setPage(page + 1)}>Next</button></div>}
-  </details>;
-});
 
 function Highlighted({ code }: { code: string }) {
   const [html, setHTML] = useState<string>();

@@ -14,18 +14,22 @@ import { windPair, fieldWindReason } from "../data/wind";
 import { selectedPressureVariable, pressureReason } from "../data/pressure";
 import { CollectionBrowser, DatasetBrowser } from "./DatasetBrowser";
 import { compatibleCurveAxis, type CurvePresentation, type CurveSeries } from "../plots/curveSeries";
-import { sourceFeed } from "../data/sourceFeed";
-import { locationIdentity, primaryFirst } from "../data/comparison";
+import { sourceFeed, type ResolvedSource } from "../data/sourceFeed";
+import { fieldComparisonDatasets, locationIdentity, primaryFirst } from "../data/comparison";
 import { ComparisonFieldView } from "../plots/ComparisonFieldView";
 import { CurveView } from "../plots/CurveView";
 import { SettingsDialog } from "./SettingsDialog";
 import { SidebarResize } from "./SidebarResize";
 import { DEFAULT_FIELD_SETTINGS, type FieldDimensions } from "../data/fieldSettings";
 import { SaveDialog } from "./SaveDialog";
+import { DisplayDock, type DisplayProps } from "./DisplayPanel";
+import { SourceStrip, type StripSource } from "./SourceStrip";
+import { createDisplayValues, DisplayValuesContext, useDisplayValues } from "./controls/displayValues";
+import { lineStyle, round2 } from "../data/lineStyle";
 import { SpatialField } from "../plots/SpatialField";
 import { MetadataPanel } from "./MetadataPanel";
 import {
-  COLORMAP_GROUPS,
+  colorForValue,
   formatNumber,
   type ColormapChoice,
   type ColorRange,
@@ -112,13 +116,17 @@ export function Viewer({
   const [beaufortRange, setBeaufortRange] = useState<ColorRange>({ minimum: 0, maximum: 12 });
   const [curveLocked, setCurveLocked] = useState(false);
   const [sourceIds, setSourceIds] = useState<string[]>();
+  const [paneIds, setPaneIds] = useState<string[]>();
+  const [displayOpen, setDisplayOpen] = useState(false);
+  const [displayValues] = useState(createDisplayValues);
+  const sampled = useDisplayValues(displayValues);
   const [curvePresentation, setCurvePresentation] = useState<CurvePresentation>({});
   const feedVersion = useSyncExternalStore(sourceFeed.subscribe, sourceFeed.getSnapshot);
   const sources = sourceFeed.sources;
   const resolvedSources = useMemo(() => sourceFeed.api.getState().sources, [feedVersion, datasets]);
   const sourceKey = JSON.stringify(sources.flatMap(source => "dataset" in source ? [source.dataset] : []));
-  const participatingDatasets = useMemo(() => datasets.filter(item => sourceIds ? sourceIds.includes(item.id)
-    : chromeHidden || !collection || item.id === selectedDataset), [datasets, sourceIds, collection, selectedDataset, chromeHidden]);
+  const participatingDatasets = useMemo(() => datasets.filter(item => item.id === selectedDataset || (sourceIds
+    ? sourceIds.includes(item.id) : chromeHidden || !collection)), [datasets, sourceIds, collection, selectedDataset, chromeHidden]);
   const fieldViews = useRef(new Map<string, ViewBounds>());
 
   // A spacing system only stays true if it can be seen; Ctrl+Alt+G lays the
@@ -365,10 +373,14 @@ export function Viewer({
   const windUnavailable = view === "field" ? fieldWindReason(metadata, fieldVariable, fieldSettings.components[metadata.dataset_id!])
     : !windMatch.pair ? windMatch.reason
       : !isTimeDimension(variable.dimensions[curveDimension]?.path ?? "") ? "Wind barbs require a time axis" : undefined;
+  const geographic = hasGeographicCoordinates(metadata, fieldVariable);
   const overlays = {
     pressure: Boolean(pressureOverlay), wind: wind && !windUnavailable, windStyle: fieldSettings.windStyle,
+    coastline: geographic && mapSource === "coastline",
     pressureReason: pressureUnavailable, windReason: windUnavailable,
+    coastlineReason: geographic ? undefined : "Coastline needs longitude and latitude coordinates",
     onPressure: setPressureContours, onWind: setWind,
+    onCoastline: (on: boolean) => setMapSource(on ? "coastline" : "none"),
   };
 
   // The timeline drives the first selector dimension with a slider, so showing
@@ -408,7 +420,6 @@ export function Viewer({
   const meshField = hasCompatibleMeshCoordinates(metadata, fieldVariable, display);
   const xCoordinates = compatibleCoordinates(metadata, variable, display, "x");
   const yCoordinates = compatibleCoordinates(metadata, variable, display, "y");
-  const geographicField = hasGeographicCoordinates(metadata, fieldVariable);
   const changeDimensions = (next: DisplayDimensions) => {
     const coordinates = Object.fromEntries((["x", "y"] as const).map(axis => {
       const candidates = compatibleCoordinates(metadata, variable, next, axis);
@@ -435,16 +446,6 @@ export function Viewer({
       </svg>
     </button>
   );
-  const datasetSwitcher = !chromeHidden && datasets.length > 1 && !collection && (
-    <label className="dataset-switcher">
-      Dataset
-      <select className="field sel-native" value={selectedDataset} onChange={(event) => onSelectDataset(event.target.value)}>
-        {datasets.map((dataset) => (
-          <option key={dataset.id} value={dataset.id}>{dataset.label}</option>
-        ))}
-      </select>
-    </label>
-  );
   const steeringIntent = primaryPanel.intent;
   const eligible = (panel: typeof primaryPanel) => {
     const binding = steering.bindingFor(panel);
@@ -462,10 +463,93 @@ export function Viewer({
     targetUnit, timeZone: displayTimeZone, fieldSettings, overlays,
     overlaySource: { metadata, variable: fieldVariable, indices }, pressure: pressureOverlay, mapSource,
   };
+  // One style record per source: the strip and the Display line both show it.
+  const styleFor = (source: ResolvedSource) => ({
+    color: source.color, dash: source.dash, width: source.width, widthMm: round2(source.width * 25.4 / 96),
+    pattern: sourceFeed.styleOf(source.id).pattern,
+  });
+  const primarySource = resolvedSources.find(source => source.primary) ?? resolvedSources[0];
+  const unitLabel = useBeaufort ? "Bft" : targetUnit?.label ?? displayUnit(variable);
+  const curveLogUnavailable = useBeaufort || shownRange.minimum <= 0;
+  const displayProps: DisplayProps | undefined = view === "metadata" ? undefined : {
+    view, colormap, scale: view === "curve" && curveLogUnavailable ? "linear" : scale, unit: unitLabel,
+    onColormap: next => updateSelection({ type: "palette/selected", colormap: next }),
+    onScale: setScale, logUnavailable: view === "curve" && curveLogUnavailable,
+    range: shownRange, locked: shownLocked, values: sampled,
+    onRange: view === "curve" ? changeCurveRange : changeFieldRange,
+    onLocked: view === "curve" ? setCurveLocked : setRangeLocked,
+    ...(view === "field" ? {
+      // Fields publish native samples; curves publish what they draw.
+      toDisplay: sourceUnit && targetUnit ? (value: number) => convert(value, sourceUnit, targetUnit, delta) : undefined,
+      colour: (value: number) => colorForValue(sourceUnit && targetUnit ? convert(value, targetUnit, sourceUnit, delta) : value,
+        colorRange, scale, colormap),
+    } : {
+      line: primarySource && {
+        label: sources.length > 1 ? "Primary line" : "Line", style: styleFor(primarySource),
+        onChange: change => sourceFeed.setStyle(primarySource.id, change),
+      },
+    }),
+  };
+  const dock = displayProps && <DisplayDock {...displayProps} open={displayOpen} onOpen={setDisplayOpen} />;
+
+  // Sources: the host owns membership when it supplied the list; otherwise the reader does.
+  const hostSources = sourceFeed.explicit;
+  const options = sourceFeed.options;
+  const currentIds = sourceFeed.request?.sources ?? sources.map(source => source.id);
+  const pending = hostSources ? currentIds.filter(id => !sources.some(source => source.id === id)) : [];
+  const fieldPanes = view === "field" && allowComparison && datasets.length > 1;
+  const shownPanes = (paneIds ? plotDatasets.filter(item => paneIds.includes(item.id)).slice(0, 4)
+    : fieldComparisonDatasets(plotDatasets, selectedDataset)).map(item => item.id);
+  const datasetOf = (id: string) => { const input = sources.find(source => source.id === id); return input && "dataset" in input ? input.dataset : undefined; };
+  const stripSources: StripSource[] = [
+    ...resolvedSources.map(source => {
+      const dataset = datasetOf(source.id);
+      return {
+        id: source.id, label: source.label, primary: source.primary, style: styleFor(source), dataset: Boolean(dataset),
+        pane: fieldPanes && dataset ? { shown: shownPanes.includes(dataset), allowed: shownPanes.length < 4 } : undefined,
+      };
+    }),
+    ...pending.map((id, index) => ({
+      id, label: options?.find(option => option.id === id)?.label ?? id, primary: false, pending: true,
+      style: lineStyle(resolvedSources.length + index),
+    })),
+  ];
+  const membership = hostSources
+    ? options && {
+      options: options.map(option => ({ id: option.id, label: option.label, detail: option.kind, chosen: currentIds.includes(option.id) })),
+      request: (ids: string[]) => { try { sourceFeed.requestSources(ids); } catch (error) { updateStatus(error instanceof Error ? error.message : String(error)); } },
+    }
+    : allowComparison && datasets.length > 1 ? {
+      options: datasets.map(item => ({
+        id: item.id, label: item.label, chosen: currentIds.includes(item.id),
+        detail: item.state === "unavailable" ? "unavailable" : item.state === "ready" ? `${item.variables} variables` : undefined,
+      })),
+      request: (ids: string[]) => {
+        setSourceIds(ids);
+        if (!ids.includes(selectedDataset)) onSelectVariable(ids[0], selectedPath);
+      },
+    } : undefined;
+  const makePrimary = membership && ((id: string) => {
+    if (hostSources) membership.request([id, ...currentIds.filter(item => item !== id)]);
+    else onSelectVariable(id, selectedPath);
+  });
+  const strip = view !== "metadata" && (collection || datasets.length > 1 || sources.length > 1 || Boolean(options)) && (
+    <SourceStrip sources={stripSources} limit={hostSources ? 8 : 6}
+      options={membership?.options}
+      onStyle={(id, change) => sourceFeed.setStyle(id, change)}
+      onPrimary={makePrimary}
+      onAdd={membership && (id => membership.request([...currentIds, id]))}
+      onRemove={membership && (id => membership.request(currentIds.filter(item => item !== id)))}
+      onPane={fieldPanes ? (dataset, shown) => {
+        const id = datasetOf(dataset) ?? dataset;
+        setPaneIds(shown ? [...shownPanes, id] : shownPanes.filter(item => item !== id));
+      } : undefined} />
+  );
+
   const topActions = <div className="topbar-actions">
     <button className={`key-btn steering-toggle${steeringOpen ? " act" : ""}`} aria-controls="steering-panel" aria-expanded={steeringOpen} aria-pressed={steeringOpen}
       onClick={() => setSteeringOpen(open => !open)}>Steering</button>
-    <button className="btn screenshot-button" title="Save plot as PNG" disabled={view === "metadata"} onClick={() => setSaving(true)}>Save PNG</button>
+    <button className="key-btn screenshot-button" disabled={view === "metadata"} onClick={() => setSaving(true)}>Export PNG</button>
     {sessionActions}
   </div>;
 
@@ -493,22 +577,22 @@ export function Viewer({
         </header>
       )}
 
-      {collection && !chromeHidden ? (
+      {(collection || datasets.length > 1) && !chromeHidden ? (
         <CollectionBrowser
+          plotted={stripSources}
+          footer={dock}
           datasets={datasets}
           metadata={metadata}
           selectedDataset={selectedDataset}
           selectedPath={selectedPath}
           search={search}
           onSearch={setSearch}
-          onReady={onDatasetReady}
-          onUnavailable={onDatasetUnavailable}
           onSelect={onSelectVariable}
         />
       ) : (
         <DatasetBrowser
           metadata={metadata}
-          navigation={datasetSwitcher}
+          footer={dock}
           selectedPath={selectedPath}
           search={search}
           onSearch={setSearch}
@@ -549,21 +633,6 @@ export function Viewer({
               only in the views it changes: a colourmap select beside a line
               plot is a control that lies about what it does. */}
           <div className="display-controls">
-            {!chromeHidden && allowComparison && datasets.length > 1 && view !== "metadata" && <details className="source-participation">
-              <summary>Sources ({plotDatasets.length})</summary>
-              <div className="source-panel">
-                <label>Primary dataset <select className="field sel-native" value={selectedDataset} onChange={event => onSelectDataset(event.currentTarget.value)}>
-                  {datasets.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
-                </select></label>
-                {datasets.map(item => <label className="tick-label" key={item.id}><input type="checkbox"
-                  checked={plotDatasets.some(source => source.id === item.id)}
-                  disabled={plotDatasets.length >= 6 && !plotDatasets.some(source => source.id === item.id)}
-                  onChange={event => {
-                    const ids = plotDatasets.map(source => source.id);
-                    setSourceIds(event.currentTarget.checked ? [...ids, item.id] : ids.filter(id => id !== item.id));
-                  }} /><span className="tick-box" />{item.label}</label>)}
-              </div>
-            </details>}
             {steeringIntent.kind === "default" && view === "field" && variable.view_hint.kind === "ugrid2d" && (
               <div className="control-group">
                 <label className="dimension-readout">
@@ -678,95 +747,6 @@ export function Viewer({
                     <option value="off">Off</option><option value="on">On</option>
                   </select></label>
                 </div>}
-                {/* Range state stays native; controls show the selected display unit. */}
-                {(view === "curve" || view === "field") && variable.dimensions.length >= 1 && (
-                  <div className="control-group" role="group" aria-label={view === "curve" ? "Value axis" : "Colour"}>
-                    {view !== "curve" && <label>
-                      Colour
-                      <select className="field sel-native"
-                        value={colormap}
-                        onChange={(event) => updateSelection({ type: "palette/selected", colormap: event.target.value as ColormapChoice })}
-                        onWheel={(event) => {
-                          const current = event.currentTarget.selectedIndex;
-                          const next = Math.max(0, Math.min(
-                            event.currentTarget.options.length - 1,
-                            current + Math.sign(event.deltaY),
-                          ));
-                          if (next === current) return;
-                          event.preventDefault();
-                          updateSelection({ type: "palette/selected", colormap: event.currentTarget.options[next].value as ColormapChoice });
-                        }}
-                      >
-                        {COLORMAP_GROUPS.map((group) => (
-                          <optgroup key={group.label} label={group.label}>
-                            {group.options.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </optgroup>
-                        ))}
-                      </select>
-                    </label>}
-                    <label>
-                      Scale
-                      <select className="field sel-native" value={view === "curve" && (useBeaufort || shownRange.minimum <= 0) ? "linear" : scale} onChange={(event) => setScale(event.target.value as ColorScale)}>
-                        <option value="linear">linear</option>
-                        <option value="log" disabled={view === "curve" && (useBeaufort || shownRange.minimum <= 0)}>log</option>
-                        {view !== "curve" && <option value="symlog">symlog</option>}
-                      </select>
-                    </label>
-                    <label>
-                      Range
-                      <select className="field sel-native"
-                        value={shownLocked ? "locked" : "auto"}
-                        onChange={(event) => view === "curve" ? setCurveLocked(event.target.value === "locked") : setRangeLocked(event.target.value === "locked")}
-                      >
-                        <option value="auto">auto</option>
-                        <option value="locked">locked</option>
-                      </select>
-                    </label>
-                    <label className="range-values">
-                      Min
-                      <input
-                        className="field num"
-                        aria-label={view === "curve" ? "Value axis minimum" : "Colour range minimum"}
-                        type="number"
-                        step="any"
-                        readOnly={!shownLocked}
-                        value={shownRange.minimum}
-                        onChange={(event) => {
-                          const value = Number(event.target.value);
-                          if (Number.isFinite(value) && value < shownRange.maximum) (view === "curve" ? changeCurveRange : changeFieldRange)({ ...shownRange, minimum: value });
-                        }}
-                      />
-                      Max
-                      <input
-                        className="field num"
-                        aria-label={view === "curve" ? "Value axis maximum" : "Colour range maximum"}
-                        type="number"
-                        step="any"
-                        readOnly={!shownLocked}
-                        value={shownRange.maximum}
-                        onChange={(event) => {
-                          const value = Number(event.target.value);
-                          if (Number.isFinite(value) && value > shownRange.minimum) (view === "curve" ? changeCurveRange : changeFieldRange)({ ...shownRange, maximum: value });
-                        }}
-                      />
-                    </label>
-                  </div>
-                )}
-                {view === "field" && geographicField && (
-                  <div className="control-group" role="group" aria-label="Reference layer">
-                    <label>
-                      Map
-                      <select className="field sel-native" value={mapSource} onChange={(event) => setMapSource(event.target.value as "none" | "coastline")}>
-                        <option value="none">none</option>
-                        <option value="coastline">Coastline</option>
-                      </select>
-                    </label>
-                  </div>
-                )}
               </>
             )}
           </div>
@@ -776,17 +756,22 @@ export function Viewer({
           </div>
           {saving && (
             <SaveDialog
-              name={variable.name}
+              name={[metadata.dataset.name.replace(/\.[^.]*$/, ""), variable.name,
+                view === "field" && timestamp !== undefined && Number.isFinite(timestamp)
+                  ? new Date(timestamp).toISOString().slice(0, 16).replace(/[-:]/g, "") : undefined,
+              ].filter(Boolean).join("_")}
               onClose={() => setSaving(false)}
               onError={updateStatus}
             />
           )}
         </div>
+        {strip}
 
         <section className="stage" data-fixed-size={view === "field" && Boolean(fieldSettings.dimensions)}>
           <section className={appended.length && view !== "metadata" ? "figure steering-frame" : "steering-primary"}
             data-fields={fieldCount} data-multiple={appended.length > 0}>
           <div hidden={!primaryEligible} className="steering-pane" data-kind={view} data-panel="panel1" role="group" aria-label="Primary panel">
+          <DisplayValuesContext.Provider value={displayValues}>
           <PlotBoundary key={`${metadata.dataset_id}:${variable.path}:${view}`}>
           {view === "metadata" ? (
             <MetadataPanel metadata={primaryPanel.intent.kind === "data" ? primaryPanel.intent.binding?.metadata ?? metadata : metadata}
@@ -806,6 +791,7 @@ export function Viewer({
           ) : view === "field" && allowComparison && datasets.length > 1 ? (
             <ComparisonFieldView
               datasets={plotDatasets}
+              paneIds={shownPanes}
               primaryMetadata={metadata}
               variable={fieldVariable}
               display={display}
@@ -899,6 +885,7 @@ export function Viewer({
             </section>
           )}
           </PlotBoundary>
+          </DisplayValuesContext.Provider>
           </div>
           {view !== "metadata" && steering.panels.slice(1).map(panel => <PanelView key={panel.id} panel={panel} session={steering}
             settings={panelSettings} onRange={() => {}} onStatus={updateStatus} />)}

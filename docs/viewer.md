@@ -20,6 +20,26 @@ through the same state validation as interactive selection.
 The timeline controls the first remaining dimension. Toolbar index inputs
 control the others only when they contain more than one sample.
 
+## Display and sources
+
+The toolbar keeps what selects the slice. `app/DisplayPanel.tsx` owns how it
+is drawn: the colour map and colour range in the field view, the value axis
+and the primary line in the curve view. It sits at the foot of the sidebar,
+closed by default; `Viewer.tsx` keeps its open state across views. Plots inside
+the primary pane publish the samples they draw through
+`app/controls/displayValues.tsx`; only the Display histogram subscribes, and
+appended Steering panels publish nothing.
+
+`app/SourceStrip.tsx` shows the plotted sources as one row of Style tab-row
+tokens. `data/sourceFeed.ts` holds one line style per source (`data/lineStyle.ts`);
+the tabs, the Display line, curves, legends, export, and `getState()` all read
+that record. Membership goes through the Viewer (standalone Files and Add) or,
+for a host that declared options, through `sourceFeed.requestSources()`.
+
+`app/controls/` holds React ports of the Style components (range histogram,
+colour popover, line style) and the `details.pop` dismissal. The CSS is the
+vendored Style copy; `components.js` stays the behavioural reference.
+
 ## Plot boundary
 
 The flow is `API → slice controller → prepared arrays → renderer`.

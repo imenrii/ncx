@@ -16,6 +16,7 @@ import { WIND_COLOUR } from "./WindBarbs";
 import {
   compatibleCurveAxis, curveSelection, displaySeries, seriesQuantity, SERIES_COLORS, SERIES_DASHES, type CurvePresentation, type CurveSeries,
 } from "./curveSeries";
+import { usePublishDisplayValues } from "../app/controls/displayValues";
 
 interface Props {
   datasets: DatasetSummary[];
@@ -157,7 +158,7 @@ export function CurveView(props: Props) {
       ? models.find(item => item.id === input.dataset)
       : suppliedSeries.find(item => item.id === input.id);
     return item ? [{ ...item, id: source.id, label: source.label,
-      primary: source.primary, color: source.color, dash: source.dash }] : [];
+      primary: source.primary, color: source.color, dash: source.dash, width: source.width }] : [];
   }), [models, suppliedSeries, props.sources, props.resolvedSources]);
   useLayoutEffect(() => {
     sourceFeed.observeCurves(currentSeries);
@@ -179,6 +180,12 @@ export function CurveView(props: Props) {
     return { series, errors };
   }, [currentSeries, props.offsets, sourceUnit, props.targetUnit]);
   const displayed = presentation.series;
+  usePublishDisplayValues(useMemo(() => {
+    const joined = new Float32Array(displayed.reduce((total, item) => total + item.y.length, 0));
+    let offset = 0;
+    for (const item of displayed) { joined.set(item.y, offset); offset += item.y.length; }
+    return displayed.length ? joined : undefined;
+  }, [displayed]));
   const lower = useMemo(() => props.publishedSecondary ?? (props.secondary?.sources ?? []).flatMap((source, index): CurveSeries[] => {
     const item = source.series;
     if (item.location_id !== location) return [];
@@ -235,7 +242,7 @@ export function CurveView(props: Props) {
   const currentWind = windEligible && windState?.key === windKey ? windState.data : undefined;
   const windError = windEligible && windState?.key === windKey ? windState.error : undefined;
   const legend = useMemo(() => displayed.map(item => ({
-    description: item.label, color: item.color, dash: item.dash,
+    description: item.label, color: item.color, dash: item.dash, width: item.width,
   })), [displayed]);
 
   const hasOffset = props.targetUnit !== "Bft" && Object.values(props.offsets).some(Boolean);
@@ -261,7 +268,7 @@ export function CurveView(props: Props) {
       {...interaction} />
     <div className="curve-legend">{displayed.map(item => <span key={item.id}>
       <svg className="series-key" viewBox="0 0 18 4" aria-hidden="true">
-        <line x1="0" y1="2" x2="18" y2="2" style={{ stroke: item.color, strokeDasharray: item.dash }} />
+        <line x1="0" y1="2" x2="18" y2="2" style={{ stroke: item.color, strokeDasharray: item.dash, strokeWidth: item.width }} />
       </svg>{item.label}
     </span>)}</div>
     {props.secondary && <>

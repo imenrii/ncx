@@ -41,6 +41,7 @@ import {
   type ViewBounds,
   type ViewRectangle,
 } from "./view";
+import { usePublishDisplayValues } from "../app/controls/displayValues";
 
 interface FieldViewProps extends FieldProps {
   controlledWorldView?: ViewBounds;
@@ -198,6 +199,7 @@ export function FieldView(props: FieldViewProps) {
     [slice, props.colormap],
   );
   const renderRange = props.rangeLocked || props.sharedRange ? props.range : automaticRange;
+  usePublishDisplayValues(slice?.values instanceof Float32Array ? slice.values : undefined);
 
   useEffect(() => {
     if (

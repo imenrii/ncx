@@ -14,6 +14,10 @@ export interface OverlayToggles {
   windReason?: string;
   onPressure: (on: boolean) => void;
   onWind: (on: boolean) => void;
+  /** Present where the plot can carry a coastline. */
+  coastline?: boolean;
+  coastlineReason?: string;
+  onCoastline?: (on: boolean) => void;
 }
 
 /** The mark column keeps one width, so both labels start on the same x. CSS
@@ -24,6 +28,12 @@ function PressureMark() {
   return <svg {...MARK}>
     <path d="M0 7H9" strokeWidth={PLOT_STYLE.pressure.width} /><path d="M41 7H50" strokeWidth={PLOT_STYLE.pressure.width} />
     <text x={25} y={7} textAnchor="middle" dominantBaseline="central" fontSize={PLOT_STYLE.legend.sampleFont}>1013</text>
+  </svg>;
+}
+
+function CoastlineMark() {
+  return <svg {...MARK}>
+    <path d="M1 10L9 8L14 11L22 5L30 7L38 3L49 4" fill="none" />
   </svg>;
 }
 
@@ -38,7 +48,8 @@ export function WindMark({ style = "barb", compact = false }: { style?: WindStyl
 
 /** Reads as a key, not as chrome: the overlay it names is the only other thing
     on this corner of the plot. */
-export function OverlayLegend({ pressure, wind, windStyle, pressureReason, windReason, onPressure, onWind, hidden = false }: OverlayToggles & { hidden?: boolean }) {
+export function OverlayLegend({ pressure, wind, windStyle, pressureReason, windReason, onPressure, onWind,
+  coastline, coastlineReason, onCoastline, hidden = false }: OverlayToggles & { hidden?: boolean }) {
   return <div className="overlay-legend" role="group" aria-label="Plot overlays"
     aria-hidden={hidden || undefined} inert={hidden} style={hidden ? { visibility: "hidden" } : undefined}>
     <button type="button" className="overlay-toggle" aria-pressed={pressure && !pressureReason}
@@ -47,6 +58,9 @@ export function OverlayLegend({ pressure, wind, windStyle, pressureReason, windR
     <button type="button" className="overlay-toggle" aria-pressed={wind && !windReason}
       disabled={Boolean(windReason)} title={windReason}
       onClick={() => onWind(!wind)}><WindMark style={windStyle} /><span>Wind vector</span></button>
+    {onCoastline && <button type="button" className="overlay-toggle" aria-pressed={Boolean(coastline) && !coastlineReason}
+      disabled={Boolean(coastlineReason)} title={coastlineReason}
+      onClick={() => onCoastline(!coastline)}><CoastlineMark /><span>Coastline</span></button>}
   </div>;
 }
 

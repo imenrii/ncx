@@ -198,7 +198,7 @@ independent ranges and interaction state.
 Fields use equal grid cells, with one column on narrow screens. Curves stack
 vertically. PNG export includes the current page's eligible views, including
 scrolled panels, with the canonical print type and spacing. It restores the web
-layout afterward. The Outline lists panel data, probe, Field, and Curve handles.
+layout afterward. **Insert** lists panel data, probe, and panel handles.
 
 Terminal properties use the state captured for the command. Expanded display
 results show current browser state, marked **current**. The default panel's
@@ -218,15 +218,21 @@ resets the workspace. Host calculations cannot overwrite a user binding.
 Field expressions use bounded display selections. Curves materialize a bounded
 full line. Area curves accumulate one sample at a time. Mesh publication requires
 complete native spatial geometry and does not remap connectivity. Stop retains
-accepted expressions in the browser; Start Python restores them for later reads.
+accepted expressions in the browser; the next Enter starts Python and restores them for later reads.
 Only expressions from this session are restored.
 
 ## Console editing and inspection
 
 Open **Steering** at the right of the topbar. Its pressed button closes the
-panel. The Outline shares the main sidebar width. Code uses Commit Mono Web
-and local Speed Highlight assets. There is no Run button or permanent hint row.
-The **[?]** button beside Terminal options opens a collapsible command and keyboard reference.
+panel. The log takes the full width. Code uses Commit Mono Web and local Speed
+Highlight assets. There is no Run button or permanent hint row: the input
+placeholder names Shift+Enter, the one key that is not obvious. The head shows a
+state word (loading, running, failed, stopped) only while Python is not ready.
+**Insert** (Ctrl+I) filters source variables, workspace names, and display
+handles and puts one at the cursor. The drawn three-dot menu holds Clear log,
+Reset workspace, and Quick reference, a collapsible command and keyboard
+reference. An empty log shows three examples; a press puts one in the input and
+does not run it.
 
 | Action | Behavior |
 | --- | --- |
@@ -236,17 +242,19 @@ The **[?]** button beside Terminal options opens a collapsible command and keybo
 | Ctrl+Space | Request completion explicitly |
 | Up / Down | Navigate completions, or recall whole submissions at input line edges |
 | Ctrl+R | Search command history; selecting a match restores editable input |
+| Ctrl+I | Open Insert with its filter focused |
 | Escape | Dismiss completion or history search |
 
 Pasting multiline code never executes it. Incomplete Python input remains in the
 editor for continuation. The input stays editable while a computation runs;
 another submission is not queued. Closing the panel retains the unfinished input,
-log, variables, and plots. Stop is available while busy. Clear log and Reset
-workspace are separate actions in terminal options.
+log, variables, and plots. While a command runs, the `>>` prompt becomes a
+drawn Stop key. Clear log and Reset workspace are separate actions in the
+three-dot menu.
 
 Completion covers admitted source paths, variables, display objects, methods,
 NumPy names, and known function parameters. Signatures omit arbitrary default
-representations. Completion and Outline use the same object descriptions and
+representations. Completion and Insert use the same object descriptions and
 do not evaluate user getters or read numeric source data.
 
 Variable results expand to shape, dtype, dimensions, units, expression, and

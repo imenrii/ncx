@@ -366,6 +366,23 @@ details[open] > .swatch-btn .swatch-box { box-shadow: inset 0 0 0 1px var(--pape
 .tokens > .tok > button:hover { background: var(--dither), transparent; }
 .tokens > .ghost { color: var(--ink-quiet); font-family: var(--mono); font-size: var(--size-tick); }
 
+/* Tab row: tokens as tabs on one row. They shrink like browser tabs and never
+   wrap, so the row keeps its height. The current tab stands on an ink foot. */
+.tokens.tab-row { flex-wrap: nowrap; min-width: 0; max-width: none; overflow: hidden; padding: 2px 0 4px; border: 0; background: transparent; cursor: default; }
+.tokens.tab-row > .tok { flex: 0 1 12.5rem; min-width: 4rem; min-height: 28px; container-type: inline-size; }
+.tokens.tab-row > .tok > .tok-main { display: flex; flex: 1; align-items: center; gap: 6px; min-width: 0; min-height: 26px; padding: 0 4px 0 2px; font-size: var(--size-micro); }
+.tokens.tab-row > .tok > .tok-main::before { content: none; }
+.tokens.tab-row > .tok > .tok-main:hover:not(:disabled) { background: var(--dither), transparent; }
+.tokens.tab-row .tok-main > .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tokens.tab-row > .tok[aria-current="true"] { box-shadow: inset 0 -3px var(--ink); }
+.tokens.tab-row > .tok[aria-current="true"] .name { font-weight: var(--mono-strong); }
+.tokens.tab-row > .tok[data-pending] { border-style: dashed; }
+.tokens.tab-row > .tok[data-pending] .name { color: var(--ink-quiet); }
+/* A narrow tab keeps its name; its remove key shows on hover or focus. */
+@container (max-width: 7rem) {
+  .tab-row > .tok:not(:hover):not(:focus-within) > .tok-main + button { display: none; }
+}
+
 /* ===========================================================================
    Line style — sidebar panel
    Dash samples in a dropdown; a custom number chip owns the weight in mm.

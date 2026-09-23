@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
-import { fetchMetadata } from "../data/api";
 import type { DatasetSummary, Metadata } from "../data/model";
 import { supportingVariablePaths, variableLabel } from "../data/model";
+import { Swatch, type StripSource } from "./SourceStrip";
 
 export function DatasetBrowser({
-  navigation,
+  footer,
   metadata,
   selectedPath,
   search,
@@ -17,7 +17,7 @@ export function DatasetBrowser({
   search: string;
   onSearch: (value: string) => void;
   onSelect: (path: string) => void;
-  navigation?: ReactNode;
+  footer?: ReactNode;
 }) {
   const [showSupporting, setShowSupporting] = useState(false);
   const query = search.trim().toLowerCase();
@@ -25,7 +25,6 @@ export function DatasetBrowser({
   const visibleCount = countVisible(metadata, supportingPaths, showSupporting);
   return (
     <aside className="sidebar">
-      {navigation && <div className="dataset-head">{navigation}</div>}
       <div className="variable-filter">
         <input
           className="field variable-search"
@@ -57,24 +56,25 @@ export function DatasetBrowser({
         />
       </div>
       <MetadataWarnings metadata={metadata} />
+      {footer}
     </aside>
   );
 }
 
-type LoadedCollectionFile = {
-  metadata: Metadata;
-  supportingPaths: Set<string>;
-};
-
+/**
+ * Several datasets: one row per file. Names wrap in full; a plotted file shows
+ * its line; the primary file opens in place to its variables. Choosing another
+ * file makes it primary.
+ */
 export function CollectionBrowser({
   datasets,
   metadata,
   selectedDataset,
   selectedPath,
   search,
+  plotted,
+  footer,
   onSearch,
-  onReady,
-  onUnavailable,
   onSelect,
 }: {
   datasets: DatasetSummary[];
@@ -82,119 +82,81 @@ export function CollectionBrowser({
   selectedDataset: string;
   selectedPath: string;
   search: string;
+  plotted: readonly StripSource[];
+  footer?: ReactNode;
   onSearch: (value: string) => void;
-  onReady: (dataset: string, metadata: Metadata) => void;
-  onUnavailable: (dataset: string, error: string) => void;
   onSelect: (dataset: string, path: string) => void;
 }) {
   const [showSupporting, setShowSupporting] = useState(false);
-  const [loaded, setLoaded] = useState<Map<string, LoadedCollectionFile>>(new Map());
-  const [loading, setLoading] = useState<Set<string>>(new Set());
   const query = search.trim().toLowerCase();
-
-  useEffect(() => {
-    const id = metadata.dataset_id || selectedDataset;
-    setLoaded((current) => {
-      if (current.get(id)?.metadata === metadata) return current;
-      const next = new Map(current);
-      next.set(id, { metadata, supportingPaths: supportingVariablePaths(metadata) });
-      return next;
-    });
-  }, [metadata, selectedDataset]);
-
-  const load = (dataset: DatasetSummary) => {
-    if (dataset.state === "unavailable" || loaded.has(dataset.id) || loading.has(dataset.id)) return;
-    setLoading((current) => new Set(current).add(dataset.id));
-    void fetchMetadata(dataset.id)
-      .then((nextMetadata) => {
-        setLoaded((current) => new Map(current).set(dataset.id, {
-          metadata: nextMetadata,
-          supportingPaths: supportingVariablePaths(nextMetadata),
-        }));
-        onReady(dataset.id, nextMetadata);
-      })
-      .catch((error: unknown) => {
-        onUnavailable(dataset.id, error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => {
-        setLoading((current) => {
-          const next = new Set(current);
-          next.delete(dataset.id);
-          return next;
-        });
-      });
-  };
-
-  const supportingCount = [...loaded.values()].reduce(
-    (total, file) => total + file.supportingPaths.size,
-    0,
-  );
+  const supportingPaths = useMemo(() => supportingVariablePaths(metadata), [metadata]);
+  const plottedCount = datasets.filter(dataset => plotted.some(source => source.id === dataset.id)).length;
+  const files = datasets.filter(dataset => !query || dataset.id === selectedDataset ||
+    fileName(dataset).toLowerCase().includes(query));
   return (
     <aside className="sidebar collection-sidebar">
-      <div className="dataset-head">
-        <span>{datasets.length} files</span>
-      </div>
       <div className="variable-filter">
         <input
           className="field variable-search"
           type="search"
-          placeholder="Filter loaded variables"
+          placeholder="Filter files and variables"
           value={search}
           onChange={(event) => onSearch(event.target.value)}
         />
-        {supportingCount > 0 && (
+        {supportingPaths.size > 0 && (
           <label className="tick-label">
-            <input
-              type="checkbox"
-              checked={showSupporting}
-              onChange={(event) => setShowSupporting(event.target.checked)}
-            />
+            <input type="checkbox" checked={showSupporting} onChange={(event) => setShowSupporting(event.target.checked)} />
             <span className="tick-box" />
-            Show coordinates and mesh geometry ({supportingCount})
+            Show coordinates and mesh geometry ({supportingPaths.size})
           </label>
         )}
       </div>
-      <div className="tree collection-tree">
-        {datasets.map((dataset) => {
-          const file = loaded.get(dataset.id);
-          const fileSelectedPath = dataset.id === selectedDataset ? selectedPath : "";
-          const visibleCount = file
-            ? countVisible(file.metadata, file.supportingPaths, showSupporting)
-            : dataset.state === "ready" ? dataset.variables : undefined;
+      <div className="tree files" role="list" aria-label="Files">
+        <div className="files-head">
+          <span className="key-label">Files</span>
+          <span className="val">{datasets.length}{plottedCount > 1 ? ` · ${plottedCount} plotted` : ""}</span>
+        </div>
+        {files.map((dataset) => {
+          const selected = dataset.id === selectedDataset;
+          const source = plotted.find(item => item.id === dataset.id);
+          // A named dataset (`--dataset id=file`) keeps its ID beside the file name.
+          const alias = dataset.state === "ready" && !dataset.label.endsWith(dataset.name) ? dataset.label : undefined;
+          const facts = [alias, dataset.state === "unavailable" ? "unavailable"
+            : dataset.state === "ready" ? `${dataset.variables} variable${dataset.variables === 1 ? "" : "s"}` : undefined,
+          ].filter(Boolean).join(" · ") || undefined;
           return (
-            <details
-              className={`collection-file ${dataset.state}`}
-              key={dataset.id}
-              open={dataset.id === selectedDataset || undefined}
-              onToggle={(event) => event.currentTarget.open && load(dataset)}
-            >
-              <summary>
-                <strong>{dataset.state === "ready" ? dataset.name : dataset.label}</strong>
-                <span>{dataset.state === "unavailable"
-                  ? "unavailable"
-                  : visibleCount === undefined ? "not inspected" : `${visibleCount} variables`}</span>
-              </summary>
-              {loading.has(dataset.id) && !file && <p className="collection-note">Loading metadata…</p>}
-              {dataset.state === "unavailable" && <p className="collection-error">{dataset.error}</p>}
-              {file && (
-                <>
+            <div key={dataset.id} role="listitem" className="file" data-state={dataset.state}>
+              <button className="file-row" aria-current={selected || undefined} disabled={dataset.state === "unavailable" && !selected}
+                title={dataset.state === "unavailable" ? dataset.error : dataset.label}
+                onClick={() => { if (!selected) onSelect(dataset.id, selectedPath); }}>
+                {source ? <Swatch style={source.style} /> : <span aria-hidden="true" />}
+                <span className="name">{fileName(dataset)}</span>
+                {facts && <small>{facts}</small>}
+              </button>
+              {selected && metadata.dataset_id === dataset.id && (
+                <div className="file-variables">
                   <VariableGroups
-                    metadata={file.metadata}
-                    supportingPaths={file.supportingPaths}
+                    metadata={metadata}
+                    supportingPaths={supportingPaths}
                     showSupporting={showSupporting}
-                    query={query}
-                    selectedPath={fileSelectedPath}
+                    query={fileName(dataset).toLowerCase().includes(query) ? "" : query}
+                    selectedPath={selectedPath}
                     onSelect={(path) => onSelect(dataset.id, path)}
                   />
-                  <MetadataWarnings metadata={file.metadata} />
-                </>
+                  <MetadataWarnings metadata={metadata} />
+                </div>
               )}
-            </details>
+            </div>
           );
         })}
       </div>
+      {footer}
     </aside>
   );
+}
+
+function fileName(dataset: DatasetSummary): string {
+  return dataset.state === "ready" ? dataset.name : dataset.label;
 }
 
 function VariableGroups({

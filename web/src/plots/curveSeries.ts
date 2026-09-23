@@ -18,6 +18,8 @@ export interface CurveSeries {
   difference?: boolean;
   color: string;
   dash: string;
+  /** Stroke width, CSS px; the data stroke token when absent. */
+  width?: number;
 }
 
 export interface CurvePresentation {

@@ -141,7 +141,8 @@ function BoundField({ panel, binding, session, settings, indices, range, onRange
   const reason = overlayReason(binding, settings);
   const compatible = !reason;
   const overlays = compatible ? settings.overlays : {
-    ...settings.overlays, wind: false, pressure: false, windReason: reason, pressureReason: reason,
+    ...settings.overlays, wind: false, pressure: false, coastline: false,
+    windReason: reason, pressureReason: reason, coastlineReason: reason,
   };
   return <section className="figure steering-field">
     <header className="figure-head"><h1>{variable.name}</h1><span>{target?.label ?? attributeText(variable, "units")}</span></header>
