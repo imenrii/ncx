@@ -1,4 +1,5 @@
 import { PLOT_STYLE, plotFontSize } from "./plotStyle.ts";
+import { fitPlotToBounds, type ViewBounds, type ViewRectangle } from "./view.ts";
 
 /**
  * Plot margins, axes, and export use the same type-relative geometry.
@@ -19,7 +20,8 @@ export const PITCH = PLOT_STYLE.geometry.pitch;
 export const TITLE_PAD = PAD + 1;
 
 export function tickLength(type: PlotType, minor = false): number {
-  return type.tick * (minor ? TICK_MINOR : TICK_MAJOR);
+  const major = type.tickLength ?? type.tick * TICK_MAJOR;
+  return minor ? major * TICK_MINOR / TICK_MAJOR : major;
 }
 
 /** AVHershey Simplex is nearly monospaced. Recheck this estimate if the face changes. */
@@ -30,6 +32,8 @@ export interface PlotType {
   tick: number;
   /** Axis title size, px. */
   axis: number;
+  /** Major tick length, px, when an export sets `--plot-tick-length`; otherwise it follows `tick`. */
+  tickLength?: number;
 }
 
 /** Match the CSS floors before the first layout is available. */
@@ -37,7 +41,12 @@ export const DEFAULT_TYPE: PlotType = { tick: PLOT_STYLE.type.tick.min * 16, axi
 
 /** Read container-dependent type sizes from CSS rather than duplicate its clamps. */
 export function plotType(root: Element | null): PlotType {
-  return { tick: plotFontSize(root, "tick"), axis: plotFontSize(root, "axis") };
+  const length = root ? parseFloat(getComputedStyle(root).getPropertyValue("--plot-tick-length")) : NaN;
+  return {
+    tick: plotFontSize(root, "tick"),
+    axis: plotFontSize(root, "axis"),
+    ...(Number.isFinite(length) ? { tickLength: length } : {}),
+  };
 }
 
 /** Label offsets are baselines; title offsets are centres. All are in px from the frame. */
@@ -81,6 +90,29 @@ export function fieldMargin(type: PlotType, controlsBottom = 0, compact = false)
   const margin = plotMargin(type, { colorbar: PLOT_STYLE.geometry.margin + colorbarGeometry(type).total });
   // Tick labels also need clearance below the legend and enlarged touch targets.
   return { ...margin, top: Math.max(compact ? tickLength(type) + type.tick * TICK_PAD : margin.top, controlsBottom + type.tick) };
+}
+
+/** The corner controls push the plot down only when the fitted plot and its
+    y-axis column would run into them; a wide frame keeps its full height. */
+export function fieldArea(
+  frame: { width: number; height: number },
+  type: PlotType,
+  controls?: { right: number; bottom: number },
+  compact = false,
+  bounds?: ViewBounds,
+): ViewRectangle {
+  const area = (margin: ReturnType<typeof fieldMargin>) => ({
+    left: margin.left,
+    top: margin.top,
+    width: Math.max(1, frame.width - margin.left - margin.right),
+    height: Math.max(1, frame.height - margin.top - margin.bottom),
+  });
+  const margin = fieldMargin(type, 0, compact);
+  const free = area(margin);
+  if (!controls) return free;
+  const plot = bounds ? fitPlotToBounds(free, bounds) : free;
+  if (plot.left - margin.left >= controls.right || plot.top >= controls.bottom + type.tick) return free;
+  return area(fieldMargin(type, controls.bottom, compact));
 }
 
 /** Offsets from the frame's right edge; the caption must clear the tick-label column. */

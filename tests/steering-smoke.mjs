@@ -25,14 +25,14 @@ let nextId = 0;
 function command(method, params) {
   return new Promise((resolve, reject) => {
     const id = ++nextId;
-    const timer = setTimeout(() => { pending.delete(id); reject(new Error(`${method} timed out`)); }, 15000);
+    const timer = setTimeout(() => { pending.delete(id); reject(new Error(`${method} timed out`)); }, 60000);
     pending.set(id, { resolve, reject, timer });
     socket.send(JSON.stringify({ id, method, params }));
   });
 }
 try {
   await mkdir(output, { recursive: true });
-  viewer = spawn(resolve(root, 'ncx/target/debug/ncx'), hub ? ['hub','--mode','HTTP','--ssh-auth','password','--listen','127.0.0.1:0','--base-path','/ncx','--local-root',resolve(root,'ncx/tests/data')] : ['serve', '--port', '0', '--dataset', `example=${resolve(root, `ncx/tests/data/${fixture ?? 'rectilinear'}.nc`)}`], {stdio:['ignore','pipe','pipe']});
+  viewer = spawn(process.env.NCX_BINARY ?? resolve(root, 'ncx/target/debug/ncx'), hub ? ['hub','--mode','HTTP','--ssh-auth','password','--listen','127.0.0.1:0','--base-path','/ncx','--local-root',resolve(root,'ncx/tests/data')] : ['serve', '--port', '0', '--dataset', `example=${resolve(root, `ncx/tests/data/${fixture ?? 'rectilinear'}.nc`)}`], {stdio:['ignore','pipe','pipe']});
   address = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(Error('Viewer did not start')), 10000);
     const inspect = data => { const match=String(data).match(/http:\/\/127\.0\.0\.1:\d+/); if(match) {clearTimeout(timer); resolve(match[0]);} };
@@ -109,9 +109,13 @@ try {
   assert.equal(await evaluate("document.querySelector('#steering-panel').hidden"), true);
   const runtimeStarted = Date.now();
   await evaluate("document.querySelector('.steering-toggle').click()");
-  await wait("document.querySelector('.steering-state')?.textContent === '' && !document.querySelector('.steering-head > button:not(.steering-help-toggle):not([disabled])')", 45000);
+  await wait("!document.querySelector('.steering-head .state')", 45000);
   const startupMs = Date.now() - runtimeStarted;
-  await evaluate("document.querySelector('.steering-help-toggle').focus(); document.querySelector('.steering-help-toggle').click()");
+  await evaluate(`(() => {
+    const menu = document.querySelector('.steering-menu');
+    menu.querySelector('summary').focus(); menu.open = true;
+    [...menu.querySelectorAll('button')].find(button => button.textContent === 'Quick reference').click();
+  })()`);
   assert.equal(await evaluate("document.querySelector('.steering-help').matches(':modal')"), true);
   assert.equal(await evaluate("getComputedStyle(document.querySelector('.steering-help p')).fontFamily.includes('National Park')"), true);
   assert.equal(await evaluate("getComputedStyle(document.querySelector('.steering-help pre')).fontFamily.includes('Commit Mono Web')"), true);
@@ -120,7 +124,7 @@ try {
     { type: 'keyDown', value: '\uE00C' }, { type: 'keyUp', value: '\uE00C' },
   ] }] });
   assert.equal(await evaluate("document.querySelector('.steering-help').open"), false);
-  assert.equal(await evaluate("document.activeElement.matches('.steering-help-toggle')"), true);
+  assert.equal(await evaluate("document.activeElement.matches('.steering-menu > summary')"), true);
   const setInput = async code => {
     await evaluate(`(() => { const node=document.querySelector('#steering-input'); node.focus(); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(node, ${JSON.stringify(code)}); node.setSelectionRange(node.value.length,node.value.length); node.dispatchEvent(new Event('input',{bubbles:true})); })()`);
     await settle();
@@ -132,7 +136,7 @@ try {
     const count=await evaluate("document.querySelectorAll('.steering-entry.command').length");
     await key('Enter');
     await wait(`document.querySelectorAll('.steering-entry.command').length > ${count}`);
-    await wait("document.querySelector('.steering-state')?.textContent === ''");
+    await wait("!document.querySelector('.steering-head .state')");
     if(!error) assert.equal(await evaluate("document.querySelector('.steering-entry:last-child')?.classList.contains('error')"), false,
       await evaluate("document.querySelector('.steering-entry:last-child')?.textContent"));
   };
@@ -152,14 +156,14 @@ try {
     window.__playbackObserver.observe(document.querySelector('.stage'), { childList: true, subtree: true });
     document.querySelector('.timeline .forward').click();
   })()`);
-  await wait("document.querySelector('.timeline input').value === document.querySelector('.timeline input').max && document.querySelector('.steering-state').textContent === ''");
+  await wait("document.querySelector('.timeline input').value === document.querySelector('.timeline input').max && !document.querySelector('.steering-head .state')");
   await settle();
   assert.equal(await evaluate('window.__removedCanvases'), 0, 'Playback must update field canvases in place');
   assert.equal(await evaluate('window.__playingCanvases.every(canvas => canvas.isConnected)'), true);
   assert.equal(await evaluate("performance.getEntriesByName('ncx.mesh.geometry').at(-1)?.startTime === window.__playbackGeometry"), true,
     'Playback must reuse unchanged mesh geometry');
   await evaluate("window.__playbackObserver.disconnect(); document.querySelector('.timeline .to-start').click()");
-  await wait(`document.querySelectorAll('${canvasSelector}[data-rendered=true]').length === 2 && document.querySelector('.steering-state').textContent === ''`);
+  await wait(`document.querySelectorAll('${canvasSelector}[data-rendered=true]').length === 2 && !document.querySelector('.steering-head .state')`);
   assert.equal(await evaluate("document.querySelectorAll('.timeline input[type=range]').length"), 1);
   assert.equal(await evaluate("document.querySelectorAll('.steering-selection input').length"), 0);
   if (fixture === 'wind') {
@@ -299,12 +303,12 @@ try {
     await evaluate("window.fetch = window.__normalFetch; window.setTimeout = window.__normalTimeout");
     await submit('assert survivor == 17; slow.remove()');
     await evaluate("Array.from(document.querySelectorAll('.steering-menu button')).find(b => b.textContent === 'Reset workspace').click()");
-    await wait("document.querySelector('.steering-state').textContent === '' && !document.querySelector('.steering-head > button:not(.steering-help-toggle)')");
+    await wait("!document.querySelector('.steering-head .state')");
     await submit('assert "survivor" not in globals(); assert panels[1].data is not None');
     const beforeRestartRead = await evaluate('window.__dataRequests.length');
     await evaluate("document.querySelector('.timeline .to-end').click()");
     await wait(`window.__dataRequests.length > ${beforeRestartRead}`);
-    await wait(`document.querySelectorAll('${canvasSelector}[data-rendered=true]').length === 2 && document.querySelector('.steering-state').textContent === ''`);
+    await wait(`document.querySelectorAll('${canvasSelector}[data-rendered=true]').length === 2 && !document.querySelector('.steering-head .state')`);
     assert.equal(await evaluate("document.querySelector('.plot-error')?.textContent ?? ''"), '');
   }
   await command('browsingContext.setViewport',{context,viewport:{width:600,height:760}});

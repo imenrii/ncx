@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 
 import { HubGate } from "./hub/HubGate";
 import { installPopoverDismissal } from "./app/controls/popovers";
+import "./select-wheel.js";
 import "./components.css";
 import "./style.css";
 

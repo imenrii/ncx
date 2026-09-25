@@ -122,7 +122,7 @@ def _admit_expression(node):
 class _Reference:
     def __setattr__(self, name, value):
         if name in self.__dict__:
-            raise AttributeError("Variable references are immutable; use isel to make a selection")
+            raise AttributeError("Variable references are read-only; use isel to make a selection")
         object.__setattr__(self, name, value)
 
     def __init__(self, source, path, selection=None, wire="f64"):
@@ -203,11 +203,34 @@ class _SourceArray:
 
 
 class Variable(np.lib.mixins.NDArrayOperatorsMixin):
-    """An immutable scientific value; arithmetic records a new expression."""
+    """A scientific value; arithmetic records a new expression.
+
+    Values, axes, and coordinates never change. A derived variable owns its
+    name and unit labels; source lookups and displayed snapshots are read-only."""
+    _LABELS = ("name", "unit", "unit_kind")
+
     def __setattr__(self, name, value):
-        if name in self.__dict__:
-            raise AttributeError("Variables are immutable; assign a new expression")
-        object.__setattr__(self, name, value)
+        if name not in self.__dict__:
+            return object.__setattr__(self, name, value)
+        if self.__dict__.get("_read_only"):
+            raise AttributeError("Source and displayed variables are read-only; derive one first, e.g. v = sources.s1[path].rename(...)")
+        if name not in self._LABELS:
+            raise AttributeError("Only name, unit, and unit_kind can change; assign a new expression")
+        if name == "unit_kind" and value not in ("absolute", "delta"):
+            raise ValueError("unit_kind must be absolute or delta")
+        object.__setattr__(self, name, value if name == "unit_kind" else _text(value, name))
+        object.__setattr__(self, "id", self._identity())
+
+    def _identity(self):
+        return _token(("ncx-variable-v2", self.token, self.dims, self.unit, self.unit_kind,
+                       self.name, self._origin, self._coords))
+
+    def _snapshot(self):
+        """A read-only copy sharing this expression, so later relabelling cannot move a plot."""
+        if self.__dict__.get("_read_only"): return self
+        value = object.__new__(Variable)
+        value.__dict__.update(self.__dict__, _read_only=True)
+        return value
 
     def __setstate__(self, state):
         self.__dict__.update(state)
@@ -246,8 +269,7 @@ class Variable(np.lib.mixins.NDArrayOperatorsMixin):
             self._coords[dim] = dict(values=data, unit=info.get("unit", ""), calendar=info.get("calendar", ""))
         self.expression = expression[:256]
         self.token = token or _token(("ncx-values-v2", node, self.shape, self.dtype.str))
-        self.id = _token(("ncx-variable-v2", self.token, self.dims, self.unit, self.unit_kind,
-                          self.name, self._origin, self._coords))
+        self.id = self._identity()
 
     @classmethod
     def _make(cls, node, shape, dtype, dims, unit, name, unit_kind="absolute", origin=None, coords=None, expression="expression", token=None):
@@ -257,9 +279,11 @@ class Variable(np.lib.mixins.NDArrayOperatorsMixin):
 
     @classmethod
     def _source(cls, reference):
-        return cls._make(("source", reference), reference.shape, "float64", reference.dims,
-                         reference.unit, reference.name, origin=reference._descriptor(),
-                         expression=f"sources.{reference.source}[{reference.path!r}]")
+        value = cls._make(("source", reference), reference.shape, "float64", reference.dims,
+                          reference.unit, reference.name, origin=reference._descriptor(),
+                          expression=f"sources.{reference.source}[{reference.path!r}]")
+        value._read_only = True
+        return value
 
     @property
     def ndim(self):
@@ -349,7 +373,7 @@ class Variable(np.lib.mixins.NDArrayOperatorsMixin):
 
     def _operation(self, function, method, inputs, kwargs):
         if kwargs.get("out") is not None:
-            raise TypeError("Variables are immutable; assign the returned expression")
+            raise TypeError("Variable values are read-only; assign the returned expression")
         def capture(value):
             if type(value) is np.ndarray:
                 checked_bytes(value.shape, value.dtype.itemsize, _LIMITS["publishedBytes"])
@@ -574,6 +598,7 @@ class Panel:
         if type(variable) is not Variable or variable.dtype.kind not in "biuf":
             raise TypeError("Show a Variable containing real numeric data")
         if any(n == 0 for n in variable.shape): raise ValueError("Plot data cannot be empty")
+        variable = variable._snapshot()
         previous = self.data
         command = dict(target=self.name, action="show", id=variable.id)
         if previous is None or previous.id != variable.id: command["probe"] = None
@@ -751,7 +776,7 @@ class Workspace:
                         selected = list(ref._selection); selected[axis] = index
                         samples.append(Variable._source(_Reference(alias, ref.path, selected)))
                     value = Variable._make(("call", _mean_samples, None, tuple(samples), {}, True), ref.shape, "float64", ref.dims, ref.unit,
-                                          ref.name + " (area mean)", origin=ref._descriptor(), expression="area mean")
+                                          ref.name + " (area mean)", origin=ref._descriptor(), expression="area mean")._snapshot()
                 setattr(view, alias, value)
             self.namespace["view"] = view
             self.view_state = state["view"]

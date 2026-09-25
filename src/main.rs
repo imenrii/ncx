@@ -5,6 +5,7 @@ mod hub;
 mod policy;
 mod reading;
 mod server;
+mod storage;
 
 pub type NcxResult<T> = Result<T, String>;
 

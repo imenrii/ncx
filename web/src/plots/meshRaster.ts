@@ -1,5 +1,5 @@
 import { validateCanvasSize } from "./capture.ts";
-import { colorForValue, type ColorRange, type ColorScale, type ColormapChoice } from "./color.ts";
+import { colorMapper, type ColorRange, type ColorScale, type ColormapChoice } from "./color.ts";
 import { meshVertex, type Bounds, type MeshGeometry } from "./mesh.ts";
 
 /** One triangle per screen pixel, independent of scalar values and colour range. */
@@ -45,6 +45,7 @@ export function paintMeshPixels(
   range: ColorRange, scale: ColorScale, colormap: ColormapChoice,
 ): void {
   if (rgba.length !== triangles.length * 4) throw new Error("Mesh raster buffer size differs from its pixel map");
+  const colorFor = colorMapper(range, scale, colormap);
   for (let pixel = 0; pixel < triangles.length; pixel++) {
     const triangle = triangles[pixel];
     let value = NaN;
@@ -54,7 +55,7 @@ export function paintMeshPixels(
       const c = values[geometry.scalarIndices[meshVertex(geometry, triangle * 3 + 2)]];
       if (Number.isFinite(a) && Number.isFinite(b) && Number.isFinite(c)) value = (a + b + c) / 3;
     }
-    const color = colorForValue(value, range, scale, colormap);
+    const color = colorFor(value);
     rgba[pixel * 4] = color?.[0] ?? 238;
     rgba[pixel * 4 + 1] = color?.[1] ?? 238;
     rgba[pixel * 4 + 2] = color?.[2] ?? 238;

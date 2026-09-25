@@ -107,3 +107,14 @@ test("an automatic y range reserves tick quantities and barbs take the labelled 
   assert.ok(shifted);
   assert.ok(Math.abs(shifted.yMinimum - plain.yMinimum - 1) < 1e-3);
 });
+
+test("indexed curves retain clamped-bin extrema, endpoints and missing breaks", () => {
+  const x = Float64Array.from({ length: 10000 }, (_, i) => i);
+  const y = Float32Array.from(x, value => value % 7);
+  y[5001] = NaN;
+  assert.deepEqual([...curveEnvelope(y, x, 5000, 5002, 100)], [0, 6, 4999, 5000, 5001, 5002, 5004, 5005, 9999]);
+  const duplicateX = Float64Array.of(0, 1, 1, 2, 3);
+  assert.deepEqual([...curveEnvelope(Float32Array.of(0, 1, 2, 3, 4), duplicateX, 1, 1.5, 100)], [0, 1, 2, 3, 4]);
+  const unordered = Float64Array.of(0, 3, 1, 2);
+  assert.deepEqual([...curveEnvelope(Float32Array.of(0, 3, 1, 2), unordered, 1, 2, 100)], [0, 1, 2, 3]);
+});

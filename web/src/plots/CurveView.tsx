@@ -180,12 +180,7 @@ export function CurveView(props: Props) {
     return { series, errors };
   }, [currentSeries, props.offsets, sourceUnit, props.targetUnit]);
   const displayed = presentation.series;
-  usePublishDisplayValues(useMemo(() => {
-    const joined = new Float32Array(displayed.reduce((total, item) => total + item.y.length, 0));
-    let offset = 0;
-    for (const item of displayed) { joined.set(item.y, offset); offset += item.y.length; }
-    return displayed.length ? joined : undefined;
-  }, [displayed]));
+  usePublishDisplayValues(useMemo(() => displayed.map(item => item.y), [displayed]));
   const lower = useMemo(() => props.publishedSecondary ?? (props.secondary?.sources ?? []).flatMap((source, index): CurveSeries[] => {
     const item = source.series;
     if (item.location_id !== location) return [];

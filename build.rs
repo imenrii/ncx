@@ -21,6 +21,7 @@
 //! buying a licence: `cargo build` works, and nothing they can run will hand
 //! them the font.
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::{env, fs};
@@ -46,10 +47,7 @@ fn main() {
             let path = entry.expect("read frontend asset").path();
             if path.is_dir() {
                 asset_files(&path, files);
-            } else if !matches!(
-                path.file_name().and_then(|name| name.to_str()),
-                Some("app.js" | "app.css")
-            ) {
+            } else {
                 files.push(path);
             }
         }
@@ -60,20 +58,36 @@ fn main() {
     let entries = assets
         .iter()
         .map(|path| {
+            let name = path.strip_prefix(root.join("web/dist/assets")).unwrap();
+            let bytes = fs::read(path).expect("read frontend asset");
+            let mut embedded = path.clone();
+            let mut gzip = false;
+            if matches!(
+                path.extension().and_then(|ext| ext.to_str()),
+                Some("wasm" | "mjs" | "js" | "css" | "json")
+            ) {
+                let mut encoder =
+                    flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+                encoder.write_all(&bytes).expect("compress frontend asset");
+                let compressed = encoder.finish().expect("finish frontend compression");
+                if compressed.len() < bytes.len() {
+                    embedded = out.join("assets").join(name);
+                    fs::create_dir_all(embedded.parent().unwrap()).unwrap();
+                    fs::write(&embedded, compressed).expect("write compressed asset");
+                    gzip = true;
+                }
+            }
             format!(
-                "({:?}, include_bytes!({:?})),",
-                path.strip_prefix(root.join("web/dist/assets"))
-                    .unwrap()
-                    .to_str()
-                    .unwrap(),
-                path.to_str().unwrap()
+                "WebAsset {{ name: {:?}, bytes: include_bytes!({:?}), gzip: {gzip} }},",
+                name.to_str().unwrap(),
+                embedded.to_str().unwrap()
             )
         })
         .collect::<Vec<_>>()
         .join("\n");
     fs::write(
         out.join("web_assets.rs"),
-        format!("const EXTRA_ASSETS: &[(&str, &[u8])] = &[{entries}];"),
+        format!("const WEB_ASSETS: &[WebAsset] = &[{entries}];"),
     )
     .expect("write asset table");
 

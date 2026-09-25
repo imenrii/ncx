@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::future::Future;
+use std::io::Read;
 use std::path::PathBuf;
 use std::sync::{Arc, Condvar, LazyLock, Mutex, Weak};
 use std::time::{Duration, Instant};
@@ -7,8 +8,8 @@ use std::time::{Duration, Instant};
 use axum::body::Body;
 use axum::extract::rejection::QueryRejection;
 use axum::extract::{Extension, Query, State};
-use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE};
-use axum::http::{HeaderName, HeaderValue, StatusCode};
+use axum::http::header::{ACCEPT_ENCODING, CACHE_CONTROL, CONTENT_ENCODING, CONTENT_TYPE, VARY};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
@@ -25,15 +26,24 @@ static VERSIONED_INDEX_HTML: LazyLock<String> = LazyLock::new(|| {
     INDEX_HTML
         .replace(
             "./assets/app.js",
-            &format!("./assets/app.js?v={:016x}", content_version(APP_JAVASCRIPT)),
+            &format!(
+                "./assets/app.js?v={:016x}",
+                content_version(web_asset("app.js").unwrap().bytes)
+            ),
         )
         .replace(
             "./assets/app.css",
-            &format!("./assets/app.css?v={:016x}", content_version(APP_CSS)),
+            &format!(
+                "./assets/app.css?v={:016x}",
+                content_version(web_asset("app.css").unwrap().bytes)
+            ),
         )
 });
-const APP_JAVASCRIPT: &[u8] = include_bytes!("../web/dist/assets/app.js");
-const APP_CSS: &[u8] = include_bytes!("../web/dist/assets/app.css");
+struct WebAsset {
+    name: &'static str,
+    bytes: &'static [u8],
+    gzip: bool,
+}
 include!(concat!(env!("OUT_DIR"), "/web_assets.rs"));
 // Fonts, embedded at compile time from `res/` so the binary is the whole
 // deliverable -- it has to be, since it is usually run over SSH on a cluster
@@ -410,8 +420,6 @@ where
     S: Clone + Send + Sync + 'static,
 {
     Router::new()
-        .route("/assets/app.js", get(app_javascript))
-        .route("/assets/app.css", get(app_css))
         .route("/assets/{*asset}", get(extra_asset))
         .route("/fonts/gorton-400.woff2", get(font_ui_regular))
         .route("/fonts/gorton-600.woff2", get(font_ui_semibold))
@@ -754,32 +762,83 @@ const fn content_version(bytes: &[u8]) -> u64 {
     hash
 }
 
-async fn app_javascript() -> Response {
-    static_asset("text/javascript; charset=utf-8", APP_JAVASCRIPT)
+fn web_asset(name: &str) -> Option<&'static WebAsset> {
+    WEB_ASSETS.iter().find(|asset| asset.name == name)
 }
 
-async fn app_css() -> Response {
-    static_asset("text/css; charset=utf-8", APP_CSS)
+fn encoding_quality(headers: &HeaderMap, encoding: &str) -> Option<f32> {
+    headers
+        .get_all(ACCEPT_ENCODING)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+        .find_map(|entry| {
+            let mut parts = entry.split(';');
+            if !parts.next()?.trim().eq_ignore_ascii_case(encoding) {
+                return None;
+            }
+            let quality = parts.next().map_or(Some(1.0), |parameter| {
+                let (name, value) = parameter.split_once('=')?;
+                name.trim()
+                    .eq_ignore_ascii_case("q")
+                    .then(|| value.trim().parse::<f32>().ok())
+                    .flatten()
+            });
+            Some(quality.filter(|q| (0.0..=1.0).contains(q)).unwrap_or(0.0))
+        })
 }
 
-async fn extra_asset(axum::extract::Path(name): axum::extract::Path<String>) -> Response {
-    match EXTRA_ASSETS.iter().find(|(asset, _)| *asset == name) {
-        Some((_, bytes)) => static_asset(
-            if name.ends_with(".wasm") {
-                "application/wasm"
-            } else if name.ends_with(".json") {
-                "application/json"
-            } else if name.ends_with(".zip") || name.ends_with(".whl") {
-                "application/octet-stream"
-            } else if name.ends_with(".txt") {
-                "text/plain; charset=utf-8"
-            } else {
-                "text/javascript; charset=utf-8"
-            },
-            bytes,
-        ),
-        None => StatusCode::NOT_FOUND.into_response(),
-    }
+async fn extra_asset(
+    axum::extract::Path(name): axum::extract::Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(asset) = web_asset(&name) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let wildcard = encoding_quality(&headers, "*");
+    let gzip = encoding_quality(&headers, "gzip")
+        .or(wildcard)
+        .unwrap_or(0.0);
+    let identity = encoding_quality(&headers, "identity");
+    let use_gzip = asset.gzip && gzip > 0.0 && gzip >= identity.unwrap_or(0.0);
+    let identity_allowed = identity.map_or(wildcard != Some(0.0), |q| q > 0.0);
+    let mut response = if !use_gzip && !identity_allowed {
+        StatusCode::NOT_ACCEPTABLE.into_response()
+    } else {
+        let content_type = match name.rsplit('.').next() {
+            Some("wasm") => "application/wasm",
+            Some("json") => "application/json",
+            Some("css") => "text/css; charset=utf-8",
+            Some("zip" | "whl") => "application/octet-stream",
+            Some("txt") => "text/plain; charset=utf-8",
+            _ => "text/javascript; charset=utf-8",
+        };
+        let mut response = static_asset(content_type, asset.bytes);
+        if use_gzip {
+            response
+                .headers_mut()
+                .insert(CONTENT_ENCODING, HeaderValue::from_static("gzip"));
+        } else if asset.gzip {
+            // Only the compressed representation is embedded. Decode off the async runtime.
+            let decoded = tokio::task::spawn_blocking(move || {
+                let mut bytes = Vec::new();
+                flate2::read::GzDecoder::new(asset.bytes).read_to_end(&mut bytes)?;
+                Ok::<_, std::io::Error>(bytes)
+            })
+            .await;
+            match decoded {
+                Ok(Ok(bytes)) => {
+                    *response.body_mut() = Body::from(bytes);
+                }
+                _ => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            }
+        }
+        response
+    };
+    response
+        .headers_mut()
+        .insert(VARY, HeaderValue::from_static("Accept-Encoding"));
+    response
 }
 
 async fn font_ui_regular() -> Response {
@@ -997,7 +1056,7 @@ mod tests {
         assert!(
             VERSIONED_INDEX_HTML.contains(&format!(
                 "./assets/app.js?v={:016x}",
-                content_version(APP_JAVASCRIPT)
+                content_version(web_asset("app.js").unwrap().bytes)
             )),
             "the HTML must bypass immutable bundles from older ncx releases"
         );
@@ -1012,6 +1071,51 @@ mod tests {
     #[test]
     fn default_response_limit_is_64_mib() {
         assert_eq!(Limits::default().max_response_bytes, 64 * 1024 * 1024);
+    }
+
+    #[tokio::test]
+    async fn asset_encoding_respects_preferences_and_exclusions() {
+        for (accept, expected) in [
+            (None, Some(false)),
+            (Some(""), Some(false)),
+            (Some("br, gzip"), Some(true)),
+            (Some("GZip; q=0.5"), Some(true)),
+            (Some("*;q=0.5"), Some(true)),
+            (Some("gzip;q=0, *;q=1"), Some(false)),
+            (Some("gzip;q=0.5, identity;q=1"), Some(false)),
+            (Some("gzip;q=1, identity;q=0.5"), Some(true)),
+            (Some("gzip, identity;q=0"), Some(true)),
+            (Some("gzip;q=0, identity;q=0"), None),
+            (Some("br, *;q=0"), None),
+            (Some("*;q=0, identity;q=1"), Some(false)),
+            (Some("gzip;q=NaN"), Some(false)),
+            (Some("gzip;q=2"), Some(false)),
+        ] {
+            let mut headers = HeaderMap::new();
+            if let Some(accept) = accept {
+                headers.insert(ACCEPT_ENCODING, HeaderValue::from_str(accept).unwrap());
+            }
+            let response = extra_asset(axum::extract::Path("app.js".into()), headers).await;
+            assert_eq!(response.headers()[VARY], "Accept-Encoding");
+            assert_eq!(
+                response.status(),
+                if expected.is_some() {
+                    StatusCode::OK
+                } else {
+                    StatusCode::NOT_ACCEPTABLE
+                },
+                "{accept:?}"
+            );
+            assert_eq!(
+                response.headers().contains_key(CONTENT_ENCODING),
+                expected == Some(true),
+                "{accept:?}"
+            );
+        }
+        let mut headers = HeaderMap::new();
+        headers.append(ACCEPT_ENCODING, HeaderValue::from_static("br"));
+        headers.append(ACCEPT_ENCODING, HeaderValue::from_static("gzip"));
+        assert_eq!(encoding_quality(&headers, "gzip"), Some(1.0));
     }
 
     #[tokio::test]

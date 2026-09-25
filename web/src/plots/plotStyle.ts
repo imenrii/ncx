@@ -65,6 +65,8 @@ export const PLOT_STYLE = {
   stroke: {
     grid: 0.7,
     spine: 1,
+    tick: 1, // Tick marks; the same weight as the frame unless an export changes it.
+    coast: 0.5, // Coastline: the ground under the isobars and wind, drawn in --ink-quiet.
     reference: 1.25,
     "data-minor": 1.25,
     data: 1.75,
@@ -104,30 +106,44 @@ export const PLOT_STYLE = {
 
   // Pressure overlay lengths are CSS pixels, except the named scale/rem values.
   pressure: {
-    width: 1.8, // Shared by plotted isobars and the legend sample.
+    // Weight order: standard isobar > isobar > wind glyph >> coastline.
+    width: 1.4, // Shared by plotted isobars and the legend sample.
+    standardWidth: 2.6, // The drawn level nearest the standard atmosphere.
+    standardLevel: 1013.25, // hPa (101 325 Pa).
     labelScale: 0.78, // Contour font size / axis tick font size.
     labelPad: 2.5, // Clearance on each side of a contour label.
     labelSpacing: 260, // Target distance between repeated labels along a line.
+    labelKnockout: 2, // The break follows the digits, dilated by this much, px.
+    labelBend: 18, // Largest turn of the line under a label, degrees.
+    labelClearance: 0.6, // Another isobar keeps this far from a label, in label font sizes.
+    labelSpread: 3.5, // Distance between labels, in label widths; a second pass relaxes it.
+    labelSpreadRelaxed: 1.6, // For a line still unnamed after the first pass.
+    minLoop: 2.5, // Closed loops and open ends shorter than this many label widths are noise.
+    smoothing: 0.25, // Display smoothing sigma / wind glyph spacing. The data is never changed.
     centreSpacing: 64, // Minimum distance between L/H centres.
     centreMarkRem: 1, // L/H letter size, rem.
     centreGap: 2, // Gap between the L/H letter and its pressure value.
     centrePad: 3, // Padding around both rows for masks and collision checks.
-    minContourGap: 13, // Minimum estimated mean isobar gap before interval thinning.
+    minContourGap: 13, // Typical tight isobar gap, px, before interval thinning.
   },
 
   wind: {
     colour: SERIES_PALETTE.green, // Curve barbs; field glyphs use ink and a transparent halo.
-    width: 1.3, // Field arrow stroke, px.
+    width: 0.9, // Field arrow stroke, px: below the isobar, above the coastline.
     // A transparent halo: it paints nothing and only holds other line work off
     // the glyph. A painted casing erases the isobar it crosses, and a
     // translucent one reads as a grey fringe around every glyph.
     halo: 4, // Clearance around a field glyph, px.
-    barbWidth: 1.4, // Barb stroke, px.
+    barbWidth: 1.4, // Curve barb stroke, px.
+    fieldBarbWidth: 1, // Field barb stroke, px: below the isobar, above the coastline.
     barbLength: 22, // Barb shaft length, px. Fixed at every plot size, like a station plot.
 
-    minSpacing: 26, // Minimum field glyph spacing, px.
-    maxSpacing: 44, // Maximum field glyph spacing, px.
-    cells: 10, // Target number of glyph slots along the shorter plot dimension.
+    // Field glyph spacing follows the pane area: sqrt(width × height / areaCells),
+    // held between these multiples of the barb length.
+    areaCells: 110,
+    minSpacing: 2, // × barbLength: a label still fits between glyph rows in a small pane.
+    maxSpacing: 2.4, // × barbLength.
+    inkClearance: 2.5, // A contour label keeps this far from glyph ink, px.
     lengthRatio: 0.66, // Arrow style only: saturated arrow length / lattice spacing.
     speedQuantile: 0.9, // Speed that saturates the arrow length, as a quantile of drawn speeds.
     minLength: 3, // Shortest drawn arrow, px; slower samples are left blank.
@@ -266,6 +282,14 @@ ${sizes.join("\n")}
 }
 .pressure-centre-mark { font-size: ${PLOT_STYLE.pressure.centreMarkRem}rem; }
 `;
+}
+
+/**
+ * A data stroke as a CSS width. An export sets `--stroke-data-scale` to draw
+ * every data line (series, contours, wind) at its chosen weight.
+ */
+export function dataStroke(px: number): string {
+  return `calc(${px}px * var(--stroke-data-scale, 1))`;
 }
 
 // Browser measurements. Resolve CSS here before passing numbers to geometry.

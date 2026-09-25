@@ -77,400 +77,39 @@ The resulting binary is located at `target/release/ncx`.
 
 ---
 
-## Usage & Viewer Options
-
-### Steering
-
-The **Steering** topbar button opens a Python/NumPy console. **Insert**
-(Ctrl+I) puts a source variable, workspace name, or display handle at the
-cursor. Variables support lazy arithmetic:
-
-```python
-t = sources.s1["/CLK"]
-t += 1.45
-panels[0].show(t)
-```
-
-Enter submits a command; Shift+Enter adds a line. Completion, Ctrl+R history
-search, expandable results, and concise errors support interactive editing.
-The terminal head shows a state word only while Python is not ready. An empty
-log offers three examples; a press puts one in the input. Python and Dask load
-locally on first open. Computation runs in a worker; while a command runs, the
-`>>` prompt becomes its Stop key. The three-dot menu has Clear log, Reset
-workspace, and Quick reference.
-Use `p = frame.append(variable)` to add a panel. Field and Curve derive from
-its one binding; a field-backed panel shows a curve after its probe is placed.
-Read `p.probe.position`, move it with `await p.probe.move(longitude=..., latitude=...)`,
-and get its lazy series through `p.probe.data`. `panels[0]` is the main panel.
-All fields share the time slider and overlay settings. Immutable expressions
-and evaluated selections are reused.
-
-See [Steering](docs/steering.md) for commands, plot ownership, memory limits,
-and the CSP required by embedding hosts.
+## Viewer Options & Embedding
 
 ### URL Parameters
 
-- **Clean Embeds**: Append `chrome=none` to the viewer URL to hide the header, status bar, Settings button, and the Files list. The host owns source membership; the source tabs, variable navigation, and Display stay available.
-- **Embedded Mode**: Use `embedded=1` for clean iframe integrations.
+- **Clean Embeds**: Append `chrome=none` to the viewer URL to hide the header, status bar, and file list for minimal iframe integration.
+- **Embedded Mode**: Use `embedded=1` for responsive embedding without standalone window chrome.
+- **Display Timezone**: Use `display_zone=<zone>` to set a fixed display timezone (defaults to UTC).
 
-### Sources and embedded API
+### Host Integration & Documentation
 
-Field and Curve share the same plot implementation for one or several datasets.
-Curve supports eight sources, with at most six open datasets. Field supports
-one through four panes. Unavailable sources keep their place and error; ncx
-never promotes a secondary source silently. Cross-dataset selections require
-compatible quantities, units, and explicit location or coordinate mappings.
+For embedding contracts, internal architectures, and developer references:
 
-Same-origin hosts call `window.ncx = {version: 2, getState, setSources, setOptions}`.
-The API is also present in standalone viewers, before React mounts. ncx sends
-no messages or requests to the host. The host must poll; it must not inspect
-the iframe DOM. Start even a single hosted dataset with `--dataset id=path`
-to keep its dataset ID stable.
-
-`getState()` returns a detached plain object:
-
-```ts
-{
-  revision: string,
-  selection: {
-    dataset: string, path: string, view: string,
-    location_id?: string, quantity?: string, units?: string,
-    start_ms?: number, end_ms?: number
-  } | null,
-  sources: {
-    id: string, label: string, color: string, dash: string, width: number,
-    primary: boolean, locked: boolean
-  }[],
-  request: { revision: string, sources: string[] } | null
-}
-```
-
-`width` is the stroke width in CSS px; `dash` is an SVG dash array in px or
-`none`. Both follow the reader's line style for that source.
-
-The selection uses source metadata, including session unit selections, not
-converted display units. Curve extents are the raw UTC
-union of participating NetCDF extents, without supplied samples or display
-offsets. The extent is absent until reads finish. A scientific selection,
-dataset identity, or raw extent change changes the revision and immediately
-makes old inline data unavailable. Style and offset changes do not change it.
-
-`setSources({revision, sources})` validates synchronously, then accepts the
-whole list or throws `Error`. A stale revision is an error. Each source is
-exactly one of:
-
-```ts
-{ id: string, dataset: string, label?: string,
-  attributes?: { locked?: boolean } }
-{ id: string, series: {
-    label: string, quantity: string, location_id: string,
-    x_units: "milliseconds since 1970-01-01T00:00:00Z", x: number[],
-    y_units: string, y: (number | null)[], vertical_datum?: string
-  }, attributes?: { locked?: boolean } }
-```
-
-Dataset names must identify open datasets, not paths. IDs must be unique.
-Arrays must have equal non-zero lengths, with at most 100,000 supplied samples
-in total. Times must be ordered safe epoch-ms integers within the date range;
-values must be finite float32-range numbers or null for missing values.
-Unknown fields, including offset inputs, are rejected. Source order controls
-palette and participation; the first dataset is primary. Default source IDs
-are dataset IDs. The getter includes unavailable sources and reports ncx's
-actual palette. Inline series use generic location, quantity, and unit matching;
-a locked series has no provider-specific behavior.
-
-`setOptions({options})` declares up to 64 sources the reader may add. Each is
-`{id, label, dataset}` or `{id, label, kind: "series"}`; the dataset need not be
-open yet. With options declared, ncx shows **Add**, a remove key on each tab,
-and **Make primary**. These never change host sources. They write
-`getState().request`: the option or source IDs the reader wants, in order. The
-host reads it when it polls and answers with `setSources()`, which settles the
-request. Until then a requested source shows as a dashed, waiting tab.
-
-#### Source tabs and line styles
-
-With two or more sources, or in a directory or hosted session, the plotted
-sources show as one row of tabs under the toolbar. Tabs shrink like browser
-tabs and never wrap. The primary is first, bold, and stands on an ink foot. A
-tab opens its line: colour, dash, and weight in millimetres, and in a field
-comparison **Show pane** (four panes at most). The viewer keeps one style per
-source: the same record drives the curve, its legend, export, `getState()`,
-and the **Display** line of the primary. Style changes do not change the
-revision.
-
-One shared **Y offset** in the toolbar sets the absolute offset of every
-unlocked series, including new sources. New locked sources start at zero.
-Locking retains the current offset; unlocking adopts the toolbar value.
-Updates with the same source ID keep offset state. Enter zero in Y offset to
-clear offsets on unlocked sources. An edit that would overflow any loaded
-unlocked curve is rejected before offset state changes. A variable, quantity,
-or extraction change resets the unlocked offsets. Representation changes and
-raw-extent arrival preserve compatible offsets. Display-unit changes convert
-offset deltas; locked physical offsets survive them. There are no X offsets. Legends contain
-only names and line swatches; axes, crosshairs, and export retain scientific
-metadata. The toolbar keeps what selects the slice: view, axes, indices,
-units, Y offset, and curve Wind. **Display**, at the foot of the sidebar and
-closed by default, keeps how it is drawn. Its summary states the colour map,
-scale, and range while it is closed. In the field view it has the colour map
-and a range histogram; in the curve view it has the value axis and the primary
-source's line. A drag across the histogram, or a new edge value, locks the
-range; a double-click or **auto** returns it to the data. Scale and Range share
-one row. The field overlays (Pressure, Wind vector, Coastline) have their own
-plot legend. The Time control and its zone-switching state are removed. The validated `display_zone` URL value fixes
-the display zone for the viewer; without it, the viewer uses UTC.
-
-The gear button opens Settings. Field view settings select arrows or wind barbs,
-U/V components, the pressure component, the base contour interval, and the view
-width × height in pixels. Defaults
-are wind barbs, the current group's ECMWF `u10`/`v10` pair and `msl` pressure, 2 mb, and the current
-view size. Auto restores sizing with the window. Variable axes stay in the toolbar. Apply commits changes; Cancel or Escape discards them. Settings last
-for the viewer session. Component choices belong to each dataset.
-
-The dataset sidebar stays open. Drag its boundary or focus the boundary and use
-arrow keys to resize it. Home/End select the width limits. Its default width is
-256 px, with a 192 px minimum and a 480 px maximum, while reserving 320 px for
-the plot. Small screens scroll horizontally. With `chrome=none`, the settings
-button is in the toolbar.
-
-With several datasets, the sidebar lists **Files**. Names wrap in full; a
-plotted file shows its line; the primary file opens in place to its variables.
-Choosing another file makes it primary. The source tabs' **Add** plots more
-files, six datasets at most.
-`sessionStorage` keeps dataset/path/view by dataset ID and restores them before
-defaults on reload. Storage failures use normal defaults. Rebuild the web assets
-and then Rust after UI changes: Rust embeds `web/dist` at compile time.
-
-### Display Units and Wind
-
-Field and Curve have a **Unit** selector in the toolbar. Supported quantities include
-pressure, wind, temperature, water-equivalent depth, height, fractions, wave
-periods and directions, radiation, heat flux, and specific energy. The source
-unit is the default. Conversions change the plot, labels, readouts, offsets,
-and PNG output, not the file or source samples. Field colour ranges remain
-independent. Unit changes do not read another data slice.
-
-If a variable has no unit and its name matches a supported ECMWF quantity,
-**Metadata → Units** assigns the default ECMWF source unit. For example, `msl`
-uses Pa, `t2m` uses K, and `u10`/`v10` use m/s. Use the same control to override
-or clear the assignment. Unknown names and conflicting CF quantities have no
-automatic assignment. You can assign their source unit manually in the same control.
-This labels the source numbers without rescaling them. Field and Curve initially use
-this unit, replacing any previous display-unit choice. Use the toolbar
-to convert the display: for example, assign Pa in Metadata, then select hPa in
-the toolbar. The source-unit choice applies to detection, plot labels, conversion,
-comparisons, and export. Selecting a unit for `u10` or `v10` also sets its missing-unit twin in
-the same group. File-provided units remain unchanged. **Not specified** clears
-both missing-unit twins. Manual choices stay with their dataset and variable while
-the viewer is open; reload or viewer replacement restores ECMWF defaults. The file and
-raw Attributes table never change. Source-unit changes clear range locks and
-Y offsets, including locked offsets. A unit alone does not identify an unknown
-quantity or enable Beaufort.
-
-The appendable rules are in `web/src/data/units.ts`, with aliases from the
-[ERA5 variable list](https://ecmwf-models.readthedocs.io/en/latest/variables_era5.html).
-Default source units follow the [ECMWF ERA5 documentation](https://confluence.ecmwf.int/pages/viewpage.action?pageId=239340673).
-A known name does not override file-provided units. Accumulations
-are not converted to rates. Pressure vertical velocity is not wind speed.
-
-Beaufort is available for recognized 10 m speed variables, not signed
-components or gusts. It uses discrete force categories; it does not establish
-a standard averaging period. Selecting Bft suppresses Y display offsets
-without changing locked physical offsets and starts an automatic linear range.
-Area probes use paired vector means before calculating wind speed and direction.
-
-**Wind vector** in the field plot legend, or **Wind → On** in the Curve
-toolbar, adds wind glyphs to Field and a wind-barb row
-to time curves. Field layout always reserves its annotation strip, including when Wind is off
-or unavailable. Curve layout reserves only a compact row above the frame for
-the hover readout; wind barbs sit inside the frame. Field arrows point toward
-motion; field barbs point toward the wind source and encode speed in m/s. Curve barbs use the Style convention: half/full/pennant increments of
-2.5/5/25 m/s, or 5/10/50 knots when the curve unit is `kt`. Hover over the curve or focus a barb
-for the shared tooltip with time, speed, and direction of origin. This tooltip
-follows the data track. It shows one timestamp, then aligned variable and wind
-rows with three decimal places. The increment key is in the curve header and
-uses the barb colour. PNG output includes the marks and their unit key. No weather font is required.
-
-Wind marks stay at their native coordinates. A rectilinear source is thinned in
-grid-index space, so the same grid points are drawn at every plot size. A
-curvilinear or mesh source has no such regularity, so screen bins limit its
-density without moving a mark away from its grid cell.
-
-Glyph spacing is a screen distance, so a small pane thins the field out instead
-of stacking it. Arrow length follows that spacing and the local speed. A barb
-keeps one fixed size at every plot size. The wind lattice holds its positions
-and pressure labels are placed around it. The field legend names the layer.
-Field exports contain the selected wind glyphs; Curve exports retain the barb
-increment key.
-
-Unavailable Wind controls are grey. Hover over the control for the reason.
-Wind component units in metadata, or selected in Metadata, take precedence.
-If a component still has no unit,
-the curve uses the selected velocity unit; a field uses the selected variable's
-velocity unit. Incompatible units and Beaufort are not component-unit fallbacks.
-
-Wind is independent of the selected scalar quantity and its `coordinates`
-attribute. The wind components provide their own native coordinates and must
-share dimensions with each other. Curve selections need valid native wind
-sample indices. There is no spatial or time interpolation. Geographic
-rectilinear, curvilinear, and node/face mesh fields are supported; projected
-vector rotation and native edge wind positions are not. Added Field component
-reads contain at most 1,000 values each. Mesh anchors use sampled native nodes
-or a representative triangle centre for each sampled face. Small faces can be
-omitted at this display density. Calm wind uses a circle in barb mode and no mark in arrow mode. Missing vectors
-have no mark.
-
-Wind uses the primary source for Curve and each pane's source for Field. Field
-component choices pass the same unit, coordinate, and dimension checks as the
-automatic pair. A missing explicit choice is not replaced by an automatic pair.
-Model display offsets do not change the physical wind components. Wind off
-makes no additional wind reads. Export
-requires the selected wind data to be ready, or Wind to be off.
-
-### Playback
-
-Playback buttons use the same raised style as the plot view controls. The
-active control is pressed down. At the first frame, First sample and Play
-backward are disabled, grey, and pressed down. At the last frame, Play forward
-and Last sample have the same disabled state. Playback stops at either end;
-it does not wrap around.
-
-During sample changes, pressure contours and wind marks stay visible until their
-replacement data arrives. This avoids blank overlay frames. Export still waits
-for the requested sample; a source or viewport change does not reuse old marks.
-
-### Field Overlay Legend
-
-The field plot carries its own overlay legend under the view controls, at the
-top left of the plot. Comparison uses one legend on an available pane, even
-when the primary pane is hidden. Two rows, `Pressure` and `Wind vector`, each show a black
-mark in one 36 px column so both labels start on the same x. Click a row to
-turn its layer on or off. An active row is black. An off row is grey with a
-line through the text, so the state does not depend on colour. An
-unavailable layer is disabled and carries its reason as a title. The legend has
-no border and no plate; arrows and contour labels keep out of its corner.
-
-### Plot style
-
-[`web/src/plots/plotStyle.ts`](web/src/plots/plotStyle.ts) is the canonical browser
-plot profile. It supplies generated CSS, layout, and export. See
-[the style contract](docs/plot-style.md) for intentional differences from
-Python figures, corrected mismatches, and the update procedure.
-
-### Field Pressure Contours
-
-**Pressure** in the field plot legend draws isobars at a base interval of **2 mb** by default: one uniform line weight at every level, with no level made
-heavier than another. Visible lines are sampled at 3 px spacing. Two short averaging passes remove
-small wiggles, with displacement limited to 2 px, then two corner-cutting
-passes round the lines. A shared point budget increases that spacing for very dense plots;
-smoothing does not turn off. Small eyes keep their native shape during
-smoothing, and source values do not change. While the estimated visible gap between isobars is under
-13 px the drawn interval doubles, 2 → 4 → 8 → 16 hPa, so a small pane shows
-fewer lines instead of a solid block.
-
-Every drawn contour line must have a label, repeated about every 260 px along
-the visible line. Placement tries nearby positions when a label is blocked.
-If no label fits, the entire visible line is omitted. This includes small
-closed eyes and lines crowded by neighbouring labels or L/H marks. Disconnected
-lines at the same pressure level each need their own label. A label sits in
-a masked break in the line, not under a halo, and avoids the plot legend, other
-labels, and the frame. Negative levels are dashed.
-
-Pressure basins must have at least 2 hPa of prominence relative to their spill
-saddle. Each basin retains its strongest native extremum; a flat extremum has
-one stable anchor. A closed isobar at least 2 hPa outward from that value must
-surround the centre. Detection uses all base-interval isobars, before display thinning
-or smoothing. Vertices on a data boundary or missing-data edge cannot become
-centres. Stronger prominence wins when marks would be within 64 px. Marks
-show **L** or **H** and the native central value; lines are masked behind them.
-
-Pressure contours sit below reference geometry and wind. Contour labels and
-centre marks are placed first. Wind arrows that overlap these marks are omitted.
-The remaining arrow positions, arrow spacing, and field colour range do not
-change. Toggling contours does not read wind data again. The Field tooltip still has two lines only: the selected value and
-unit, then coordinates such as `33°N · 114.75°E`. It includes no overlay readout.
-
-The selected pressure field is used when applicable. If there is one pressure
-field, other scalar views use it automatically. If there are several, use
-**Pressure field** to choose one. Comparison panes use the same pressure quantity
-from each dataset; surface pressure never replaces mean sea-level pressure.
-Missing units use **Metadata → Units**. Contours use hPa regardless of source
-units, Curve display units, or display offsets.
-
-Rectilinear and curvilinear fields use one bounded grid read, with up to 20,000
-native samples over the visible area and a boundary margin. Larger windows use
-strided samples. Contours use linear interpolation on triangles between those
-samples; small features below this display sampling can be missed. A missing
-sample masks its grid cells. Constant fields produce no arbitrary outlines.
-
-Node mesh values use native triangles. Face values remain at area-weighted face
-centres; contours use closed, convex face-centre rings around interior nodes.
-Open boundary rings and rings with missing values are not extrapolated. Face
-values are not converted to node values. Mesh contours are limited to 20,000
-nodes/faces and 40,000 triangles. Projected and edge pressure contours are not
-supported. A 50,000-segment limit bounds contour complexity.
-
-Calculations remain in the browser and use the existing read-only API. Off
-makes no pressure reads. Export includes the same contours, labels, and centre
-marks, and requires each enabled layer to be ready or turned off. No gradient
-arrows or pressure-gradient calculations are used.
-
-### Coastline Reference
-
-For longitude/latitude fields, press **Coastline** in the plot's overlay legend to draw solid coastline
-lines without labels or shading. This uses public-domain [Natural Earth](https://www.naturalearthdata.com/about/terms-of-use/)
-data from the version-pinned `nvkelso/natural-earth-vector` GitHub repository.
-The browser downloads only the detail level needed for the view (110m, 50m, or
-10m). These are map scales, not metre resolutions. The most detailed file is
-about 10 MB and is not suitable for precise harbour boundaries.
-
-Downloads and parsed geometry are shared across panes and cached for the page
-lifetime. Downloads also use the browser HTTP cache. Pan, animation, and PNG
-export reuse loaded data; zoom can request a different detail level. No download
-starts while Coastline is off. If a download fails, the dataset remains usable.
-Turn Coastline off and on to retry. Export requires the coastline to be ready,
-or Coastline to be off.
-
-### Exporting Figures
-
-**Export PNG** shows the file before it is written: the same composition,
-redrawn as width, resolution, grid, or lettering change, with width and height
-rulers in millimetres and one line for the pixel size, resolution, and an
-estimated file size. Lettering is closed by default; the file name has a fixed
-`.png`. **Copy image** puts the PNG on the clipboard where the browser allows it.
-
-In the Lettering fields, enclose LaTeX in `$...$` in the title, subtitle, and axis
-labels. For example: `Wind speed ($m s^{-1}$)` or `$\theta$`. Text outside
-these delimiters stays literal. Use `\$` for a literal dollar sign.
-
-PNG export retains the active X viewport, samples, offsets, and scientific axis
-labels. One curve has no legend. Several curves use a compact, names-only,
-unframed legend with line swatches and wrapped rows inside the plot headroom.
-Export extends the displayed Y limit to keep the legend clear of data; it does
-not change the live viewport or toolbar range. Legend spacing follows Style:
-1.6 em handles, 0.5 em handle-to-text gaps, 1.2 em column gaps, 0.35 em row
-gaps, 0.3 em axes padding, and 0.2 em internal padding.
-Probe markers remain interactive in the UI and are excluded from exported
-figures. Ensure hosting policies allow blob image rendering for composition.
+- **[Embedding Contract](docs/embedding.md)**: JavaScript API (`window.ncx`), wire format, source synchronization, and secondary curve panels.
+- **[Steering Console](docs/steering.md)**: In-browser Python/NumPy console, lazy expression evaluation, and WebAssembly worker limits.
+- **[Data & CF Conventions](docs/data-contract.md)**: CF/UGRID resolution, metadata schemas, and slice request protocol.
+- **[Plot Style](docs/plot-style.md)**: Visual standards, typography rules, and publication figure presets.
 
 ---
 
 ## Container Deployment
 
-A lightweight Docker Compose setup is provided to host an `ncx hub` server for team access:
+A lightweight Docker Compose setup is provided to host an `ncx hub` server:
 
 ```bash
 cp .env.example .env
 sh deploy/compose.sh up -d --wait
 ```
 
-For network configuration, data directory mounts, session policies, and update routines, see [deploy/README.md](deploy/README.md).
+For network configuration, data directory mounts, session policies, and authentication options, see [deploy/README.md](deploy/README.md).
 
 ---
 
 ## Development & Verification
-
-See [module contracts](docs/README.md) for ownership and interfaces, and
-[executable gates](docs/checks.md) for browser, protocol, and performance checks.
 
 ### Dev Server
 
@@ -497,9 +136,9 @@ cd web && npm test && npm run build && cd ..
 cargo build
 ```
 
-### UI & Smoke Tests
+### UI Smoke Tests
 
-UI smoke tests run against headless Firefox (or Chromium via `NCX_CHROMIUM=/path/to/chrome`):
+Headless browser smoke tests run against Firefox or Chromium:
 
 ```bash
 node tests/ui-smoke.mjs rectilinear
@@ -508,68 +147,27 @@ node tests/ui-smoke.mjs ugrid
 node tests/ui-smoke.mjs comparison
 node tests/ui-smoke.mjs hub
 node tests/ui-smoke.mjs wind
-NCX_ASSIGN_UNITS=1 node tests/ui-smoke.mjs wind
-NCX_PRESSURE=1 node tests/ui-smoke.mjs wind
-NCX_PRESSURE=1 NCX_FIXTURE=tests/data/pressure_faces.nc node tests/ui-smoke.mjs wind
-NCX_FIXTURE=tests/data/wind_curvilinear.nc node tests/ui-smoke.mjs wind
-NCX_FIXTURE=tests/data/wind_ugrid.nc node tests/ui-smoke.mjs wind
 sh tests/hosting-smoke.sh
 ```
 
-**Test configuration environment variables**:
+**Environment Variables**:
 - `NCX_FIXTURE`: Custom NetCDF fixture path.
 - `NCX_BINARY`: Target binary path under test.
-- `NCX_VIEWPORT_WIDTH` / `NCX_VIEWPORT_HEIGHT`: Browser viewport dimensions (e.g. `360x640` for mobile hub testing).
-- `NCX_BENCHMARK=1`: Enables opt-in benchmark timing output.
-- `NCX_BROWSER_NO_SANDBOX=1`: Disables browser sandbox in constrained CI environments.
+- `NCX_CHROMIUM`: Path to custom Chromium/Chrome binary.
+- `NCX_BROWSER_NO_SANDBOX=1`: Disables browser sandbox in containerized CI.
 
 ---
 
 ## Publishing Releases
 
-Packaging statically linked musl releases with embedded font subsets requires `cargo-zigbuild`, Zig, and the `x86_64-unknown-linux-musl` target:
+Statically linked musl releases with embedded assets can be packaged with:
 
 ```bash
 sh deploy/package-release.sh
 ```
 
-Upload the artifacts in `target/release-assets` to the matching GitHub release tag.
-
 ---
 
 ## Typography & Credits
 
-Web controls, identifiers, and values use **Commit Mono Web**, based on
-[Commit Mono](https://commitmono.com/) by Eigil Nikolajsen. The local hinted
-cuts use 450 for light-surface text, 600 for emphasis, and 400 for the dark
-status strip. UI, literal data, and descriptive metadata have separate feature
-settings. CM Math remains first for mathematical symbols. See
-[res/README.md](res/README.md) for font files, licences, and build instructions.
-
-The other UI text uses [Gorton Perfected](https://shifthappens.site/store/#fonts)
-by Marcin Wichary when a licensed subset is present. National Park sets
-structural labels. Existing plot lettering and non-web scientific plotting
-styles are unchanged. Wichary describes the font's history in
-[the hardest working font in Manhattan](https://aresluna.org/the-hardest-working-font-in-manhattan/).
-
-
-
-
-### Generic secondary curve panel
-
-The source API adds capabilities.secondaryCurve=true.
-setSources accepts optional secondary={label, sources, error?, difference?}. Its sources
-are ordinary supplied series with optional color/dash copied from existing
-source styles; no calculation or provider policy enters ncx. Secondary input
-is bound to the same selection revision and total sample limit as other input.
-Omitting secondary clears it. An empty sources list may retain a labelled
-loading/unavailable panel. The primary and secondary sources replace atomically.
-
-The two curve panels share horizontal range, cursor time, drag selection, unit
-changes, and presentation. They use the same renderer, typography, and aligned
-margins. Secondary Y range is automatic and independent. An explicit difference=true
-marks delta values for unit conversion and includes a zero reference. Ordinary
-secondary series use ordinary unit conversion. Each panel requires matching
-quantity, units, and location across its sources; signed ranges use linear scale. Primary display offsets never change
-secondary samples. Both panels appear in Export PNG. getState remains metadata
-only and reports the feature capability; ncx does not request data from its host.
+Web controls, identifiers, and values use **Commit Mono Web** by Eigil Nikolajsen. UI lettering uses **Gorton Perfected** by Marcin Wichary and **National Park**. See [res/README.md](res/README.md) for font files, licenses, and build configurations.

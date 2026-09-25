@@ -7,8 +7,9 @@
  */
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 
-import { formatNumber, type ColorRange } from "../../plots/color";
-import { ditherArea, histogram, histogramPath } from "./dither";
+import { type ColorRange } from "../../plots/color";
+import type { DisplaySamples } from "./displayValues";
+import { ditherArea, histogramParts, histogramPath } from "./dither";
 
 type Rgb = readonly [number, number, number];
 
@@ -20,7 +21,7 @@ const INK: Rgb = [16, 20, 24];
 
 export function RangeHistogram({ values, range, unit, colour, onCommit, onReset }: {
   /** Samples in display units; undefined while the plot is loading. */
-  values: ArrayLike<number> | undefined;
+  values: DisplaySamples | undefined;
   range: ColorRange;
   unit: string;
   /** Colour of a value under the committed range; ink when absent. */
@@ -36,7 +37,7 @@ export function RangeHistogram({ values, range, unit, colour, onCommit, onReset 
     const pad = Math.abs(low) * 0.01 || 1;
     return [low - pad, high + pad];
   }, [extent, range.minimum, range.maximum]);
-  const counts = useMemo(() => histogram(values ?? [], domain[0], domain[1], BINS), [values, domain]);
+  const counts = useMemo(() => histogramParts(values ?? [], domain[0], domain[1], BINS), [values, domain]);
   const total = extent?.[2] ?? 0;
 
   // Draft edges follow the committed range until a head moves.
@@ -108,7 +109,7 @@ export function RangeHistogram({ values, range, unit, colour, onCommit, onReset 
         <span className="key-label">[{unit || "—"}]</span>
         <span className="rh-count">{total ? `${inside.toLocaleString("en")} / ${total.toLocaleString("en")} (${Math.round(inside / total * 100)}%)` : "—"}</span>
       </div>
-      <span className="rh-ext" data-edge="lo">{extent ? formatNumber(extent[0]) : ""}</span>
+      <span className="rh-ext" data-edge="lo">{extent ? plain(extent[0]) : ""}</span>
       <div className="rh-surface">
         <canvas ref={canvas} className="rh-curve" tabIndex={0} aria-label="Drag to select a value range; double-click for automatic"
           onPointerDown={event => {
@@ -139,14 +140,14 @@ export function RangeHistogram({ values, range, unit, colour, onCommit, onReset 
         <span className="rh-selection" hidden={!selection}
           style={selection ? { left: selection.left, width: selection.width } : undefined} />
       </div>
-      <span className="rh-ext" data-edge="hi">{extent ? formatNumber(extent[1]) : ""}</span>
+      <span className="rh-ext" data-edge="hi">{extent ? plain(extent[1]) : ""}</span>
       <RangeNumber edge="lo" value={draft.minimum} label="Range minimum"
         onCommit={value => commit({ minimum: value, maximum: latest.current.maximum })} />
       <div className="rh-rail">
         <span className="rh-span" style={{ left: `${at(draft.minimum) * 100}%`, width: `${(at(draft.maximum) - at(draft.minimum)) * 100}%` }} />
         {(["minimum", "maximum"] as const).map(edge => (
           <input key={edge} type="range" min={domain[0]} max={domain[1]} step={step} value={draft[edge]}
-            aria-label={`Range ${edge}`} aria-valuetext={`${formatNumber(draft[edge])} ${unit}`.trim()}
+            aria-label={`Range ${edge}`} title={`Range ${edge}`} aria-valuetext={`${plain(draft[edge])} ${unit}`.trim()}
             onChange={event => moveHead(edge, event.currentTarget.valueAsNumber)}
             onPointerUp={() => commit(latest.current)}
             onKeyUp={event => { if (event.key.startsWith("Arrow") || ["Home", "End", "PageUp", "PageDown"].includes(event.key)) commit(latest.current); }} />
@@ -167,7 +168,7 @@ function RangeNumber({ edge, value, label, onCommit }: {
   // Read the element, not state: a blur can follow its input event before a render.
   const done = (entered: string) => {
     const next = Number(entered);
-    if (Number.isFinite(next) && entered.trim() !== "" && next !== value) onCommit(next);
+    if (Number.isFinite(next) && entered.trim() !== "" && next !== value && entered !== plain(value)) onCommit(next);
     else setText(plain(value));
   };
   return <input className="rh-num" data-edge={edge} data-value={value} inputMode="decimal" aria-label={label} value={text}
@@ -178,17 +179,15 @@ function RangeNumber({ edge, value, label, onCommit }: {
     }} />;
 }
 
-/** Readouts keep six significant digits, without grouping, so they parse back. */
+/** Four significant figures, without grouping, so readouts parse back. */
 function plain(value: number): string {
-  if (!Number.isFinite(value)) return "";
-  const magnitude = Math.abs(value);
-  return magnitude !== 0 && (magnitude < 1e-3 || magnitude >= 1e7) ? value.toExponential(3) : String(Number(value.toPrecision(6)));
+  return Number.isFinite(value) ? value.toPrecision(4) : "";
 }
 
-function finiteExtent(values: ArrayLike<number> | undefined): [number, number, number] | undefined {
-  if (!values) return undefined;
+function finiteExtent(parts: DisplaySamples | undefined): [number, number, number] | undefined {
+  if (!parts) return undefined;
   let minimum = Infinity, maximum = -Infinity, count = 0;
-  for (let index = 0; index < values.length; index += 1) {
+  for (const values of parts) for (let index = 0; index < values.length; index += 1) {
     const value = values[index];
     if (!Number.isFinite(value)) continue;
     count += 1;
@@ -198,10 +197,10 @@ function finiteExtent(values: ArrayLike<number> | undefined): [number, number, n
   return count ? [minimum, maximum, count] : undefined;
 }
 
-function countInside(values: ArrayLike<number> | undefined, range: ColorRange): number {
+function countInside(parts: DisplaySamples | undefined, range: ColorRange): number {
   let count = 0;
-  if (!values) return count;
-  for (let index = 0; index < values.length; index += 1) {
+  if (!parts) return count;
+  for (const values of parts) for (let index = 0; index < values.length; index += 1) {
     const value = values[index];
     if (value >= range.minimum && value <= range.maximum) count += 1;
   }

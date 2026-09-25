@@ -112,9 +112,9 @@ export function SteeringPanel({ session, open, displays }: { session: SteeringSe
       {/* Words only where a word is needed: the state shows only when Python is not ready. */}
       <div className="steering-head">
         <span className="key-label">Python</span>
+        <InsertMenu session={session} insert={insert} />
         {stateWord && <span className="state" role="status" data-state={session.state === "failed" ? "failed" : session.state === "closed" ? undefined : "running"}>{stateWord}</span>}
         <span className="steering-spacer" />
-        <InsertMenu session={session} insert={insert} />
         <details className="pop steering-menu">
           <summary className="steering-dots" aria-label="Terminal options" title="Terminal options" />
           <div className="sheet" data-align="right"><div className="list">
@@ -240,7 +240,7 @@ function InsertMenu({ session, insert }: { session: SteeringSession; insert: (re
   const shown = rows.filter(row => !wanted || row.label.toLowerCase().includes(wanted)).slice(0, 200);
   return <details className="pop steering-insert" onToggle={event => { if (!event.currentTarget.open) setFilter(""); }}>
     <summary className="btn caret" title="Insert a name (Ctrl+I)">Insert</summary>
-    <div className="sheet" data-align="right">
+    <div className="sheet">
       <input className="list-filter" placeholder="Filter" aria-label="Filter names" value={filter}
         onChange={event => setFilter(event.currentTarget.value)}
         onKeyDown={event => {

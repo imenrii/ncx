@@ -81,7 +81,10 @@ def describe(value):
     if type(value) is runtime.Panel:
         result["target"] = value.name
         result["reference"] = value.path
-    if type(value) is runtime.Variable: result["objectId"] = value.id
+    if type(value) is runtime.Variable:
+        result["objectId"] = value.id
+        result["variable"] = dict(name=value.name, dtype=str(value.dtype), shape=list(value.shape),
+                                  derived=not value.__dict__.get("_read_only"))
     if type(value) is runtime.Source:
         result["fields"] = [dict(name="variables", value=str(len(runtime.WORKSPACE.sources[value._alias])))]
         return result

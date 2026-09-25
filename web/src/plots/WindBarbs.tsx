@@ -1,4 +1,4 @@
-import { PLOT_STYLE } from "./plotStyle";
+import { PLOT_STYLE, dataStroke } from "./plotStyle";
 import { useId, useMemo } from "react";
 import { windDescription, type WindSamples } from "../data/wind";
 import { formatTimestamp, timeInZone, type DisplayTimeZone } from "../data/time";
@@ -49,7 +49,7 @@ export function WindBarbs({ wind, geometry, knots, timeZone, onTrack }: {
       onKeyDown={event => { if (event.key === "Escape") onTrack?.(); }}
       onFocus={() => onTrack?.(x)} onBlur={() => onTrack?.()}>
       <rect x={-20} y={-20} width={40} height={40} fill="transparent" />
-      <path d={barbPath(glyph, 0, 0)} fill={glyph.calm ? "none" : WIND_COLOUR} stroke={WIND_COLOUR} strokeWidth={PLOT_STYLE.wind.barbWidth} />
+      <path d={barbPath(glyph, 0, 0)} fill={glyph.calm ? "none" : WIND_COLOUR} stroke={WIND_COLOUR} style={{ strokeWidth: dataStroke(PLOT_STYLE.wind.barbWidth) }} />
     </g>)}
   </g>;
 }

@@ -9,7 +9,7 @@ import { finiteRange, formatNumber } from "./color";
 import { registerPlotCapture } from "./capture";
 import type { FieldProps } from "./SpatialField";
 import { useFieldInteraction } from "./useFieldInteraction";
-import { fieldMargin, plotType } from "./plotgeom";
+import { fieldArea, plotType } from "./plotgeom";
 import { PERFORMANCE_MEASURE, measurePerformance } from "../data/performance";
 import { Colorbar, PlotAxes, FieldMarks, type PlotBounds } from "./plot";
 import { CoastlineOverlay } from "./CoastlineOverlay";
@@ -97,14 +97,9 @@ export function MeshFieldView(props: MeshFieldViewProps) {
     }
   }, [props.onStatus]);
   const type = plotType(frame.current);
-  const exportingFrame = Boolean(frame.current?.closest(".steering-frame[data-export]"));
-  const margin = fieldMargin(type, exportingFrame ? 0 : reserve?.bottom, exportingFrame || props.compact);
-  const availablePlot: PlotBounds = {
-    left: margin.left,
-    top: margin.top,
-    width: Math.max(1, size.width - margin.left - margin.right),
-    height: Math.max(1, size.height - margin.top - margin.bottom),
-  };
+  const exportingFrame = Boolean(frame.current?.closest("[data-export]"));
+  const availablePlot: PlotBounds = fieldArea(size, type, exportingFrame ? undefined : reserve,
+    exportingFrame || props.compact, geometry?.bounds);
 
   const hint = props.variable.view_hint;
   if (hint.kind !== "curvilinear" && hint.kind !== "ugrid2d") {
@@ -375,7 +370,7 @@ export function MeshFieldView(props: MeshFieldViewProps) {
   }
 
   return (
-    <div className="plot-frame mesh-frame" ref={frame}>
+    <div className="plot-frame mesh-frame" ref={frame} data-slack={Math.max(0, availablePlot.height - plot.height)}>
       <canvas
         ref={attachCanvas}
         className="mesh-canvas"
@@ -405,6 +400,7 @@ export function MeshFieldView(props: MeshFieldViewProps) {
           xLabel={axis.x}
           yLabel={axis.y}
           boxed
+          grid="both"
         />
         <Colorbar
           type={type}

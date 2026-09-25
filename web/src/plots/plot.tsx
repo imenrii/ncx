@@ -59,8 +59,8 @@ export function PlotAxes({
   yLabel: string;
   /** Kept for callers; the frame closes on all four sides either way now. */
   boxed?: boolean;
-  /** Faint y-only gridlines, for reading a value off a curve. */
-  grid?: boolean;
+  /** Faint y-only gridlines, for reading a value off a curve; "both" adds x lines for a map graticule. */
+  grid?: boolean | "both";
   /** Live plot type sizes; furniture offsets are derived from them. */
   type?: PlotType;
 }) {
@@ -87,6 +87,16 @@ export function PlotAxes({
           x2={right}
           y1={plot.top + yAt(value)}
           y2={plot.top + yAt(value)}
+        />
+      ))}
+      {grid === "both" && x.major.map((value) => (
+        <line
+          key={`xgrid-${value}`}
+          className="gridline"
+          x1={plot.left + xAt(value)}
+          x2={plot.left + xAt(value)}
+          y1={plot.top}
+          y2={bottom}
         />
       ))}
       {/* design.md: the frame closes on all four sides and every side carries
@@ -231,8 +241,8 @@ export function Colorbar({
       })}
       <text
         className="axis-label"
-        transform={`translate(${right + bar.captionX} ${plot.top + plot.height / 2}) rotate(-90)`}
-        textAnchor="middle"
+        transform={`translate(${right + bar.captionX} ${plot.top + plot.height / 2}) rotate(90)`}
+        textAnchor="middle" dy="0.72em"
       >
         {label}
       </text>

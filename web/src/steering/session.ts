@@ -414,17 +414,21 @@ export class SteeringSession {
     }
     return view;
   }
-  async submit() {
+  /** Show a workspace name in the main panel as an ordinary, logged command. */
+  show(name: string) {
+    if (/^[A-Za-z_]\w*$/.test(name)) void this.submit(`panels[0].show(${name})`);
+  }
+  async submit(code = this.input) {
     if (this.state === "closed" || this.state === "failed") { await this.open(); return; }
-    if (this.state !== "ready" || !this.input.trim()) return;
+    if (this.state !== "ready" || !code.trim()) return;
     this.completionRequest?.resolve(); this.completionRequest = undefined;
     this.configureWorker();
     const id = ++this.run;
-    this.active = { id, epoch: this.epoch, selection: JSON.stringify(this.selection), revisions: this.revision, code: this.input };
+    this.active = { id, epoch: this.epoch, selection: JSON.stringify(this.selection), revisions: this.revision, code };
     this.abort = new AbortController();
     this.state = "busy";
     this.timer = setTimeout(() => { this.stop(); this.append("error", "Execution exceeded the time limit.\n"); }, LIMITS.runMs);
-    this.worker!.postMessage({ type: "submit", run: id, code: this.input });
+    this.worker!.postMessage({ type: "submit", run: id, code });
     this.notify();
   }
   private fail(message: string) {

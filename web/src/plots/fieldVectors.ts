@@ -6,8 +6,19 @@ import type { Bounds } from "./mesh.ts";
 import type { ContourBox } from "./pressureContours.ts";
 
 interface Plot { left: number; top: number; width: number; height: number }
-export interface VectorMark { path: string; box: ContourBox; calm?: boolean; tail?: Point; head?: Point }
+/** `ink` samples the drawn strokes, so a label can keep off the glyph itself rather than its box. */
+export interface VectorMark { path: string; box: ContourBox; ink: Point[]; calm?: boolean; tail?: Point; head?: Point }
 interface Point { x: number; y: number }
+
+/** Points every few px along each stroke. */
+function sample(strokes: Point[][], step = 3): Point[] {
+  const points: Point[] = [];
+  for (const stroke of strokes) for (let i = 1; i < stroke.length; i += 1) {
+    const a = stroke[i - 1], b = stroke[i], count = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / step));
+    for (let k = i === 1 ? 0 : 1; k <= count; k += 1) points.push({ x: a.x + (b.x - a.x) * k / count, y: a.y + (b.y - a.y) * k / count });
+  }
+  return points;
+}
 
 /** Liang-Barsky: does the drawn shaft itself enter the box? A bounding box
     around a diagonal arrow claims about twice the area its ink occupies. */
@@ -27,8 +38,9 @@ function shaftEnters(tail: Point, head: Point, box: ContourBox, clearance: numbe
 /** Target distance between neighbouring glyphs, px. Sources that arrive already
     thinned in grid-index space use it to choose their index stride. */
 export function latticeSpacing(plot: Plot): number {
-  return Math.min(PLOT_STYLE.wind.maxSpacing, Math.max(PLOT_STYLE.wind.minSpacing,
-    Math.min(plot.width, plot.height) / PLOT_STYLE.wind.cells));
+  const wind = PLOT_STYLE.wind;
+  return Math.min(wind.maxSpacing * wind.barbLength, Math.max(wind.minSpacing * wind.barbLength,
+    Math.sqrt(plot.width * plot.height / wind.areaCells)));
 }
 
 /** A fixed decimation of a regular source grid: draw every nth grid point. The
@@ -87,7 +99,10 @@ export function fieldVectorMarks(vectors: FieldVector[], bounds: Bounds, plot: P
       if (!glyph.calm && !direction) continue;
       const angle = direction ? Math.atan2(direction.x, -direction.y) * 180 / Math.PI + 180 : 0;
       const radius = glyph.extent + PLOT_STYLE.wind.halo / 2;
-      marks.push({ path: barbPath(glyph, x, y, angle), calm: glyph.calm,
+      const radians = angle * Math.PI / 180, cos = Math.cos(radians), sin = Math.sin(radians);
+      const ink = glyph.calm ? [{ x, y }] : sample(glyph.strokes.map(stroke =>
+        [...stroke.points, ...(stroke.close ? [stroke.points[0]] : [])].map(([px, py]) => ({ x: x + px * cos - py * sin, y: y + px * sin + py * cos }))));
+      marks.push({ path: barbPath(glyph, x, y, angle), calm: glyph.calm, ink,
         box: { left: x - radius, right: x + radius, top: y - radius, bottom: y + radius } });
       continue;
     }
@@ -105,7 +120,10 @@ export function fieldVectorMarks(vectors: FieldVector[], bounds: Bounds, plot: P
       `m${(-dx * back - dy * side).toFixed(2)} ${(-dy * back + dx * side).toFixed(2)}L${headX.toFixed(2)} ${headY.toFixed(2)}` +
       `l${(-dx * back + dy * side).toFixed(2)} ${(-dy * back - dx * side).toFixed(2)}`;
     const pad = PLOT_STYLE.wind.headLength * PLOT_STYLE.wind.headSpread + PLOT_STYLE.wind.halo / 2;
-    marks.push({ path, tail: { x: tailX, y: tailY }, head: { x: headX, y: headY },
+    const left = { x: headX - dx * back - dy * side, y: headY - dy * back + dx * side };
+    const right = { x: headX - dx * back + dy * side, y: headY - dy * back - dx * side };
+    marks.push({ path, ink: sample([[{ x: tailX, y: tailY }, { x: headX, y: headY }], [left, { x: headX, y: headY }, right]]),
+      tail: { x: tailX, y: tailY }, head: { x: headX, y: headY },
       box: { left: Math.min(tailX, headX) - pad, right: Math.max(tailX, headX) + pad,
         top: Math.min(tailY, headY) - pad, bottom: Math.max(tailY, headY) + pad } });
   }

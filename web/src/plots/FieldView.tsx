@@ -26,7 +26,7 @@ import { fieldRequest, type DisplayDimensions } from "../data/selection";
 import type { FieldProps } from "./SpatialField";
 import { useFieldInteraction } from "./useFieldInteraction";
 import { useElementSize } from "./useElementSize";
-import { fieldMargin, plotType } from "./plotgeom";
+import { fieldArea, plotType } from "./plotgeom";
 import { PERFORMANCE_MEASURE, measurePerformance } from "../data/performance";
 import { type RectilinearAxis } from "./rectilinear";
 import { CoastlineOverlay } from "./CoastlineOverlay";
@@ -85,14 +85,11 @@ export function FieldView(props: FieldViewProps) {
     }
   };
   const type = plotType(frame.current);
-  const exportingFrame = Boolean(frame.current?.closest(".steering-frame[data-export]"));
-  const margin = fieldMargin(type, exportingFrame ? 0 : reserve?.bottom, exportingFrame || props.compact);
-  const availablePlot = {
-    left: margin.left,
-    top: margin.top,
-    width: Math.max(1, frameSize.width - margin.left - margin.right),
-    height: Math.max(1, frameSize.height - margin.top - margin.bottom),
-  };
+  const exportingFrame = Boolean(frame.current?.closest("[data-export]"));
+  // The domain of the last slice: the fitted plot decides whether the legend is in its way.
+  const [domain, setDomain] = useState<ViewBounds>();
+  const availablePlot = fieldArea(frameSize, type, exportingFrame ? undefined : reserve,
+    exportingFrame || props.compact, domain);
   const request = useMemo(
     () => {
       const ratio = props.settled ? Math.min(2, window.devicePixelRatio || 1) : 1;
@@ -184,14 +181,12 @@ export function FieldView(props: FieldViewProps) {
     props.controlledWorldView?.minimumY,
     props.controlledWorldView?.maximumY,
   ]);
-  const plot = layout
-    ? fitPlotToBounds(availablePlot, {
-        minimumX: layout.xDomain[0],
-        maximumX: layout.xDomain[1],
-        minimumY: layout.yDomain[0],
-        maximumY: layout.yDomain[1],
-      })
-    : availablePlot;
+  const [x0, x1] = layout?.xDomain ?? [];
+  const [y0, y1] = layout?.yDomain ?? [];
+  useEffect(() => {
+    setDomain(x0 === undefined ? undefined : { minimumX: x0, maximumX: x1!, minimumY: y0!, maximumY: y1! });
+  }, [x0, x1, y0, y1]);
+  const plot = layout && domain ? fitPlotToBounds(availablePlot, domain) : availablePlot;
   const automaticRange = useMemo(
     () => slice?.values instanceof Float32Array
       ? finiteRange(slice.values, props.colormap)
@@ -364,7 +359,7 @@ export function FieldView(props: FieldViewProps) {
   });
 
   return (
-    <div className="plot-frame field-frame" ref={frame}>
+    <div className="plot-frame field-frame" ref={frame} data-slack={Math.max(0, availablePlot.height - plot.height)}>
       {props.variable.dimensions.length === 0 ? (
         <div className="scalar-value" aria-label={`${props.variable.name} scalar value`}>
           <strong>{slice ? formatNumber(displayValue(Number(slice.values[0]), props.variable, props.targetUnit)) : "—"}</strong>
@@ -399,6 +394,7 @@ export function FieldView(props: FieldViewProps) {
               xLabel={xLabel}
               yLabel={yLabel}
               boxed
+              grid="both"
             />
             <Colorbar
               type={type}

@@ -1,4 +1,4 @@
-import { PLOT_STYLE } from "./plotStyle";
+import { PLOT_STYLE, dataStroke } from "./plotStyle";
 import { useEffect, useId, useMemo, useRef, type PointerEvent } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
@@ -224,13 +224,13 @@ function CurveDrawing({ geometries, clip, dimension, valueLabel, time, step,
     {geometries.map(({ item, geometry: line }) => line && <path
       key={item.id} data-series={item.id} data-sampling={line.sampling}
       className={`curve-line ${item.primary ? "total" : "comparison-line"}`}
-      clipPath={`url(#${clip})`} style={{ stroke: item.color, strokeDasharray: item.dash, strokeWidth: item.width }} d={line.path} />)}
+      clipPath={`url(#${clip})`} style={{ stroke: item.color, strokeDasharray: item.dash, strokeWidth: item.width === undefined ? undefined : dataStroke(item.width) }} d={line.path} />)}
     {legend && legend.items.length > 0 && <g className="export-series-legend"
       transform={`translate(${plot.left} ${plot.top})`}
       style={{ fontFamily: "var(--plot-face)", fontSize: "var(--plot-axis-size)", fill: "var(--ink)", fontWeight: PLOT_STYLE.weight.normal }}>
       {legend.items.map(({ entry, lines, x, y }, index) => <g key={index}>
         <line x1={x} x2={x + legend.handle} y1={y + legend.em * 0.5} y2={y + legend.em * 0.5}
-          style={{ stroke: entry.color, strokeDasharray: entry.dash, strokeWidth: entry.width ?? "var(--stroke-data)" }} />
+          style={{ stroke: entry.color, strokeDasharray: entry.dash, strokeWidth: entry.width === undefined ? "var(--stroke-data)" : dataStroke(entry.width) }} />
         {lines.map((line, row) => <text key={row} x={x + legend.handle + legend.textPad}
           y={y + legend.em * (0.8 + row * 1.35)}>{line}</text>)}
       </g>)}

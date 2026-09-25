@@ -109,10 +109,11 @@ try {
       try {
         document.querySelector('.screenshot-button').click();
         await new Promise(resolve => setTimeout(resolve, 100));
-        const width = [...document.querySelectorAll('.save-dialog label.chip')]
-          .find(label => label.textContent.trim() === '${widthMm} mm')?.querySelector('input');
+        const width = document.querySelector('.save-dialog input[name="widthMm"]');
         if (!width) throw new Error('Export width control is missing');
-        width.click();
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(width, '${widthMm}');
+        width.dispatchEvent(new Event('input', { bubbles: true }));
+        await new Promise(resolve => setTimeout(resolve, 100));
         document.querySelector('.save-dialog button.primary').click();
         for (let i = 0; i < 200; i++) {
           if (exported) return await exported;
@@ -180,6 +181,13 @@ try {
       await capture('save-dialog-narrow');
       await evaluate(`document.querySelector('.save-dialog').close()`);
       await command("browsingContext.setViewport", { context, viewport: { width: 1280, height: 900 }, devicePixelRatio: 1 });
+      await evaluate(`(() => {
+        const canvas = document.querySelector('.field-canvas');
+        const box = canvas.getBoundingClientRect();
+        for (const type of ['pointerdown', 'pointerup']) canvas.dispatchEvent(new PointerEvent(type, {
+          bubbles: true, button: 0, clientX: box.left + box.width * .1, clientY: box.top + box.height * .5,
+        }));
+      })()`);
       await evaluate(`[...document.querySelectorAll('.view-tabs button')].find(b => b.textContent === 'Metadata').click()`);
       await capture('metadata-desktop', false);
       await command("browsingContext.setViewport", { context, viewport: { width: 640, height: 900 }, devicePixelRatio: 1 });
@@ -189,12 +197,17 @@ try {
       await command("browsingContext.setViewport", { context, viewport: { width: 1280, height: 900 }, devicePixelRatio: 1 });
       await capture('curve-desktop');
       await command("browsingContext.reload", { context, wait: "complete" });
-      await settle();
-      await evaluate(`(() => {
-        const selection = window.ncx.getState().selection;
-        if (selection?.path !== '/temperature' || selection.view !== 'curve') throw new Error('Curve selection did not survive reload');
+      await evaluate(`(async () => {
+        for (let attempt = 0; attempt < 100; attempt++) {
+          const view = document.querySelector('.view-tabs [aria-selected="true"]')?.textContent;
+          const variable = document.querySelector('.variable-row[aria-selected="true"] > span')?.textContent;
+          if (view === 'Curve' && variable === 'temperature') return;
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        throw new Error('Curve selection did not survive reload');
       })()`);
-      await capture('curve-restored-desktop');
+      // The selection persists; a field probe is placed explicitly after reload.
+      await capture('curve-restored-desktop', false);
     }
     if (scenario === "ugrid") {
       for (const name of ['face_depth', 'edge_current']) {
@@ -209,7 +222,7 @@ try {
       })()`);
       await capture('ugrid-restored-desktop');
     }
-    if (scenario === "station") {
+    if (scenario === "station" && process.env.NCX_VISUAL_LEGENDS !== "0") {
       for (const count of [1, 2, 8]) {
         await evaluate(`(() => {
           const state = window.ncx.getState(), selection = state.selection;

@@ -1,0 +1,4 @@
+[env]
+# NetCDF writer descriptors are inheritable on supported HDF5 builds. Parallel
+# process tests can retain their exclusive locks after a fixture writer closes.
+RUST_TEST_THREADS = "1"

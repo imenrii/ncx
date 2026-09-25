@@ -642,13 +642,17 @@ button:disabled {
   font-size: var(--size-micro);
 }
 
+/* The library tickbox: Commit Mono in the control profile, quiet beside the filter. */
 .variable-filter label {
   display: flex;
   margin-top: 8px;
   color: var(--ink-medium);
-  font-family: var(--ui-face);
+  font-family: var(--mono);
+  font-feature-settings: var(--mono-features);
   font-size: var(--size-micro);
-  letter-spacing: var(--track-small);
+  letter-spacing: normal;
+  word-spacing: normal;
+  white-space: nowrap;
 }
 
 .tree {
@@ -843,7 +847,12 @@ button:disabled {
   width: 100%;
 }
 
-/* Readouts carry six significant digits; the library's 6ch fits four. */
+/* Taller in the sidebar; the grid baseline carries the extremes with it. */
+.display-body .rh-curve {
+  height: 30px;
+}
+
+/* Leave room for a sign and exponent as well as four significant figures. */
 .display-body .rh-num,
 .display-body .rh-ext {
   width: 7.5ch;
@@ -1151,9 +1160,11 @@ button:disabled {
 }
 .steering-frame[data-export] .steering-pane-actions,
 .steering-frame[data-export] .steering-selection { display: none; }
-.steering-frame[data-export] .corner-stack { display: none; }
+[data-export] .corner-stack { display: none; }
 .steering-frame[data-export] .steering-field > .plot-frame { min-height: 0; }
-.steering-frame[data-export] .single-curve > .plot-frame { flex: 1 1 0; min-height: 0; }
+[data-export] .single-curve > .plot-frame,
+[data-export] .linked-curves > .plot-frame { flex: 1 1 0; min-height: 0; }
+[data-export] .linked-curves { overflow: visible; }
 .steering-frame[data-export] .steering-field { grid-template-rows: auto minmax(0, 1fr); }
 .steering-pane:has(.steering-pane-actions) > .figure > .figure-head,
 .steering-pane:has(.steering-pane-actions) .curve-head { padding-right: 9rem; }
@@ -1410,8 +1421,8 @@ input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
    as one tangle; the coast is the ground, the pressure field is the subject. */
 .coastline-overlay path {
   fill: none;
-  stroke: var(--ink);
-  stroke-width: var(--stroke-grid);
+  stroke: var(--ink-quiet);
+  stroke-width: var(--stroke-coast);
   stroke-linejoin: round;
   opacity: 1;
 }
@@ -1603,6 +1614,14 @@ input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
 /* Furniture never reaches data weight: gridlines are a reading aid, not a
    feature, so they sit at the bottom of the stroke ladder while the curve is
    drawn at --stroke-data. */
+.plot-axis line { stroke-width: var(--stroke-tick); }
+
+/* A map graticule is an export option; the live map never draws it. */
+.field-frame .gridline,
+.mesh-frame .gridline { display: none; }
+[data-export-grid] .field-frame .gridline,
+[data-export-grid] .mesh-frame .gridline { display: inline; }
+
 .plot-axis .gridline {
   stroke: var(--ink-weak);
   stroke-width: var(--stroke-grid);
@@ -1636,7 +1655,7 @@ input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
 .colorbar-axis line {
   vector-effect: non-scaling-stroke;
   stroke: var(--ink);
-  stroke-width: var(--stroke-spine);
+  stroke-width: var(--stroke-tick);
 }
 
 .colorbar-axis .colorbar-frame {
@@ -1654,7 +1673,9 @@ input[aria-invalid="true"] { outline: 2px solid var(--error-ink); }
 
 /* Size comes from the element: one number drives the glyphs and the break in
    the line they sit in. */
-.pressure-contour-label {
+/* The knockout is the label's own outline in the contour mask: same face and size. */
+.pressure-contour-label,
+.pressure-contour-knockout {
   font-family: var(--plot-face);
   font-weight: var(--plot-weight-normal);
 }
@@ -2274,7 +2295,7 @@ i .value {
    ----------------------------------------------------------------------- */
 .save-dialog {
   --label: 5.5rem;
-  width: min(60rem, calc(100vw - 32px));
+  width: min(68rem, calc(100vw - 32px));
   max-height: calc(100dvh - 32px);
   padding: 0;
   overflow: auto;
@@ -2316,7 +2337,8 @@ i .value {
 
 .save-body {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  align-items: start;
 }
 
 /* Rulers on two edges of the sheet: width above, height to the left. */
@@ -2400,9 +2422,25 @@ i .value {
   background: var(--dither), var(--paper);
 }
 
-.save-size {
+.save-foot {
   grid-column: 2;
   grid-row: 3;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.save-foot .btn svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.25;
+}
+
+.save-size {
+  flex: 1;
+  margin: 0;
   font-family: var(--mono);
   font-size: var(--size-tick);
 }
@@ -2423,60 +2461,83 @@ i .value {
   padding: 16px 20px;
 }
 
-.save-form > .key-label,
-.save-lettering-fields > .key-label {
+.save-form > .key-label {
   justify-self: end;
   font-feature-settings: normal;
 }
 
-.save-lettering {
+/* The form scrolls under a fixed preview; groups are the plot's own items. */
+.save-form {
+  max-height: min(640px, calc(100dvh - 160px));
+  overflow: auto;
+}
+
+.save-preset {
   grid-column: 1 / -1;
-}
-
-.save-lettering > summary {
   display: grid;
-  grid-template-columns: var(--label) minmax(0, 1fr);
-  gap: 12px;
-  align-items: baseline;
-  min-height: var(--hit);
-  cursor: pointer;
-  list-style: none;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  gap: 8px;
+  align-items: center;
+  margin: -16px -20px 0;
+  padding: 12px 20px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--stock-edge);
 }
 
-.save-lettering > summary::-webkit-details-marker {
-  display: none;
+.save-preset .state { justify-self: start; }
+.save-preset select { width: 100%; max-width: none; }
+
+.save-group {
+  grid-column: 1 / -1;
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--stock-edge);
+  font-family: var(--label-face);
+  font-size: var(--size-micro);
+  font-weight: 400;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-medium);
 }
 
-.save-lettering > summary .key-label {
-  justify-self: end;
+.save-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
 }
 
-/* A drawn caret on the value side: it turns when the fields open. */
-.save-lettering > summary .val::before {
-  content: "";
-  display: inline-block;
-  margin-right: 8px;
-  vertical-align: 0.05em;
-  border-top: 3.5px solid transparent;
-  border-bottom: 3.5px solid transparent;
-  border-left: 5px solid currentColor;
-}
+.save-form select.save-unit,
+.save-form select.save-ratio { width: auto; justify-self: start; }
+.save-form > .seg { justify-self: start; }
+.save-form > .save-file { grid-column: 1 / -1; }
+.save-preset + .save-group { margin-top: 0; padding-top: 0; border-top: 0; }
 
-.save-lettering[open] > summary .val::before {
-  transform: rotate(90deg);
-}
-
-.save-lettering > summary .val {
+.save-hint {
+  grid-column: 2;
+  margin: -4px 0 0;
   color: var(--ink-quiet);
   font-size: var(--size-micro);
 }
 
-.save-lettering-fields {
-  display: grid;
-  grid-template-columns: var(--label) minmax(0, 1fr);
-  gap: 10px 12px;
-  align-items: center;
-  margin-top: 6px;
+.save-sheet { position: relative; }
+
+.save-sheet[data-ground="transparent"] {
+  background: repeating-conic-gradient(var(--ink-faint) 0 25%, var(--paper) 0 50%) 0 0 / 12px 12px;
+}
+
+/* On the preview only; the saved file carries no mark. */
+.save-watermark {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  color: rgb(16 20 24 / 62%);
+  font-family: var(--label-face);
+  font-size: var(--size-tick);
+  letter-spacing: var(--track-caps);
+  text-shadow: 0 0 2px var(--paper), 0 0 4px var(--paper);
+  pointer-events: none;
+  user-select: none;
 }
 
 .save-form .field {
@@ -2500,14 +2561,6 @@ i .value {
   font-size: var(--size-tick);
 }
 
-.save-dialog .dialog-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 12px 20px;
-  border-top: 1px solid var(--stock-edge);
-}
-
 .save-dialog .export-error {
   margin: 0 20px 8px;
   padding: 8px;
@@ -2526,6 +2579,7 @@ i .value {
 @media (max-width: 760px) {
   .save-body { grid-template-columns: minmax(0, 1fr); }
   .save-preview { border-right: 0; border-bottom: 1px solid var(--stock-edge); }
+  .save-form { max-height: none; }
 }
 
 .hub-active {
@@ -2743,6 +2797,16 @@ i .value {
 }
 
 .settings-dialog { width: 520px; }
+.settings-dialog form { gap: 4px; padding: 16px 20px 0; }
+.settings-dialog .row-label,
+.settings-dialog form > label {
+  margin-top: 8px;
+  font-family: var(--label-face);
+  font-feature-settings: normal;
+  font-size: var(--size-tick);
+}
+.settings-dialog h2 { margin: 0 0 8px; }
+.settings-dialog .dialog-actions { margin: 12px -20px 0; }
 .settings-dialog form > select { max-width: none; }
 .settings-dialog .chip.custom {
   width: 88px;
@@ -3082,6 +3146,7 @@ i .value {
 .steering-log {
   overflow: auto;
   padding: 4px 0;
+  line-height: 1.3;
 }
 
 .steering-entry {

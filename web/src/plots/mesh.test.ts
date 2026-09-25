@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { buildCurvilinearGeometry, buildUgridGeometry, edgesToFaces, findMeshHit } from "./mesh.ts";
 import { meshPixelTriangles, paintMeshPixels } from "./meshRaster.ts";
+import { prepareMesh } from "./meshBuild.ts";
 import { colorForValue } from "./color.ts";
 
 test("indexed grids preserve probes and flat raster colours across frames, masks, and clipping", () => {
@@ -97,4 +98,35 @@ test("keeps hover probing available above one hundred thousand triangles", () =>
   const geometry = buildCurvilinearGeometry(x, y, side, side, side, side, 1, 1);
   assert.ok(geometry.triangleSources.length > 100_000);
   assert.ok(findMeshHit(geometry, 114.25, 114.25));
+});
+
+test("compact preparation preserves every geometry array and reuses immutable topology", async () => {
+  const rows = 15, columns = 21;
+  const x = Float64Array.from({ length: rows * columns }, (_, i) => 1e6 + i % columns + Math.floor(i / columns) * .01);
+  const y = Float64Array.from(x, (_, i) => 2e6 + Math.floor(i / columns) + Math.sin(i % columns) * .01);
+  x[3 * columns + 4] = NaN;
+  for (const [sampledRows, sampledColumns, rowStride, columnStride] of [[5, 6, 3, 4], [6, 7, 3, 4], [15, 21, 1, 1]]) {
+    const args = [x, y, rows, columns, sampledRows, sampledColumns, rowStride, columnStride] as const;
+    const expected = buildCurvilinearGeometry(...args);
+    const actual = await prepareMesh({ kind: "curvilinear", args: [...args] });
+    assert.deepEqual(actual, expected);
+    assert.equal(await prepareMesh({ kind: "curvilinear", args: [...args] }), actual);
+    assert.equal(x.byteLength, rows * columns * 8);
+    assert.deepEqual(findMeshHit(actual, 1000008.1, 2000005.9), findMeshHit(expected, 1000008.1, 2000005.9));
+  }
+});
+
+test("completed topology cache evicts old geometry within its 64 MiB budget", async () => {
+  const side = 320;
+  const x = Float64Array.from({ length: side * side }, (_, i) => i % side);
+  const y = Float64Array.from(x, (_, i) => Math.floor(i / side));
+  const job = { kind: "curvilinear" as const, args: [x, y, side, side, side, side, 1, 1] as Parameters<typeof buildCurvilinearGeometry> };
+  const first = await prepareMesh(job);
+  const bytes = [first.positions, first.indices, first.scalarIndices, first.coordinateIndices,
+    first.triangleSources, first.hitIndex.offsets, first.hitIndex.triangles]
+    .reduce((sum, array) => sum + (array?.byteLength ?? 0), 0);
+  for (let i = 1; i <= Math.ceil(64 * 1024 * 1024 / bytes); i++) {
+    await prepareMesh({ ...job, args: [x.map(value => value + i * 1000), y, side, side, side, side, 1, 1] });
+  }
+  assert.notEqual(await prepareMesh(job), first);
 });

@@ -1,11 +1,13 @@
 import { useMemo, useState, type ReactNode } from "react";
 
 import type { DatasetSummary, Metadata } from "../data/model";
+import type { OutlineName } from "../steering/model";
 import { supportingVariablePaths, variableLabel } from "../data/model";
 import { Swatch, type StripSource } from "./SourceStrip";
 
 export function DatasetBrowser({
   footer,
+  workspace,
   metadata,
   selectedPath,
   search,
@@ -18,6 +20,7 @@ export function DatasetBrowser({
   onSearch: (value: string) => void;
   onSelect: (path: string) => void;
   footer?: ReactNode;
+  workspace?: ReactNode;
 }) {
   const [showSupporting, setShowSupporting] = useState(false);
   const query = search.trim().toLowerCase();
@@ -41,11 +44,12 @@ export function DatasetBrowser({
               onChange={(event) => setShowSupporting(event.target.checked)}
             />
             <span className="tick-box" />
-            Show coordinates and mesh geometry ({supportingPaths.size})
+            Show Mesh/Coordinates ({supportingPaths.size})
           </label>
         )}
       </div>
       <div className="tree">
+        {workspace}
         <VariableGroups
           metadata={metadata}
           supportingPaths={supportingPaths}
@@ -67,6 +71,7 @@ export function DatasetBrowser({
  * file makes it primary.
  */
 export function CollectionBrowser({
+  workspace,
   datasets,
   metadata,
   selectedDataset,
@@ -84,6 +89,7 @@ export function CollectionBrowser({
   search: string;
   plotted: readonly StripSource[];
   footer?: ReactNode;
+  workspace?: ReactNode;
   onSearch: (value: string) => void;
   onSelect: (dataset: string, path: string) => void;
 }) {
@@ -107,11 +113,12 @@ export function CollectionBrowser({
           <label className="tick-label">
             <input type="checkbox" checked={showSupporting} onChange={(event) => setShowSupporting(event.target.checked)} />
             <span className="tick-box" />
-            Show coordinates and mesh geometry ({supportingPaths.size})
+            Show Mesh/Coordinates ({supportingPaths.size})
           </label>
         )}
       </div>
       <div className="tree files" role="list" aria-label="Files">
+        {workspace}
         <div className="files-head">
           <span className="key-label">Files</span>
           <span className="val">{datasets.length}{plottedCount > 1 ? ` · ${plottedCount} plotted` : ""}</span>
@@ -152,6 +159,30 @@ export function CollectionBrowser({
       </div>
       {footer}
     </aside>
+  );
+}
+
+/** Derived Variables bound to workspace names; source lookups already appear under their file. */
+export function WorkspaceGroup({ names, search, selectedId, onSelect }: {
+  names: readonly OutlineName[];
+  search: string;
+  selectedId?: string;
+  onSelect: (name: string) => void;
+}) {
+  const query = search.trim().toLowerCase();
+  const rows = names.filter(item => item.variable?.derived && (!query || item.name.toLowerCase().includes(query)));
+  if (!rows.length) return null;
+  return (
+    <details className="variable-group" open>
+      <summary>[Workspace]</summary>
+      {rows.map(({ name, objectId, variable }) => (
+        <button key={name} className="row-item variable-row" aria-selected={objectId === selectedId}
+          title={`${variable!.name} · shown with panels[0].show(${name})`} onClick={() => onSelect(name)}>
+          <span>{name}</span>
+          <small>{variable!.dtype} · {variable!.shape.join("×") || "scalar"}</small>
+        </button>
+      ))}
+    </details>
   );
 }
 

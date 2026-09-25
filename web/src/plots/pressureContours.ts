@@ -189,16 +189,44 @@ export function smoothVisibleContours(contours: PressureContour[], plot: Contour
   });
 }
 
-/** Mean isobar gap on screen, from the drawn length over the plot area. Halving
-    the number of levels doubles the gap, so the interval steps in powers of two. */
+/** The typical gap between neighbouring isobars on screen: the median of each
+    sample's distance to the nearest other level. A crowded
+    high must leave room for its labels even when the rest of the pane is
+    empty. Halving the number of levels doubles the gap, so the interval steps
+    in powers of two. */
 export function contourInterval(contours: PressureContour[], plot: ContourPlot, interval = PRESSURE_INTERVAL): number {
-  let length = 0;
+  const step = 6, reach = MIN_CONTOUR_GAP * 8, cell = 32;
+  const samples: { x: number; y: number; level: number }[] = [];
   for (const contour of visibleContours(contours, plot)) {
+    let carried = 0;
     for (let i = 1; i < contour.points.length; i += 1) {
-      length += Math.hypot(contour.points[i].x - contour.points[i - 1].x, contour.points[i].y - contour.points[i - 1].y);
+      const a = contour.points[i - 1], b = contour.points[i], length = Math.hypot(b.x - a.x, b.y - a.y);
+      for (let at = step - carried; at <= length; at += step) {
+        samples.push({ x: a.x + (b.x - a.x) * at / length, y: a.y + (b.y - a.y) * at / length, level: contour.level });
+      }
+      carried = (carried + length) % step;
     }
   }
-  const gap = length > 0 ? (plot.width * plot.height) / length : Infinity;
+  const buckets = new Map<string, typeof samples>();
+  for (const sample of samples) {
+    const key = `${Math.floor(sample.x / cell)},${Math.floor(sample.y / cell)}`;
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key)!.push(sample);
+  }
+  const gaps: number[] = [];
+  for (const sample of samples) {
+    let nearest = Infinity;
+    const range = Math.ceil(reach / cell);
+    for (let cx = Math.floor(sample.x / cell) - range; cx <= Math.floor(sample.x / cell) + range; cx += 1) {
+      for (let cy = Math.floor(sample.y / cell) - range; cy <= Math.floor(sample.y / cell) + range; cy += 1) {
+        for (const other of buckets.get(`${cx},${cy}`) ?? []) {
+          if (other.level !== sample.level) nearest = Math.min(nearest, Math.hypot(other.x - sample.x, other.y - sample.y));
+        }
+      }
+    }
+    if (nearest <= reach) gaps.push(nearest);
+  }
+  const gap = gaps.length ? gaps.sort((a, b) => a - b)[Math.floor(gaps.length * 0.5)] : Infinity;
   for (const step of [1, 2, 4, 8]) if (gap * step >= MIN_CONTOUR_GAP) return interval * step;
   return interval * 8;
 }
@@ -224,66 +252,224 @@ export function projectContours(contours: PressureContour[], bounds: Bounds, plo
 const overlaps = (a: ContourBox, b: ContourBox) =>
   a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 
+/** Display smoothing: average each value with its mesh neighbours. A copy for
+    drawing only; extrema and probes still read the source values. */
+export function smoothMesh(mesh: ContourMesh, iterations: number): ContourMesh {
+  if (!(iterations >= 1)) return mesh;
+  const { values, triangles } = mesh;
+  const neighbours = Array.from({ length: values.length }, () => new Set<number>());
+  for (let t = 0; t < triangles.length; t += 3) {
+    for (let e = 0; e < 3; e += 1) {
+      const a = triangles[t + e], b = triangles[t + (e + 1) % 3];
+      if (a < values.length && b < values.length) { neighbours[a].add(b); neighbours[b].add(a); }
+    }
+  }
+  let current = Float64Array.from(values);
+  for (let pass = 0; pass < iterations; pass += 1) {
+    const next = new Float64Array(current.length);
+    for (let i = 0; i < current.length; i += 1) {
+      if (!Number.isFinite(current[i])) { next[i] = current[i]; continue; }
+      let sum = 0, count = 0;
+      for (const j of neighbours[i]) if (Number.isFinite(current[j])) { sum += current[j]; count += 1; }
+      next[i] = count ? current[i] / 2 + sum / count / 2 : current[i];
+    }
+    current = next;
+  }
+  return { ...mesh, values: current };
+}
+
+/** Passes that spread a value over about `sigma` screen px. One pass of the
+    half-neighbour average has a variance near a quarter of the squared edge. */
+export function smoothingPasses(mesh: ContourMesh, bounds: Bounds, plot: ContourPlot, sigma: number): number {
+  const sx = plot.width / (bounds.maximumX - bounds.minimumX), sy = plot.height / (bounds.maximumY - bounds.minimumY);
+  const { longitude: x, latitude: y, triangles } = mesh;
+  const lengths: number[] = [];
+  const stride = Math.max(3, Math.floor(triangles.length / 3 / 2000) * 3);
+  for (let t = 0; t + 1 < triangles.length; t += stride) {
+    const a = triangles[t], b = triangles[t + 1];
+    const length = Math.hypot((longitudeNear(x[b], x[a]) - x[a]) * sx, (y[b] - y[a]) * sy);
+    if (Number.isFinite(length) && length > 0) lengths.push(length);
+  }
+  if (!lengths.length || !Number.isFinite(sx + sy)) return 0;
+  const edge = lengths.sort((a, b) => a - b)[Math.floor(lengths.length / 2)];
+  return Math.min(64, Math.round(4 * sigma * sigma / (edge * edge)));
+}
+
+/** The drawn level nearest the standard atmosphere, drawn heavier. */
+export function standardLevel(levels: number[]): number | undefined {
+  const target = PLOT_STYLE.pressure.standardLevel;
+  return levels.reduce<number | undefined>((best, level) =>
+    best === undefined || Math.abs(level - target) < Math.abs(best - target) ? level : best, undefined);
+}
+
+/** Extrema in screen px, for deciding which small loops hold a real centre. */
+export function projectExtrema(extrema: PressureCentre[], bounds: Bounds, plot: ContourPlot): PressureCentre[] {
+  const sx = plot.width / (bounds.maximumX - bounds.minimumX), sy = plot.height / (bounds.maximumY - bounds.minimumY);
+  if (!Number.isFinite(sx + sy)) return [];
+  const centre = (bounds.minimumX + bounds.maximumX) / 2;
+  return extrema.map(item => ({ ...item, x: plot.left + (longitudeNear(item.x, centre) - bounds.minimumX) * sx,
+    y: plot.top + plot.height - (item.y - bounds.minimumY) * sy }));
+}
+
+const lengthOf = (points: ContourPoint[]) => points.slice(1).reduce((sum, p, i) => sum + Math.hypot(p.x - points[i].x, p.y - points[i].y), 0);
+const isClosed = (points: ContourPoint[]) => points.length > 3 && Math.hypot(points[0].x - points.at(-1)!.x, points[0].y - points.at(-1)!.y) < 1e-6;
+/** A loop holds a centre when an extreme inside it lies most of an interval beyond its level. */
+const holdsCentre = (contour: PressureContour, extrema: PressureCentre[], interval: number) =>
+  extrema.some(item => Math.abs(item.value - contour.level) >= interval * 0.8 && encloses(contour, item.x, item.y));
+
+/** Small closed loops and short open ends are noise unless they hold a centre. */
+export function pruneContours(contours: PressureContour[], fontSize: number, extrema: PressureCentre[], interval: number): PressureContour[] {
+  const minimum = PLOT_STYLE.pressure.minLoop * (measurePlotText("1000", fontSize) + 2 * LABEL_PAD);
+  return contours.filter(contour => {
+    if (!isClosed(contour.points)) return lengthOf(contour.points) >= minimum;
+    const xs = contour.points.map(p => p.x), ys = contour.points.map(p => p.y);
+    const size = Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+    return size >= minimum || holdsCentre(contour, extrema, interval);
+  });
+}
+
+/** An unnamed open line is named by its neighbours and stays; an unnamed
+    closed loop reads as a question and goes, unless it holds a centre. */
+export function drawnContours(contours: PressureContour[], labels: { contour: PressureContour }[], extrema: PressureCentre[], interval: number): PressureContour[] {
+  const named = new Set(labels.map(label => label.contour));
+  return contours.filter(contour => named.has(contour) || !isClosed(contour.points) || holdsCentre(contour, extrema, interval));
+}
+
 /** Every level carries its value, repeated along the line. The value sits in a
     break in the line, so the break must stay short or it reads as a gap. */
 type ContourLabel = { contour: PressureContour; text: string; x: number; y: number; angle: number; half: number; box: ContourBox };
+/** A wind glyph as a label sees it: its box for a quick reject, its ink for the real test. */
+export interface LabelGlyph { box: ContourBox; ink: ContourPoint[] }
 
-/** `obstacles` are absolute: no label may sit on one. `yielding` are preferred
-    clear, but a line that cannot find a slot outside them takes its place
-    anyway, because a line without its value is not drawn at all. */
-export function contourLabels(contours: PressureContour[], plot: ContourPlot, fontSize: number, obstacles: ContourBox[], yielding: ContourBox[] = []) {
+/** Distance from a point in label space to the label's rectangle. */
+const rectDistance = (x: number, y: number, half: number, halfHeight: number) =>
+  Math.hypot(Math.max(0, Math.abs(x) - half), Math.max(0, Math.abs(y) - halfHeight));
+
+/** Distance from a label-space segment to the label's rectangle; 0 when it crosses it. */
+function segmentDistance(a: ContourPoint, b: ContourPoint, half: number, halfHeight: number): number {
+  let enter = 0, leave = 1;
+  const dx = b.x - a.x, dy = b.y - a.y;
+  let crosses = true;
+  for (const [delta, from, to] of [[dx, -half - a.x, half - a.x], [dy, -halfHeight - a.y, halfHeight - a.y]] as const) {
+    if (delta === 0) { if (from > 0 || to < 0) crosses = false; continue; }
+    const first = Math.min(from / delta, to / delta), last = Math.max(from / delta, to / delta);
+    enter = Math.max(enter, first); leave = Math.min(leave, last);
+  }
+  if (crosses && enter <= leave) return 0;
+  const toSegment = (x: number, y: number) => {
+    const length = dx * dx + dy * dy, t = length ? Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / length)) : 0;
+    return Math.hypot(a.x + dx * t - x, a.y + dy * t - y);
+  };
+  return Math.min(rectDistance(a.x, a.y, half, halfHeight), rectDistance(b.x, b.y, half, halfHeight),
+    ...[[-half, -halfHeight], [half, -halfHeight], [half, halfHeight], [-half, halfHeight]].map(([x, y]) => toSegment(x, y)));
+}
+
+/** Labels are placed after the wind lattice and never move it. Each candidate
+    along a line is rejected when the line bends under it, when another isobar
+    passes within the clearance (the label would name two lines), when it
+    touches glyph ink, an obstacle, or the frame, or when it crowds another
+    label. The best candidate in each slot wins; a line still unnamed after the
+    first pass tries once more with a smaller spread. */
+export function contourLabels(contours: PressureContour[], plot: ContourPlot, fontSize: number, obstacles: ContourBox[], glyphs: LabelGlyph[] = []) {
+  const style = PLOT_STYLE.pressure;
   const labels: ContourLabel[] = [];
-  const height = fontSize + 2;
+  const height = fontSize + 2, halfHeight = height / 2;
+  const clearance = fontSize * style.labelClearance, inkClearance = PLOT_STYLE.wind.inkClearance;
+  const bend = style.labelBend * Math.PI / 180;
   const lines = visibleContours(contours, plot).map(contour => {
     const lengths = [0];
     for (let i = 1; i < contour.points.length; i += 1) {
       lengths.push(lengths[i - 1] + Math.hypot(contour.points[i].x - contour.points[i - 1].x, contour.points[i].y - contour.points[i - 1].y));
     }
-    return { contour, level: contour.level, points: contour.points, lengths, length: lengths.at(-1)! };
-  }).sort((a, b) => b.length - a.length);
-  for (const line of lines) {
-    const text = String(Number(line.level.toPrecision(12))).replace("-", "−");
-    const half = measurePlotText(text, fontSize) / 2 + LABEL_PAD;
-    if (line.length < half * 3) continue;
-    const at = (distance: number): ContourPoint => {
-      let i = 1;
-      while (i < line.lengths.length - 1 && line.lengths[i] < distance) i += 1;
-      const span = line.lengths[i] - line.lengths[i - 1];
-      const t = span ? (distance - line.lengths[i - 1]) / span : 0;
-      return { x: line.points[i - 1].x + t * (line.points[i].x - line.points[i - 1].x),
-        y: line.points[i - 1].y + t * (line.points[i].y - line.points[i - 1].y) };
-    };
-    const count = Math.max(1, Math.round(line.length / LABEL_SPACING));
-    for (let step = 1; step <= count; step += 1) {
-      const target = line.length * step / (count + 1);
-      const reach = line.length / (count + 1) / 2;
-      // Try nearby positions within this label's slot before omitting its value.
-      const place = (avoid: ContourBox[]): ContourLabel | undefined => {
-        for (let attempt = 0; attempt * 6 <= reach; attempt += 1) {
-          const offset = Math.ceil(attempt / 2) * 12 * (attempt % 2 ? 1 : -1);
-          const distance = target + offset;
-          if (distance < half || distance > line.length - half) continue;
+    return { contour, points: contour.points, lengths, length: lengths.at(-1)! };
+  });
+  // Segments by screen cell, for the one-line-per-label test.
+  const cell = 32, buckets = new Map<string, { a: ContourPoint; b: ContourPoint; line: number }[]>();
+  lines.forEach((line, index) => {
+    for (let i = 1; i < line.points.length; i += 1) {
+      const a = line.points[i - 1], b = line.points[i];
+      for (let cx = Math.floor(Math.min(a.x, b.x) / cell); cx <= Math.floor(Math.max(a.x, b.x) / cell); cx += 1) {
+        for (let cy = Math.floor(Math.min(a.y, b.y) / cell); cy <= Math.floor(Math.max(a.y, b.y) / cell); cy += 1) {
+          const key = `${cx},${cy}`;
+          if (!buckets.has(key)) buckets.set(key, []);
+          buckets.get(key)!.push({ a, b, line: index });
+        }
+      }
+    }
+  });
+  const nearby = (box: ContourBox) => {
+    const found = new Set<{ a: ContourPoint; b: ContourPoint; line: number }>();
+    for (let cx = Math.floor(box.left / cell); cx <= Math.floor(box.right / cell); cx += 1) {
+      for (let cy = Math.floor(box.top / cell); cy <= Math.floor(box.bottom / cell); cy += 1) {
+        for (const segment of buckets.get(`${cx},${cy}`) ?? []) found.add(segment);
+      }
+    }
+    return found;
+  };
+  const order = lines.map((line, index) => ({ line, index })).sort((a, b) => b.line.length - a.line.length);
+  for (const [spread, relaxed] of [[style.labelSpread, false], [style.labelSpreadRelaxed, true]] as const) {
+    for (const { line, index } of order) {
+      if (relaxed && labels.some(label => label.contour === line.contour)) continue;
+      const text = String(Number(line.contour.level.toPrecision(12))).replace("-", "−");
+      const half = measurePlotText(text, fontSize) / 2 + LABEL_PAD;
+      if (line.length < half * 3) continue;
+      const at = (distance: number): ContourPoint => {
+        let i = 1;
+        while (i < line.lengths.length - 1 && line.lengths[i] < distance) i += 1;
+        const span = line.lengths[i] - line.lengths[i - 1];
+        const t = span ? (distance - line.lengths[i - 1]) / span : 0;
+        return { x: line.points[i - 1].x + t * (line.points[i].x - line.points[i - 1].x),
+          y: line.points[i - 1].y + t * (line.points[i].y - line.points[i - 1].y) };
+      };
+      const count = relaxed ? 1 : Math.max(1, Math.round(line.length / LABEL_SPACING));
+      for (let slot = 0; slot < count; slot += 1) {
+        const from = line.length * slot / count, to = line.length * (slot + 1) / count, target = (from + to) / 2;
+        let best: (ContourLabel & { score: number }) | undefined;
+        for (let distance = Math.max(half, from); distance <= Math.min(line.length - half, to); distance += 4) {
           const centre = at(distance), before = at(distance - half), after = at(distance + half);
-          // A label across a bend hides more line than it names.
-          if (Math.hypot(after.x - before.x, after.y - before.y) < half * 1.7) continue;
-          let angle = Math.atan2(after.y - before.y, after.x - before.x);
-          const w = Math.abs(Math.cos(angle)) * half * 2 + Math.abs(Math.sin(angle)) * height;
-          const h = Math.abs(Math.sin(angle)) * half * 2 + Math.abs(Math.cos(angle)) * height;
+          const chord = Math.atan2(after.y - before.y, after.x - before.x);
+          // Quarter-span chords measure the line's shape, not pixel jitter in the trace.
+          let turn = 0;
+          for (const f of [-1, -0.5, 0, 0.5]) {
+            const a = at(distance + f * half), b = at(distance + (f + 0.5) * half);
+            const d = Math.atan2(b.y - a.y, b.x - a.x) - chord;
+            turn = Math.max(turn, Math.abs(Math.atan2(Math.sin(d), Math.cos(d))));
+          }
+          if (turn > bend) continue;
+          const w = Math.abs(Math.cos(chord)) * half * 2 + Math.abs(Math.sin(chord)) * height;
+          const h = Math.abs(Math.sin(chord)) * half * 2 + Math.abs(Math.cos(chord)) * height;
           const box = { left: centre.x - w / 2, right: centre.x + w / 2, top: centre.y - h / 2, bottom: centre.y + h / 2 };
           if (box.left < plot.left + 6 || box.right > plot.left + plot.width - 6 ||
               box.top < plot.top + 6 || box.bottom > plot.top + plot.height - 6 ||
-              avoid.some(other => overlaps(box, other)) || labels.some(other => overlaps(box, other.box))) continue;
-          if (angle > Math.PI / 2) angle -= Math.PI;
-          if (angle < -Math.PI / 2) angle += Math.PI;
-          return { contour: line.contour, text, ...centre, angle: angle * 180 / Math.PI, half, box };
+              obstacles.some(other => overlaps(box, other)) || labels.some(other => overlaps(box, other.box))) continue;
+          if (labels.some(other => Math.hypot(other.x - centre.x, other.y - centre.y) < spread * 2 * Math.max(half, other.half))) continue;
+          const cos = Math.cos(-chord), sin = Math.sin(-chord);
+          const local = (point: ContourPoint) => ({ x: (point.x - centre.x) * cos - (point.y - centre.y) * sin,
+            y: (point.x - centre.x) * sin + (point.y - centre.y) * cos });
+          const reach = { left: box.left - clearance, right: box.right + clearance, top: box.top - clearance, bottom: box.bottom + clearance };
+          let straddles = false;
+          for (const segment of nearby(reach)) {
+            if (segment.line !== index && segmentDistance(local(segment.a), local(segment.b), half, halfHeight) < clearance) { straddles = true; break; }
+          }
+          if (straddles) continue;
+          const inked = { left: box.left - inkClearance, right: box.right + inkClearance, top: box.top - inkClearance, bottom: box.bottom + inkClearance };
+          if (glyphs.some(glyph => overlaps(inked, glyph.box) && glyph.ink.some(point => {
+            const p = local(point);
+            return rectDistance(p.x, p.y, half, halfHeight) < inkClearance;
+          }))) continue;
+          const score = Math.abs(distance - target) / Math.max(1, to - from) + turn;
+          if (!best || score < best.score) {
+            best = { contour: line.contour, text, ...centre, angle: upright(chord) * 180 / Math.PI, half, box, score };
+          }
         }
-      };
-      const label = yielding.length ? place([...obstacles, ...yielding]) ?? place(obstacles) : place(obstacles);
-      if (label) labels.push(label);
+        if (best) { const { score: _score, ...label } = best; labels.push(label); }
+      }
     }
   }
   return labels;
 }
+
+const upright = (angle: number) => angle > Math.PI / 2 ? angle - Math.PI : angle < -Math.PI / 2 ? angle + Math.PI : angle;
 
 /** Flood each pressure basin to its spill saddle. Boundary-connected basins
     cannot establish a centre; equal-valued plateaus have one stable anchor. */

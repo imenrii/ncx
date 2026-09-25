@@ -168,3 +168,7 @@ Build after tests passed.
 cd web && npm run build && cd ..
 cargo build --release
 ```
+
+## Commit and release notes
+
+Keep it short and concise. No more than two sentences. Do not add co-author and sign your name on it.

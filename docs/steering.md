@@ -14,8 +14,9 @@ t += 1.45
 panels[0].show(t)
 ```
 
-Lookup and arithmetic do not load the values. They create an immutable
-expression with dimensions, dtype, coordinates, units, and source identity.
+Lookup and arithmetic do not load the values. They create an expression with
+dimensions, dtype, coordinates, units, and source identity. Values, dimensions,
+and coordinates never change.
 `+=` rebinds the Python name to a new expression. Other names and existing plot
 bindings retain their previous versions:
 
@@ -26,10 +27,23 @@ t += 1
 panels[0].show(t)
 ```
 
+A derived variable owns its labels: `name`, `unit`, and `unit_kind` can be
+reassigned. Setting `unit` relabels the values; `to_unit` converts them. Source
+lookups such as `sources.s1["/u10"]` are shared and read-only, and so is the
+snapshot a panel keeps when `show()` is called:
+
+```python
+u = sources.s1["/u10"]
+u1 = u + 1
+u1.name = "shifted"      # u keeps its name; a plot of u1 keeps the version shown
+```
+
+Derived variables bound to workspace names appear in the sidebar under
+**[Workspace]**. Selecting one runs `panels[0].show(name)` in the terminal.
+
 Pointwise arithmetic keeps native coordinates. A scalar offset uses the
-variable's native units. Source-unit conversion is explicit through `to_unit`.
-Variables are immutable; use another expression instead of writing into their
-buffers. `Variable` is the sole constructor name.
+variable's native units. Use another expression instead of writing into a
+variable's buffers. `Variable` is the sole constructor name.
 
 ```python
 surface = sources.s1["/temperature"].isel({"/time": 0})

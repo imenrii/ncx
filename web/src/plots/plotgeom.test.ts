@@ -14,6 +14,7 @@ import {
   plotMargin,
   annotationStrip,
   fieldMargin,
+  fieldArea,
   widestLabel,
   type PlotType,
 } from "./plotgeom.ts";
@@ -129,6 +130,16 @@ test("curves reserve one readout row while fields retain the annotation strip", 
     assert.ok(fieldMargin(type, 144).top >= 144 + type.tick);
     assert.equal(fieldMargin(type, 144).left, fieldMargin(type).left);
   }
+});
+
+test("the corner legend pushes the field down only when the fitted plot meets it", () => {
+  const type = TYPES[0];
+  const legend = { right: 170, bottom: 160 };
+  const square = { minimumX: 0, maximumX: 1, minimumY: 0, maximumY: 1 };
+  const wide = fieldArea({ width: 1600, height: 740 }, type, legend, false, square);
+  assert.equal(wide.top, fieldMargin(type).top);
+  const narrow = fieldArea({ width: 600, height: 600 }, type, legend, false, square);
+  assert.ok(narrow.top >= legend.bottom + type.tick);
 });
 
 test("widestLabel measures the longest formatted tick", () => {

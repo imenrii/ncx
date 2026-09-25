@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   colorForValue,
+  colorMapper,
   colormapClass,
   COLORMAP_GROUPS,
   defaultColormap,
@@ -86,4 +87,17 @@ test("picks the map from CF metadata, not from the reader", () => {
   assert.equal(defaultColormap({ standardName: "sea_water_temperature_anomaly" }), "vik");
   // Nobody said so, but the values straddle zero.
   assert.equal(defaultColormap({ name: "w" }, { minimum: -3, maximum: 2 }), "vik");
+});
+
+test("draw palette reuse matches scalar colours, including reversed rounding ties", () => {
+  for (const scale of ["linear", "log", "symlog"] as const) {
+    for (const colormap of ["batlow", "batlow_r", "vik", "thermal_r"] as const) {
+      const range = { minimum: -3, maximum: 10 };
+      const map = colorMapper(range, scale, colormap);
+      for (const value of [NaN, Infinity, -Infinity, -4, 0, 20,
+        ...Array.from({ length: 512 }, (_, i) => -3 + (i / 2) / 255 * 13)]) {
+        assert.deepEqual(map(value), colorForValue(value, range, scale, colormap));
+      }
+    }
+  }
 });

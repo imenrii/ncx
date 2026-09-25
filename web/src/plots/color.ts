@@ -165,6 +165,20 @@ export function colorForValue(
   return sample(colormap, position);
 }
 
+/** Resolve the palette once for a draw, retaining the scalar lookup's rounding. */
+export function colorMapper(range: ColorRange, scale: ColorScale, colormap: ColormapChoice): (value: number) => Rgb | undefined {
+  const bytes = table(baseName(colormap));
+  const reversed = isReversed(colormap);
+  const colors: Rgb[] = Array.from({ length: 256 }, (_, index) =>
+    [bytes[index * 3], bytes[index * 3 + 1], bytes[index * 3 + 2]]);
+  return value => {
+    if (!Number.isFinite(value)) return undefined;
+    const position = scalePosition(value, range, scale);
+    if (position === undefined) return undefined;
+    return colors[Math.round((reversed ? 1 - position : position) * 255)];
+  };
+}
+
 /** RGBA bytes for the WebGL palette texture, in table order. */
 export function paletteBytes(colormap: ColormapChoice): Uint8Array {
   const bytes = new Uint8Array(256 * 4);

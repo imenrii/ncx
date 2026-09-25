@@ -1,12 +1,15 @@
-import { pngSampling } from "./png";
+import { pngResolution, pngSampling } from "./png";
 import { PLOT_STYLE, plotFontSize } from "./plotStyle";
+import { STANDARD, panelLetter, type ExportSettings, type TextStyle } from "./exportSettings";
+import { embeddedGoogleCss, resolveFace, type ResolvedFace } from "./exportFace";
 /**
  * Print-ready PNG export.
  *
  * Each field supplies a target-size data image. This module then composes all
  * visible panes, coastlines, vector furniture, and the title band into one SVG
  * before final PNG encoding. The capture keeps the on-screen coordinate range
- * and pane layout, but it does not enlarge the screen canvas.
+ * and pane layout. The figure is laid out again at its final size, with type
+ * and strokes in points, so the file never depends on the browser window.
  *
  * PNG at 400 dpi is the default deliverable. The fonts are embedded rather
  * than named because an SVG
@@ -64,7 +67,10 @@ async function embeddedFontCss(): Promise<string> {
   // Walk imports as well as bundled stylesheets so dev and built export agree.
   const definitions: { css: string; source: string; url: string }[] = [];
   const collect = (sheet: CSSStyleSheet) => {
-    for (const rule of sheet.cssRules) {
+    let rules: CSSRuleList;
+    // A cross-origin stylesheet hides its rules; ncx serves every face it embeds here.
+    try { rules = sheet.cssRules; } catch { return; }
+    for (const rule of rules) {
       if (rule instanceof CSSImportRule && rule.styleSheet) collect(rule.styleSheet);
       if (!(rule instanceof CSSFontFaceRule)) continue;
       const family = rule.style.getPropertyValue("font-family").replace(/["']/g, "");
@@ -114,6 +120,81 @@ function activeFigure(): HTMLElement | undefined {
     });
 }
 
+/**
+ * While the export dialog is open, a still copy of the figure covers it and its
+ * slot keeps its size. Previews lay the live figure out at print size under the
+ * copy, so the page never flashes or reflows. Returns the release.
+ */
+export function freezeFigure(): () => void {
+  const figure = activeFigure();
+  const slot = figure?.parentElement;
+  if (!figure || !slot) return () => undefined;
+  const slotRect = slot.getBoundingClientRect();
+  const rect = figure.getBoundingClientRect();
+  const slotStyle = slot.getAttribute("style");
+  const still = figure.cloneNode(true) as HTMLElement;
+  still.classList.add("export-still");
+  still.setAttribute("aria-hidden", "true");
+  still.inert = true;
+  Object.assign(still.style, {
+    position: "absolute", zIndex: "20", margin: "0", pointerEvents: "none", background: "var(--paper)",
+    left: `${rect.left - slotRect.left + slot.scrollLeft}px`, top: `${rect.top - slotRect.top + slot.scrollTop}px`,
+    width: `${rect.width}px`, height: `${rect.height}px`,
+  });
+  // The copy's clip paths and gradients must not resolve to the live figure's, which move.
+  const renamed = new Map<string, string>();
+  for (const element of still.querySelectorAll("[id]")) {
+    renamed.set(element.id, `${element.id}-still`);
+    element.id = `${element.id}-still`;
+  }
+  if (renamed.size) {
+    for (const element of still.querySelectorAll("*")) {
+      for (const attribute of Array.from(element.attributes)) {
+        const value = attribute.value.replace(/url\(#([^)]+)\)/g, (match, id) => renamed.has(id) ? `url(#${renamed.get(id)})` : match)
+          .replace(/^#(.+)$/, (match, id) => renamed.has(id) ? `#${renamed.get(id)}` : match);
+        if (value !== attribute.value) element.setAttribute(attribute.name, value);
+      }
+    }
+  }
+  if (getComputedStyle(slot).position === "static") slot.style.position = "relative";
+  // Size containment: nothing the live figure does inside can resize the slot.
+  Object.assign(slot.style, { width: `${slotRect.width}px`, height: `${slotRect.height}px`, contain: "strict" });
+  figure.after(still);
+  // Transparent, not hidden: the export copies computed visibility into the file; opacity does not inherit.
+  const figureOpacity = figure.style.opacity;
+  figure.style.opacity = "0";
+
+  // The data layers are WebGL; draw them through the capture hooks the export uses.
+  const frames = visibleFrames(figure);
+  const copies = Array.from(still.querySelectorAll<HTMLElement>(".plot-frame"));
+  const filled = exportQueue.then(() => Promise.all(frames.map(async (frame, index) => {
+    const source = frame.querySelector("canvas");
+    const target = copies[index]?.querySelector("canvas");
+    const capture = captureFor(frame);
+    if (!source || !target || !capture || !source.width || !source.height) return;
+    const { blob } = await capture(source.width, source.height);
+    const image = await createImageBitmap(blob);
+    target.width = source.width;
+    target.height = source.height;
+    target.getContext("2d")?.drawImage(image, 0, 0);
+    image.close();
+  }))).catch(() => undefined);
+  exportQueue = filled;
+
+  return () => {
+    exportQueue = exportQueue.then(() => {
+      still.remove();
+      figure.style.opacity = figureOpacity;
+      if (slotStyle === null) slot.removeAttribute("style"); else slot.setAttribute("style", slotStyle);
+    });
+  };
+}
+
+/** Whether the figure has curve frames, whose ratio the export sets; maps keep their coordinate aspect. */
+export function figureHasCurves(figure = activeFigure()): boolean {
+  return Boolean(figure?.querySelector(".curve-frame"));
+}
+
 /** Title and subtitle for the band, read from the figure's own header. */
 export function figureHeading(figure = activeFigure()): { title: string; subtitle: string } {
   const head = figure?.querySelector(".figure-head");
@@ -134,35 +215,19 @@ export function figureAxisTitles(figure = activeFigure()): { x: string; y: strin
   };
 }
 
-/** Publication widths from design.md § Figure widths, in millimetres. */
-export const WIDTHS_MM = [89, 120, 183] as const;
-export const DPI_CHOICES = [300, 400, 600] as const;
 
-export interface ExportOptions {
-  /** Output width in millimetres. The figure is scaled to it. */
-  widthMm: number;
-  dpi: number;
-  /** Overrides for the plate's own lettering. Empty means "leave it out". */
+/** The document parameters plus the figure's own words. Empty words leave the item out. */
+export interface ExportOptions extends ExportSettings {
   title: string;
   subtitle: string;
   xTitle: string;
   yTitle: string;
-  /** Keep the on-screen gridlines. Off: a plate carries its own ladder. */
-  grid: boolean;
 }
 
-export function defaultExportOptions(): ExportOptions {
+export function defaultExportOptions(settings: ExportSettings = STANDARD): ExportOptions {
   const heading = figureHeading();
   const axes = figureAxisTitles();
-  return {
-    widthMm: 183,
-    dpi: EXPORT_DPI,
-    title: heading.title,
-    subtitle: heading.subtitle,
-    xTitle: axes.x,
-    yTitle: axes.y,
-    grid: false,
-  };
+  return { ...settings, title: heading.title, subtitle: heading.subtitle, xTitle: axes.x, yTitle: axes.y };
 }
 
 /** Lay `source` into `target` as baseline-shifted tspans (see `mathtext.ts`). */
@@ -197,9 +262,9 @@ function retitleAxis(root: SVGElement, index: number, text: string): void {
 /** Save every visible plot pane as one print-ready PNG. */
 export async function exportPlotPng(name: string, options?: ExportOptions): Promise<void> {
   const settings = options ?? defaultExportOptions();
-  const png = await inExportLayout(settings, async () => {
-    const composed = await composeCapture(settings);
-    return pngSampling(await canvasPng(await rasterize(composed)), composed.sampling);
+  const png = await inExportLayout(settings, async face => {
+    const composed = await composeCapture(settings, face);
+    return pngResolution(pngSampling(await canvasPng(await rasterize(composed)), composed.sampling), settings.dpi);
   });
   const download = URL.createObjectURL(png);
   const link = document.createElement("a");
@@ -213,9 +278,9 @@ export async function exportPlotPng(name: string, options?: ExportOptions): Prom
 export async function copyPlotPng(options: ExportOptions): Promise<void> {
   if (typeof ClipboardItem === "undefined" || !navigator.clipboard?.write) throw new Error("This browser cannot copy images");
   // Safari needs the promise inside the item so the write keeps its user gesture.
-  const png = inExportLayout(options, async () => {
-    const composed = await composeCapture(options);
-    return pngSampling(await canvasPng(await rasterize(composed)), composed.sampling);
+  const png = inExportLayout(options, async face => {
+    const composed = await composeCapture(options, face);
+    return pngResolution(pngSampling(await canvasPng(await rasterize(composed)), composed.sampling), options.dpi);
   });
   await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
 }
@@ -233,10 +298,8 @@ export interface ExportPreview {
 /** The same composition as the saved file, drawn at `previewWidth` pixels. */
 export async function previewPlotPng(options: ExportOptions, previewWidth: number, signal?: AbortSignal): Promise<ExportPreview> {
   const full = exportPixelWidth(options.widthMm, options.dpi);
-  return inExportLayout(options, async () => {
-    // A closed or superseded preview gives its turn away without capturing.
-    signal?.throwIfAborted();
-    const composed = await composeCapture(options, Math.min(full, previewWidth));
+  return inExportLayout(options, async face => {
+    const composed = await composeCapture(options, face, Math.min(full, previewWidth));
     const png = await canvasPng(await rasterize(composed));
     const ratio = composed.layout.pixelHeight / composed.layout.pixelWidth;
     const pixelHeight = Math.max(1, Math.round(full * ratio));
@@ -244,34 +307,158 @@ export async function previewPlotPng(options: ExportOptions, previewWidth: numbe
       url: URL.createObjectURL(png), pixelWidth: full, pixelHeight, heightMm: options.widthMm * ratio,
       approximateBytes: png.size * (full * pixelHeight) / (composed.layout.pixelWidth * composed.layout.pixelHeight),
     };
-  });
+  }, signal);
 }
 
 // Captures run one at a time: a preview and a save must not both change the
 // figure's layout or its pane captures at once.
 let exportQueue: Promise<unknown> = Promise.resolve();
-function inExportLayout<T>(settings: ExportOptions, work: () => Promise<T>): Promise<T> {
-  const run = exportQueue.then(() => inPrintLayout(settings, work));
+function inExportLayout<T>(settings: ExportOptions, work: (face: ResolvedFace) => Promise<T>, signal?: AbortSignal): Promise<T> {
+  const run = exportQueue.then(async () => {
+    // A closed or superseded preview gives its turn away before it moves the figure.
+    signal?.throwIfAborted();
+    const face = await resolveFace(settings.face);
+    signal?.throwIfAborted();
+    return inPrintLayout(settings, face, () => work(face));
+  });
   exportQueue = run.catch(() => undefined);
   return run;
 }
 
-/** Steering frames are laid out at the print width while the capture runs. */
-async function inPrintLayout<T>(settings: ExportOptions, work: () => Promise<T>): Promise<T> {
+const PX_PER_MM = 96 / 25.4;
+const PX_PER_PT = 96 / 72;
+
+/** The title band the composition draws above the content, px. */
+function bandHeight(settings: ExportOptions): number {
+  if (!settings.title) return 0;
+  return Math.round(settings.titlePt * PX_PER_PT * 1.5 + (settings.subtitle ? settings.subtitlePt * PX_PER_PT * 1.5 : 0));
+}
+
+/** Type, strokes, and face for the print layout, as the plot's own CSS properties. */
+function setPrintStyle(figure: HTMLElement, settings: ExportOptions, face: ResolvedFace): void {
+  const pt = (value: number) => `${value * PX_PER_PT}px`;
+  const data = settings.dataStrokePt * PX_PER_PT;
+  const scale = data / PLOT_STYLE.stroke.data;
+  const properties: Record<string, string> = {
+    "--plot-tick-size": pt(settings.tickPt),
+    "--plot-axis-size": pt(settings.axisPt),
+    "--plot-title-size": pt(settings.titlePt),
+    "--plot-subtitle-size": pt(settings.subtitlePt),
+    "--plot-tooltip-size": pt(settings.tickPt),
+    "--plot-tick-length": `${settings.tickLengthMm * PX_PER_MM}px`,
+    "--plot-face": face.stack,
+    "--stroke-tick": pt(settings.tickStrokePt),
+    "--stroke-spine": pt(settings.frameStrokePt),
+    "--stroke-grid": pt(settings.gridStrokePt),
+    // Every data line keeps its ratio to the data stroke.
+    "--stroke-data": `${data}px`,
+    "--stroke-data-minor": `${PLOT_STYLE.stroke["data-minor"] * scale}px`,
+    "--stroke-emphasis": `${PLOT_STYLE.stroke.emphasis * scale}px`,
+    "--stroke-data-scale": String(scale),
+  };
+  for (const [name, value] of Object.entries(properties)) figure.style.setProperty(name, value);
+}
+
+async function settle(): Promise<void> {
+  await document.fonts.ready;
+  for (let i = 0; i < 4; i++) await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+}
+
+function visibleFrames(figure: HTMLElement): HTMLElement[] {
+  return Array.from(figure.querySelectorAll<HTMLElement>(".plot-frame")).filter((frame) => {
+    const rect = frame.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0 && !frame.closest(".comparison-unavailable");
+  });
+}
+
+/**
+ * Lay the figure out at its final size while the capture runs. Width is the
+ * page width less its margins. A fixed height is met by one correction pass;
+ * otherwise maps drop their unused room and curve frames take the plot ratio.
+ */
+async function inPrintLayout<T>(settings: ExportOptions, face: ResolvedFace, work: () => Promise<T>): Promise<T> {
   const figure = activeFigure();
-  if (!figure?.classList.contains("steering-frame")) return work();
-  const original = figure.getAttribute("style");
-  const profile = PLOT_STYLE.panels;
-  const width = settings.widthMm * 96 / 25.4;
-  const tick = profile.printTickPt * 96 / 72;
-  const gap = tick * profile.printGap;
+  if (!figure) return work();
+  const saved = new Map<HTMLElement, string | null>();
+  const keep = (element: HTMLElement) => { if (!saved.has(element)) saved.set(element, element.getAttribute("style")); };
+  keep(figure);
+  const width = Math.max(1, settings.widthMm - 2 * settings.marginMm) * PX_PER_MM;
+  const fixed = settings.heightMm === null ? null
+    : Math.max(40, (settings.heightMm - 2 * settings.marginMm) * PX_PER_MM - bandHeight(settings));
+  const steering = figure.classList.contains("steering-frame");
+  const before = plotRects(figure);
+  figure.dataset.export = "true";
+  if (settings.grid) figure.dataset.exportGrid = "true";
+  setPrintStyle(figure, settings, face);
+  try {
+    if (steering) layoutSteering(figure, settings, width, fixed, keep);
+    else Object.assign(figure.style, { width: `${width}px`, height: `${fixed ?? width * 2}px`, maxWidth: "none", overflow: "visible", flex: "none" });
+    await settle();
+    if (!steering) {
+      const frames = visibleFrames(figure);
+      let delta = 0;
+      if (fixed !== null) delta = fixed - contentBounds(figure, frames).height;
+      else if (frames.some(frame => frame.dataset.slack !== undefined)) {
+        const rows = new Set(frames.map(frame => Math.round(frame.getBoundingClientRect().top))).size;
+        delta = -rows * Math.min(...frames.map(frame => Number(frame.dataset.slack) || 0));
+      } else {
+        // The ratio sets the frame; a longer rotated y title stretches it rather than overhanging it.
+        const pad = settings.axisPt * PX_PER_PT * 2;
+        delta = frames.reduce((sum, frame) => {
+          const rect = frame.getBoundingClientRect();
+          const title = frame.querySelectorAll<SVGTextElement>(".plot-axis .axis-label")[1]?.getBoundingClientRect().height ?? 0;
+          return sum + Math.max(rect.width / settings.aspect, title + pad) - rect.height;
+        }, 0);
+      }
+      if (Math.abs(delta) > 0.5) {
+        figure.style.height = `${Math.max(40, parseFloat(figure.style.height) + delta)}px`;
+        await settle();
+      }
+    }
+    // Overlays read data for the size they are drawn at; capture once they have it.
+    const ready = performance.now() + 15000;
+    while (overlaysLoading(figure) && performance.now() < ready) await settle();
+    return await work();
+  } finally {
+    delete figure.dataset.export;
+    delete figure.dataset.exportGrid;
+    for (const [element, style] of saved) {
+      if (style === null) element.removeAttribute("style"); else element.setAttribute("style", style);
+    }
+    // Resolve only once the viewer has redrawn at its own size again: a data
+    // slice read at export size can hold the old plot until the screen slice returns.
+    await settle();
+    const deadline = performance.now() + 5000;
+    while ((plotRects(figure) !== before || overlaysLoading(figure)) && performance.now() < deadline) await settle();
+  }
+}
+
+const LOADING = ['[data-coastline]:not([data-coastline="ready"])', '[data-wind]:not([data-wind="ready"])',
+  '[data-pressure]:not([data-pressure="ready"])'].join(", ");
+/** An overlay still reading data for the size it is drawn at. Failed layers count as settled. */
+function overlaysLoading(figure: HTMLElement): boolean {
+  return Array.from(figure.querySelectorAll<HTMLElement>(LOADING))
+    .some(element => !Object.values(element.dataset).includes("error"));
+}
+
+/** Where each data layer sits; equal before and after means the viewer is back. */
+function plotRects(figure: HTMLElement): string {
+  return Array.from(figure.querySelectorAll(".plot-frame canvas"), canvas => {
+    const rect = canvas.getBoundingClientRect();
+    return [rect.left, rect.top, rect.width, rect.height].map(Math.round).join(",");
+  }).join(";");
+}
+
+/** Steering panels share one grid: fields two to a row, curves full width. */
+function layoutSteering(figure: HTMLElement, settings: ExportOptions, width: number, fixed: number | null,
+  keep: (element: HTMLElement) => void): void {
+  const gap = settings.gapMm * PX_PER_MM;
   const panes = Array.from(figure.children).filter((node): node is HTMLElement =>
     node instanceof HTMLElement && !node.hidden && Boolean(node.querySelector(".plot-frame")));
-  const paneStyles = panes.map(pane => pane.getAttribute("style"));
+  panes.forEach(keep);
   const fields = panes.filter(pane => pane.dataset.kind === "field").length;
   const columns = fields > 1 ? 2 : 1;
   const cellWidth = (width - gap * (columns + 1)) / columns;
-  const rowHeight = Math.max(180, cellWidth / profile.aspect);
   let rows = 0, occupied = 0;
   for (const pane of panes) {
     const span = pane.dataset.kind === "curve" ? Math.max(1, pane.querySelectorAll(".plot-frame").length) : 1;
@@ -280,38 +467,39 @@ async function inPrintLayout<T>(settings: ExportOptions, work: () => Promise<T>)
     else if (++occupied === columns) { rows++; occupied = 0; }
   }
   if (occupied) rows++;
-  // Export at the requested physical width. Live view padding is never scaled
-  // into the print layout; restoring the style also restores its viewport.
-  figure.dataset.export = "true";
+  const rowHeight = fixed === null
+    ? Math.max(180, cellWidth / settings.aspect)
+    : Math.max(60, (fixed - (rows + 1) * gap) / Math.max(1, rows));
+  // Live view padding is never scaled into the print layout; restoring the
+  // style also restores its viewport.
   Object.assign(figure.style, {
     width: `${width}px`, height: `${rows * rowHeight + (rows + 1) * gap}px`, overflow: "visible", padding: `${gap}px`, gap: `${gap}px`,
     gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`, gridAutoRows: `${rowHeight}px`,
   });
-  for (const [role, ratio] of Object.entries({ tick: 1, axis: profile.printAxisRatio, title: profile.printTitleRatio, subtitle: 1, tooltip: 1 })) {
-    figure.style.setProperty(`--plot-${role}-size`, `${tick * ratio}px`);
-  }
-  try {
-    await document.fonts.ready;
-    for (let i = 0; i < 4; i++) await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-    return await work();
-  } finally {
-    delete figure.dataset.export;
-    if (original === null) figure.removeAttribute("style"); else figure.setAttribute("style", original);
-    panes.forEach((pane, i) => { if (paneStyles[i] === null) pane.removeAttribute("style"); else pane.setAttribute("style", paneStyles[i]!); });
-  }
 }
 
-interface ComposedCapture { markup: string; layout: ReturnType<typeof planCaptureLayout>; sampling: string[] }
+/** The painted content: panes or the comparison grid, plus rotated titles that overhang them. */
+function contentBounds(figure: HTMLElement, frames: HTMLElement[]): CaptureRect {
+  const content = figure.classList.contains("steering-frame") ? figure : figure.querySelector<HTMLElement>(".field-comparison");
+  // Long rotated axis titles may extend beyond their SVG viewport. Reserve
+  // their full painted bounds before adding the title band; otherwise
+  // a valid curve is saved with its quantity clipped or printed over the title.
+  const lettering = frames.flatMap(frame => Array.from(frame.querySelectorAll<SVGTextElement>(
+    ".plot-axis text, .colorbar-axis text",
+  )).map(text => text.getBoundingClientRect())).filter(rect => rect.width > 0 && rect.height > 0);
+  return enclosingRect([
+    ...(content ? [content.getBoundingClientRect()] : frames.map(frame => frame.getBoundingClientRect())),
+    ...lettering,
+  ]);
+}
+
+interface ComposedCapture { markup: string; layout: ReturnType<typeof planCaptureLayout>; sampling: string[]; transparent: boolean }
 
 /** A preview (`pixelWidth` given) leaves the frames' export marks alone. */
-async function composeCapture(options: ExportOptions, pixelWidth?: number): Promise<ComposedCapture> {
+async function composeCapture(options: ExportOptions, face: ResolvedFace, pixelWidth?: number): Promise<ComposedCapture> {
   const marking = pixelWidth === undefined;
   const figure = activeFigure();
-  const frames = figure && Array.from(figure.querySelectorAll<HTMLElement>(".plot-frame"))
-    .filter((frame) => {
-      const rect = frame.getBoundingClientRect();
-      return rect.width > 0 && rect.height > 0 && !frame.closest(".comparison-unavailable");
-    });
+  const frames = figure && visibleFrames(figure);
   if (!figure || !frames?.length) throw new Error("The current view has no plot to save");
   if (frames.some(frame => frame.querySelector('[data-coastline]:not([data-coastline="ready"])'))) {
     throw new Error("Coastline is not ready. Wait for it to load, or turn Coastline off before export.");
@@ -327,17 +515,11 @@ async function composeCapture(options: ExportOptions, pixelWidth?: number): Prom
 
   await document.fonts.ready;
   const settings = options;
-  const content = figure.classList.contains("steering-frame") ? figure : figure.querySelector<HTMLElement>(".field-comparison");
-  // Long rotated axis titles may extend beyond their SVG viewport. Reserve
-  // their full painted bounds before adding the title band; otherwise
-  // a valid curve is saved with its quantity clipped or printed over the title.
-  const lettering = frames.flatMap(frame => Array.from(frame.querySelectorAll<SVGTextElement>(
-    ".plot-axis text, .colorbar-axis text",
-  )).map(text => text.getBoundingClientRect())).filter(rect => rect.width > 0 && rect.height > 0);
-  const contentRect = enclosingRect([
-    ...(content ? [content.getBoundingClientRect()] : frames.map(frame => frame.getBoundingClientRect())),
-    ...lettering,
-  ]);
+  // The margin surrounds the content; positions below are relative to its outer edge.
+  const margin = settings.marginMm * PX_PER_MM;
+  const painted = contentBounds(figure, frames);
+  const contentRect = { left: painted.left - margin, top: painted.top - margin,
+    width: painted.width + 2 * margin, height: painted.height + 2 * margin };
   const heading = { title: settings.title, subtitle: settings.subtitle };
   const titleSize = plotFontSize(frames[0], "title");
   const subtitleSize = plotFontSize(frames[0], "subtitle");
@@ -359,15 +541,17 @@ async function composeCapture(options: ExportOptions, pixelWidth?: number): Prom
   output.setAttribute("viewBox", `0 0 ${contentRect.width} ${contentRect.height + bandHeight}`);
 
   const style = svgElement("style");
-  style.textContent = await embeddedFontCss();
+  style.textContent = await embeddedFontCss() + (face.source === "google" ? await embeddedGoogleCss(settings.face) : "");
   output.append(style);
 
-  const paper = svgElement("rect");
-  paper.setAttribute("width", "100%");
-  paper.setAttribute("height", "100%");
-  paper.setAttribute("fill", PLOT_STYLE.paper);
-  output.append(paper);
-  appendHeading(output, frames[0], contentRect.width, titleHeight, titleSize, subtitleSize, heading);
+  if (settings.background === "white") {
+    const paper = svgElement("rect");
+    paper.setAttribute("width", "100%");
+    paper.setAttribute("height", "100%");
+    paper.setAttribute("fill", PLOT_STYLE.paper);
+    output.append(paper);
+  }
+  appendHeading(output, frames[0], contentRect.width, titleHeight, titleSize, subtitleSize, heading, settings.style, margin);
 
   const body = svgElement("g");
   body.setAttribute("transform", `translate(0 ${bandHeight})`);
@@ -381,9 +565,16 @@ async function composeCapture(options: ExportOptions, pixelWidth?: number): Prom
       const label = svgElement("text");
       label.setAttribute("x", String(rect.left - contentRect.left));
       label.setAttribute("y", String(rect.top - contentRect.top + titleSize));
-      label.setAttribute("style", `font-family:${PLOT_STYLE.face};font-size:${titleSize}px;fill:${PLOT_STYLE.ink}`);
+      label.setAttribute("style", `font-family:${face.stack};font-size:${titleSize}px;fill:${PLOT_STYLE.ink}`);
       label.setAttribute("class", "export-panel-label");
-      label.textContent = `(${String.fromCharCode(97 + index)}) ${header.querySelector("h1")?.textContent ?? ""}`;
+      const letter = panelLetter(settings.letters.trim(), index);
+      if (letter) {
+        const mark = svgElement("tspan");
+        mark.setAttribute("style", `font-size:${settings.letterPt * PX_PER_PT}px;${lettering(settings.style.letter)}`);
+        mark.textContent = `${letter} `;
+        label.append(mark);
+      }
+      label.append(header.querySelector("h1")?.textContent ?? "");
       body.append(label);
     }
   }
@@ -425,6 +616,10 @@ async function composeCapture(options: ExportOptions, pixelWidth?: number): Prom
     if ((!figure.querySelector(".linked-curves") && !figure.classList.contains("steering-frame")) || frame === frames[0]) {
       retitleAxis(furniture, 1, settings.yTitle);
     }
+    for (const label of furniture.querySelectorAll<SVGTextElement>(".axis-label")) {
+      label.style.fontWeight = settings.style.axis.bold ? String(PLOT_STYLE.weight.strong) : String(PLOT_STYLE.weight.normal);
+      label.style.fontStyle = settings.style.axis.italic ? "italic" : "normal";
+    }
     if (!settings.grid) for (const line of furniture.querySelectorAll(".gridline")) line.remove();
     const planned = layout.frames[index];
     const group = svgElement("g");
@@ -433,17 +628,19 @@ async function composeCapture(options: ExportOptions, pixelWidth?: number): Prom
     body.append(group);
   }
 
-  return { markup: new XMLSerializer().serializeToString(output), layout, sampling };
+  return { markup: new XMLSerializer().serializeToString(output), layout, sampling, transparent: settings.background === "transparent" };
 }
 
-async function rasterize({ markup, layout }: ComposedCapture): Promise<HTMLCanvasElement> {
+async function rasterize({ markup, layout, transparent }: ComposedCapture): Promise<HTMLCanvasElement> {
   const raster = document.createElement("canvas");
   raster.width = layout.pixelWidth;
   raster.height = layout.pixelHeight;
-  const context = raster.getContext("2d", { alpha: false });
+  const context = raster.getContext("2d", { alpha: transparent });
   if (!context) throw new Error("The browser could not create an export canvas");
-  context.fillStyle = PLOT_STYLE.paper;
-  context.fillRect(0, 0, raster.width, raster.height);
+  if (!transparent) {
+    context.fillStyle = PLOT_STYLE.paper;
+    context.fillRect(0, 0, raster.width, raster.height);
+  }
 
   const url = URL.createObjectURL(new Blob([markup], { type: "image/svg+xml;charset=utf-8" }));
   try {
@@ -472,6 +669,11 @@ function enclosingRect(rects: DOMRect[]): CaptureRect {
   return { left, top, width: right - left, height: bottom - top };
 }
 
+/** Weight and slant for an SVG style attribute. */
+function lettering(style: TextStyle): string {
+  return `font-weight:${style.bold ? PLOT_STYLE.weight.strong : PLOT_STYLE.weight.normal};font-style:${style.italic ? "italic" : "normal"}`;
+}
+
 function appendHeading(
   output: SVGSVGElement,
   frame: HTMLElement,
@@ -480,27 +682,29 @@ function appendHeading(
   titleSize: number,
   subtitleSize: number,
   heading: { title: string; subtitle: string },
+  style: ExportSettings["style"],
+  top: number,
 ): void {
   if (!heading.title) return;
   const face = getComputedStyle(frame).getPropertyValue("--plot-face") || "sans-serif";
   const centre = String(width / 2);
   const title = svgElement("text");
   title.setAttribute("x", centre);
-  title.setAttribute("y", String(titleSize * 1.05));
+  title.setAttribute("y", String(top + titleSize * 1.05));
   title.setAttribute("text-anchor", "middle");
-  title.setAttribute("style", `font-family:${face};font-size:${titleSize}px;font-weight:${PLOT_STYLE.weight.strong};fill:${PLOT_STYLE.ink}`);
+  title.setAttribute("style", `font-family:${face};font-size:${titleSize}px;${lettering(style.title)};fill:${PLOT_STYLE.ink}`);
   appendMath(title, heading.title, titleSize);
   output.append(title);
   if (heading.subtitle && bandHeight > 0) {
     const subtitle = svgElement("text");
     subtitle.setAttribute("x", centre);
-    subtitle.setAttribute("y", String(titleSize * 1.05 + subtitleSize * 1.4));
+    subtitle.setAttribute("y", String(top + titleSize * 1.05 + subtitleSize * 1.4));
     subtitle.setAttribute("text-anchor", "middle");
     const windKey = frame.closest(".figure")?.querySelector(".curve-head .wind-key");
     const isWindKey = windKey?.textContent === heading.subtitle;
     const colour = isWindKey ? getComputedStyle(windKey!).color : PLOT_STYLE.muted;
     if (isWindKey) subtitle.setAttribute("class", "wind-key");
-    subtitle.setAttribute("style", `font-family:${face};font-size:${subtitleSize}px;fill:${colour}`);
+    subtitle.setAttribute("style", `font-family:${face};font-size:${subtitleSize}px;${lettering(style.subtitle)};fill:${colour}`);
     appendMath(subtitle, heading.subtitle, subtitleSize);
     output.append(subtitle);
   }

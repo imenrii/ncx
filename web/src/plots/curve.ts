@@ -25,6 +25,77 @@ export interface CurveDomain {
 }
 
 /** Keep endpoints and extrema in source order within each contiguous pixel bin. */
+const orderedCoordinates = new WeakMap<Float32Array | Float64Array, boolean>();
+const BLOCK_SIZE = 512;
+interface ValueBlocks { minimum: Int32Array; maximum: Int32Array; complete: Uint8Array }
+const valueBlocks = new WeakMap<Float32Array, ValueBlocks>();
+
+/** Slice arrays are immutable. Summaries retain the first index on equal values. */
+function blocksFor(values: Float32Array): ValueBlocks {
+  const cached = valueBlocks.get(values);
+  if (cached) return cached;
+  const length = Math.ceil(values.length / BLOCK_SIZE);
+  const blocks = { minimum: new Int32Array(length).fill(-1), maximum: new Int32Array(length).fill(-1), complete: new Uint8Array(length).fill(1) };
+  for (let i = 0; i < values.length; i++) {
+    const block = Math.floor(i / BLOCK_SIZE);
+    if (!Number.isFinite(values[i])) { blocks.complete[block] = 0; continue; }
+    if (blocks.minimum[block] < 0 || values[i] < values[blocks.minimum[block]]) blocks.minimum[block] = i;
+    if (blocks.maximum[block] < 0 || values[i] > values[blocks.maximum[block]]) blocks.maximum[block] = i;
+  }
+  valueBlocks.set(values, blocks);
+  return blocks;
+}
+
+/** The two outside bins keep their exact first/min/max/last and gap markers. */
+function* outsideBin(values: Float32Array, start: number, stop: number, blocks: ValueBlocks): Generator<number> {
+  let first = -1, low = -1, high = -1, last = -1;
+  const selected = () => [...new Set([first, low, high, last])].filter(i => i >= 0).sort((a, b) => a - b);
+  const include = (begin: number, end: number, minimum: number, maximum: number) => {
+    if (first < 0) first = begin;
+    if (low < 0 || values[minimum] < values[low]) low = minimum;
+    if (high < 0 || values[maximum] > values[high]) high = maximum;
+    last = end - 1;
+  };
+  for (let index = start; index < stop;) {
+    const block = Math.floor(index / BLOCK_SIZE);
+    const end = Math.min(values.length, (block + 1) * BLOCK_SIZE);
+    if (index % BLOCK_SIZE === 0 && end <= stop && blocks.complete[block]) {
+      include(index, end, blocks.minimum[block], blocks.maximum[block]);
+      index = end;
+    } else {
+      if (Number.isFinite(values[index])) include(index, index + 1, index, index);
+      else { yield* selected(); yield index; first = low = high = last = -1; }
+      index++;
+    }
+  }
+  yield* selected();
+}
+
+function visibleIndices(x: Float32Array | Float64Array, minimum: number, maximum: number, columns: number): [number, number] {
+  const span = maximum - minimum;
+  if (!(span > 0) || !Number.isFinite(span) || (minimum <= x[0] && maximum >= x[x.length - 1])) return [0, x.length];
+  let ordered = orderedCoordinates.get(x);
+  if (ordered === undefined) {
+    ordered = true;
+    for (let index = 0; index < x.length; index++) {
+      if (!Number.isFinite(x[index]) || (index > 0 && x[index] <= x[index - 1])) { ordered = false; break; }
+    }
+    orderedCoordinates.set(x, ordered);
+  }
+  if (!ordered) return [0, x.length];
+  const bound = (target: number) => {
+    let low = 0, high = x.length;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (Math.floor((x[middle] - minimum) / span * columns) < target) low = middle + 1;
+      else high = middle;
+    }
+    return low;
+  };
+  const start = bound(0), stop = bound(columns);
+  return start < BLOCK_SIZE && x.length - stop < BLOCK_SIZE ? [0, x.length] : [start, stop];
+}
+
 export function* curveEnvelope(
   values: Float32Array, x: Float32Array | Float64Array, minimum: number, maximum: number, width: number,
 ): Generator<number> {
@@ -33,9 +104,12 @@ export function* curveEnvelope(
     for (let index = 0; index < values.length; index += 1) yield index;
     return;
   }
+  const [start, stop] = x.length === values.length ? visibleIndices(x, minimum, maximum, columns) : [0, values.length];
+  const blocks = start > 0 || stop < values.length ? blocksFor(values) : undefined;
+  if (blocks) yield* outsideBin(values, 0, start, blocks);
   let bin: number | undefined, first = -1, last = -1, low = -1, high = -1;
   const selected = () => [...new Set([first, low, high, last])].filter(index => index >= 0).sort((a, b) => a - b);
-  for (let index = 0; index < values.length; index += 1) {
+  for (let index = start; index < stop; index += 1) {
     if (!Number.isFinite(values[index]) || !Number.isFinite(x[index])) {
       yield* selected();
       yield index;
@@ -54,6 +128,7 @@ export function* curveEnvelope(
     if (values[index] > values[high]) high = index;
   }
   yield* selected();
+  if (blocks) yield* outsideBin(values, stop, values.length, blocks);
 }
 
 /** Value to page, on a linear or a log y axis. Shared so the curve and the
@@ -98,7 +173,7 @@ export function curveGeometry(
     : Float32Array.from({ length: values.length }, (_, index) => index);
   let yMinimum = Number.POSITIVE_INFINITY;
   let yMaximum = Number.NEGATIVE_INFINITY;
-  for (const value of values) {
+  for (const value of fixedDomain ? [] : values) {
     if (!Number.isFinite(value)) continue;
     yMinimum = Math.min(yMinimum, value);
     yMaximum = Math.max(yMaximum, value);
@@ -113,7 +188,7 @@ export function curveGeometry(
   }
   let xMinimum = Number.POSITIVE_INFINITY;
   let xMaximum = Number.NEGATIVE_INFINITY;
-  for (const value of xValues) {
+  for (const value of fixedDomain ? [fixedDomain.xMinimum, fixedDomain.xMaximum] : xValues) {
     if (!Number.isFinite(value)) continue;
     xMinimum = Math.min(xMinimum, value);
     xMaximum = Math.max(xMaximum, value);

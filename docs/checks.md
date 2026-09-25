@@ -1,7 +1,9 @@
 # Executable gates
 
 Run checks from the ncx root unless noted. Node 24 runs the TypeScript tests
-without an extra test runner. Rust tests require the NetCDF C library. Browser
+without an extra test runner. Rust tests require the NetCDF C library. Cargo
+defaults to serial test cases because HDF5 writer descriptors can leak into
+concurrent process fixtures; explicit concurrency tests still run. Browser
 checks require Firefox and local loopback sockets.
 
 ```bash
@@ -71,6 +73,9 @@ Set `NCX_BINARY` to a saved release for the baseline. Set `NCX_BASELINE` to its
 JSON result to require at least 20% improvement in initial display, time change,
 and stride-2 server reads, plus one scalar request and zero geometry rebuilds
 for a time change. Compare the same fixture and renderer on an idle machine.
+Use `NCX_DISPLAY_OPEN=1` to measure time changes with the Display histogram open.
+The [2026-09-24 slice comparison](Progress/slice-performance-2026-09-24.md) records
+the current baseline and separates server reads from browser drawing.
 Use `NCX_SCREENSHOT=/tmp/field.png` for a visual capture and
 `NCX_EXPORT=/tmp/export.png` to verify native-frame PNG export on fixtures within
 the full-resolution limit. `NCX_MESH_MODULE` can select a saved `mesh.ts` for the
@@ -85,6 +90,21 @@ measures command submission, not GPU completion.
 `.github/workflows/check.yml` runs these gates on each PR and main/master push.
 Repository administrators must make `checks` a required branch check. Adding a
 workflow file does not itself configure branch protection.
+
+The [implementation results](Progress/weather-optimization-implementation.md)
+record exact-output checks, read timings, frame latency, and memory limits.
+`NCX_FRAME_RUNS=5` adds repeated time changes to the structured runner.
+
+The [weather algorithm audit](Progress/weather-algorithm-audit.md) includes an
+optional library-level storage benchmark:
+
+```bash
+python tests/weather-read-benchmark.py /tmp/weather-read-benchmark.json
+node tests/weather-browser-algorithms.mjs /tmp/weather-algorithms.json
+```
+
+It uses the existing fixture-tool dependencies (`netCDF4` and `numpy`), creates
+temporary inputs, and checks exact values. It does not measure ncx HTTP latency.
 
 ## cuSURGE boundary
 

@@ -73,3 +73,12 @@ export function histogramPath(counts: readonly number[], width: number, height: 
   const last = points[points.length - 1];
   return `M0 ${height} L${points[0].x} ${points[0].y}${middle} L${last.x} ${last.y} L${width} ${height} Z`;
 }
+
+/** Combine bins without allocating a concatenated sample buffer. */
+export function histogramParts(parts: readonly ArrayLike<number>[], minimum: number, maximum: number, bins: number): number[] {
+  const counts = new Array<number>(bins).fill(0);
+  for (const part of parts) {
+    histogram(part, minimum, maximum, bins).forEach((count, index) => { counts[index] += count; });
+  }
+  return counts;
+}

@@ -14,3 +14,9 @@ this seam, including a reduction followed by a display selection.
 Source: https://github.com/pyodide/pyodide and https://github.com/dask/dask.
 Pyodide's MPL-2.0 licence is included. Each wheel contains its licence metadata.
 Python initializes only when Steering opens. No runtime CDN access is needed.
+
+The Rust build embeds WASM, JavaScript, CSS, and JSON as gzip when this reduces
+their size. The server selects gzip from `Accept-Encoding` and sends
+`Vary: Accept-Encoding`. Clients that do not accept gzip receive decompressed
+bytes. Wheels and ZIP files remain unchanged. Frontend files in `dist/` remain
+uncompressed for local tools and runtime tests.

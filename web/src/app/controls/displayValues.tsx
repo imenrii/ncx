@@ -1,36 +1,30 @@
 /**
  * Samples behind the Display range histogram. Plots inside the primary pane
  * publish what they draw; appended Steering panels have their own ranges and
- * sit outside the provider, so they publish nothing. Only the Display panel
- * subscribes, so a publish does not re-render the plots.
+ * sit outside the provider, so they publish nothing. Keep the immutable parts
+ * separate so publishing a frame does not copy every pane's samples.
  */
-import { createContext, useContext, useEffect, useId, useSyncExternalStore } from "react";
+import { createContext, useContext, useEffect, useId, useMemo, useSyncExternalStore } from "react";
+
+export type DisplaySamples = readonly Float32Array[];
 
 export function createDisplayValues() {
-  let owners = new Map<string, ArrayLike<number>>();
-  let union: ArrayLike<number> | undefined;
+  let owners = new Map<string, DisplaySamples>();
+  let parts: DisplaySamples | undefined;
   const listeners = new Set<() => void>();
   const store = {
-    publish(owner: string, values: ArrayLike<number> | undefined) {
+    publish(owner: string, values: DisplaySamples | undefined) {
       if (owners.get(owner) === values) return;
       owners = new Map(owners);
       if (values) owners.set(owner, values); else owners.delete(owner);
-      const parts = [...owners.values()];
-      // ponytail: one union copy per publish; bin per owner if large meshes make this slow.
-      if (parts.length < 2) union = parts[0];
-      else {
-        const joined = new Float32Array(parts.reduce((total, part) => total + part.length, 0));
-        let offset = 0;
-        for (const part of parts) { joined.set(part, offset); offset += part.length; }
-        union = joined;
-      }
+      parts = owners.size ? [...owners.values()].flat() : undefined;
       listeners.forEach(listener => listener());
     },
     subscribe(listener: () => void) {
       listeners.add(listener);
       return () => { listeners.delete(listener); };
     },
-    getSnapshot: () => union,
+    getSnapshot: () => parts,
   };
   return store;
 }
@@ -38,14 +32,15 @@ export function createDisplayValues() {
 export type DisplayValues = ReturnType<typeof createDisplayValues>;
 export const DisplayValuesContext = createContext<DisplayValues | undefined>(undefined);
 
-export function useDisplayValues(store: DisplayValues): ArrayLike<number> | undefined {
+export function useDisplayValues(store: DisplayValues): DisplaySamples | undefined {
   return useSyncExternalStore(store.subscribe, store.getSnapshot);
 }
 
 /** Publish the samples this plot draws, while it is mounted. */
-export function usePublishDisplayValues(values: ArrayLike<number> | undefined): void {
+export function usePublishDisplayValues(values: Float32Array | DisplaySamples | undefined): void {
   const store = useContext(DisplayValuesContext);
   const owner = useId();
-  useEffect(() => { store?.publish(owner, values); }, [store, owner, values]);
+  const parts = useMemo(() => values instanceof Float32Array ? [values] : values, [values]);
+  useEffect(() => { store?.publish(owner, parts); }, [store, owner, parts]);
   useEffect(() => () => store?.publish(owner, undefined), [store, owner]);
 }

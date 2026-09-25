@@ -6,10 +6,11 @@ import type { MeshGeometry, Bounds } from "./mesh";
 import { gridContourMesh, meshContourMesh } from "./pressureGeometry";
 import { pressureContours, meshExtrema, type ContourMesh, type PressureCentre, type PressureContour } from "./pressureContours";
 
-export interface PressureField { contours: PressureContour[]; extrema: PressureCentre[] }
+/** `mesh` is kept so the display can trace a smoothed copy at the drawn scale. */
+export interface PressureField { contours: PressureContour[]; extrema: PressureCentre[]; mesh?: ContourMesh }
 
 const traced = (mesh: ContourMesh, interval: number): PressureField => ({
-  contours: pressureContours(mesh, interval), extrema: meshExtrema(mesh),
+  contours: pressureContours(mesh, interval), extrema: meshExtrema(mesh), mesh,
 });
 
 function request(variable: Variable, ranges: Map<string, number[]>, indices: Record<string, number>, maxBytes: number): SliceRequest {

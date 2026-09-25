@@ -81,7 +81,10 @@ export type Intent =
   | { kind: "hidden" }
   | { kind: "data"; binding: Binding }
   | { kind: "error"; message: string };
-export interface ObjectDescription { kind: string; summary: string; fields: { name: string; value: string }[]; target?: string; reference?: string; objectId?: string }
+export interface ObjectDescription {
+  kind: string; summary: string; fields: { name: string; value: string }[]; target?: string; reference?: string; objectId?: string;
+  variable?: { name: string; dtype: string; shape: number[]; derived: boolean };
+}
 export interface OutlineName extends ObjectDescription { name: string }
 export interface ConsoleError { message: string; code: string; line?: number; column?: number; source?: string; traceback?: string }
 export interface Completion { start: number; end: number; signature: string; items: { label: string; insert: string; detail: string }[] }

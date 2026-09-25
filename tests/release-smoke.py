@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Check that the release serves every embedded font in viewer and hub modes."""
+"""Check embedded fonts and asset encodings in viewer and hub modes."""
+import gzip
 import pathlib
 import select
 import subprocess
@@ -36,6 +37,25 @@ for mode, arguments in (
                 data = response.read()
             if not data.startswith(b"wOF2") or len(data) < 48:
                 raise RuntimeError(f"{mode} release font is missing or invalid: {face}")
+        assets = root / "web/dist/assets"
+        for asset in sorted(path for path in assets.rglob("*") if path.is_file()):
+            url = f"{base}/assets/{asset.relative_to(assets).as_posix()}"
+            expected = asset.read_bytes()
+            for encoding in ("gzip", "identity"):
+                request = urllib.request.Request(url, headers={"Accept-Encoding": encoding})
+                with opener.open(request, timeout=10) as response:
+                    assert response.headers["Vary"] == "Accept-Encoding", url
+                    data = response.read()
+                    compressed = response.headers.get("Content-Encoding") == "gzip"
+                    if encoding == "identity" or asset.suffix in (".whl", ".zip"):
+                        assert not compressed, url
+                    if encoding == "gzip" and asset.name in ("app.js", "app.css", "pyodide.asm.wasm"):
+                        assert compressed, url
+                    if asset.suffix == ".wasm":
+                        assert response.headers.get_content_type() == "application/wasm", url
+                    if compressed:
+                        data = gzip.decompress(data)
+                    assert data == expected, f"{mode}: {url} differs with {encoding}"
     finally:
         process.stdin.close()
         if mode == "hub":
@@ -48,4 +68,4 @@ for mode, arguments in (
             raise
     if process.returncode != 0:
         raise RuntimeError(f"{mode} exited with {process.returncode}")
-    print(f"PASS: all {len(fonts)} embedded WOFF2 fonts are available in {mode} mode.")
+    print(f"PASS: {len(fonts)} fonts and all embedded assets with gzip/identity in {mode} mode.")

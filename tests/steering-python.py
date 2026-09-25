@@ -308,3 +308,33 @@ try:
 finally:
     r.WORKSPACE = old_workspace
 print("PASS: source admission precedes reads, shared nodes stay bounded, and identities include source generation")
+
+u = r.WORKSPACE.namespace["sources"].s1["/v"]
+for name, value in (("name", "new"), ("unit", "m")):
+    try:
+        setattr(u, name, value)
+        raise AssertionError("A source variable accepted a label")
+    except AttributeError:
+        pass
+u1 = u + 1
+token, before = u1.token, u1.id
+u1.name, u1.unit, u1.unit_kind = "new", "m", "delta"
+assert (u1.name, u1.unit, u1.unit_kind, u1.token) == ("new", "m", "delta", token) and u1.id != before
+assert u.name == "v" and u.unit == "K"
+for name, value in (("shape", (1,)), ("dims", ("a",)), ("unit_kind", "other"), ("name", 1)):
+    try:
+        setattr(u1, name, value)
+        raise AssertionError(f"A derived variable accepted {name}={value!r}")
+    except (AttributeError, ValueError):
+        pass
+u.rename("u").name = "renamed"
+u.isel({"x": 0}).name = "selected"
+configure(dict(panel1=dict()))
+r.WORKSPACE.frame.panels[0].show(u1)
+shown = r.WORKSPACE.published[u1.id]
+u1.name = "later"
+assert shown is not u1 and shown.name == "new" and r.WORKSPACE.published[shown.id] is shown
+r.WORKSPACE.namespace.update(u=u, u1=u1)
+names = {item["name"]: item for item in r.outline()}
+assert names["u1"]["variable"]["derived"] and not names["u"]["variable"]["derived"]
+print("PASS: derived labels change, source and displayed variables stay read-only")

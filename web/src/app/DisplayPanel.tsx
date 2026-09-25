@@ -10,6 +10,7 @@ import { COLORMAP_GROUPS, formatNumber, type ColormapChoice, type ColorRange } f
 import type { ColorScale } from "../data/model";
 import type { LineOverride, LineStyle } from "../data/lineStyle";
 import { LineStyleField } from "./controls/LineStyleField";
+import type { DisplaySamples } from "./controls/displayValues";
 import { RangeHistogram } from "./controls/RangeHistogram";
 
 type Rgb = readonly [number, number, number];
@@ -27,7 +28,7 @@ export interface DisplayProps {
   unit: string;
   onRange: (range: ColorRange) => void;
   onLocked: (locked: boolean) => void;
-  values: ArrayLike<number> | undefined;
+  values: DisplaySamples | undefined;
   /** Converts a published sample to the display unit. */
   toDisplay?: (value: number) => number;
   colour?: (value: number) => Rgb | undefined;
@@ -49,7 +50,7 @@ export function DisplayDock({ open, onOpen, ...props }: DisplayProps & { open: b
   const summary = displaySummary(props);
   const { values, toDisplay, unit } = props;
   // The converter is rebuilt each render; the unit names what it does.
-  const shown = useMemo(() => open && values && toDisplay ? Float32Array.from(values, toDisplay) : values, [open, values, unit]);
+  const shown = useMemo(() => open && values && toDisplay ? values.map(part => Float32Array.from(part, toDisplay)) : values, [open, values, unit]);
   return (
     <details className="display-dock" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
       <summary>
@@ -75,14 +76,7 @@ function DisplayBody({ active, ...props }: DisplayProps & { active: boolean }) {
         onCommit={range => { props.onLocked(true); props.onRange(range); }} onReset={() => props.onLocked(false)} />}
       {!curve && <Row label="Map">
         <select className="field sel-native" aria-label="Colour map" value={props.colormap}
-          onChange={event => props.onColormap(event.currentTarget.value as ColormapChoice)}
-          onWheel={event => {
-            const current = event.currentTarget.selectedIndex;
-            const next = Math.max(0, Math.min(event.currentTarget.options.length - 1, current + Math.sign(event.deltaY)));
-            if (next === current) return;
-            event.preventDefault();
-            props.onColormap(event.currentTarget.options[next].value as ColormapChoice);
-          }}>
+          onChange={event => props.onColormap(event.currentTarget.value as ColormapChoice)}>
           {COLORMAP_GROUPS.map(group => (
             <optgroup key={group.label} label={group.label}>
               {group.options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
@@ -95,7 +89,7 @@ function DisplayBody({ active, ...props }: DisplayProps & { active: boolean }) {
         <select className="field sel-native" id={`display-scale-${props.view}`} value={props.scale}
           onChange={event => props.onScale(event.currentTarget.value as ColorScale)}>
           <option value="linear">linear</option>
-          <option value="log" disabled={props.logUnavailable}>log</option>
+          <option value="log" disabled={props.logUnavailable} title={props.logUnavailable ? "Log needs a range above zero" : undefined}>log</option>
           {!curve && <option value="symlog">symlog</option>}
         </select>
         <label className="key-label" htmlFor={`display-range-${props.view}`}>Range</label>

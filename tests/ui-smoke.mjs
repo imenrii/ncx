@@ -767,7 +767,9 @@ try {
         await waitFor(() => !document.querySelector('.settings-dialog'), 'contour interval did not apply');
         await waitFor(() => {
           const levels = [...document.querySelectorAll('[data-pressure="ready"] .pressure-contour')].map(line => Number(line.dataset.level));
-          return levels.length && (value === '0.5' ? levels.some(level => level % 1 !== 0) : levels.every(level => level % 2 === 0));
+          // A finer custom interval shows levels a 2 hPa interval never makes. Crowded
+          // isobars may still double it (0.5 → 1 hPa), so odd whole levels count too.
+          return levels.length && (value === '0.5' ? levels.some(level => level % 2 !== 0) : levels.every(level => level % 2 === 0));
         }, 'custom contour interval did not update generated levels');
       }
       const pressureBeforeWind = pressureReads();
@@ -776,7 +778,10 @@ try {
       if (pressureReads() !== pressureBeforeWind) failures.push('Wind toggle refetched pressure');
       const contours = [...document.querySelectorAll('.pressure-contour')];
       if (document.querySelector('.pressure-arrows') || !contours.length || contours.some(path => Number(path.dataset.level) % 2 !== 0)) failures.push('pressure is not drawn as 2 mb contours');
-      if (contours.some(path => Number(path.getAttribute('stroke-width')) !== ${JSON.stringify(PLOT_STYLE.pressure.width)})) failures.push('pressure contours do not use one uniform weight');
+      // One weight for every isobar, and one heavier line: the drawn level nearest the standard atmosphere.
+      if (contours.some(path => parseFloat(getComputedStyle(path).strokeWidth) !== (path.dataset.standard
+        ? ${JSON.stringify(PLOT_STYLE.pressure.standardWidth)} : ${JSON.stringify(PLOT_STYLE.pressure.width)}))) failures.push('pressure contours do not follow the isobar weights');
+      if (contours.filter(path => path.dataset.standard).length > 1) failures.push('more than one standard isobar level is drawn heavy');
       if (document.querySelector('.pressure-key')) failures.push('unexpected contour interval key on the plot');
       const labels = [...document.querySelectorAll('.pressure-contour-label')];
       for (const value of document.querySelectorAll('.pressure-centre-value')) {
@@ -849,7 +854,7 @@ try {
     if (document.querySelector('.wind-field .wind-key')) failures.push('a ready wind layer still prints a key on the plot');
     const arrows = document.querySelector('.wind-arrows');
     if (!arrows.getAttribute('d').includes('l') || arrows.getAttribute('d').includes('Z') ||
-        arrows.getAttribute('fill') !== 'none' || Number(arrows.getAttribute('stroke-width')) !== ${JSON.stringify(PLOT_STYLE.wind.width)}) {
+        arrows.getAttribute('fill') !== 'none' || parseFloat(getComputedStyle(arrows).strokeWidth) !== ${JSON.stringify(PLOT_STYLE.wind.width)}) {
       failures.push('Field arrows lost their open heads or configured weight');
     }
     const legend = document.querySelector('.overlay-legend');
@@ -1326,8 +1331,7 @@ try {
     await waitFor(() => document.querySelectorAll('.field-comparison-pane').length === 2 &&
       document.querySelectorAll('.field-comparison .overlay-legend:not([aria-hidden="true"])').length === 1,
       'hiding the primary pane removed the shared overlay controls');
-    const supporting = [...document.querySelectorAll(".variable-filter label")]
-      .find((label) => label.textContent.includes("Show coordinates"))?.querySelector("input");
+    const supporting = document.querySelector('.variable-filter input[type="checkbox"]');
     supporting.click();
     const latitude = await waitFor(
       () => [...document.querySelectorAll(".variable-row")]
@@ -1634,13 +1638,12 @@ try {
       open.click();
       await waitFor(() => document.querySelector("dialog.save-dialog[open]"), "save dialog did not open");
       const dialog = document.querySelector("dialog.save-dialog");
-      const widths = [...dialog.querySelectorAll('input[name="width"]')];
-      const dpis = [...dialog.querySelectorAll('input[name="dpi"]')];
-      if (widths.length !== 3) failures.push("save dialog is missing its width presets");
-      if (dpis.length !== 3) failures.push("save dialog is missing its dpi presets");
-      if (!widths.some((input) => input.checked)) failures.push("no width preset is selected");
-      dialog.querySelector(".save-lettering").open = true;
-      const fields = [...dialog.querySelectorAll(".save-lettering-fields input")];
+      const width = dialog.querySelector('input[name="widthMm"]');
+      const dpis = [...dialog.querySelectorAll('button[name="dpi"]')];
+      if (width?.value !== "183") failures.push("save dialog does not open at the Standard 183 mm width");
+      if (dpis.length !== 3) failures.push("save dialog is missing its resolution shortcuts");
+      if (!dpis.some((button) => button.getAttribute("aria-pressed") === "true")) failures.push("no resolution is selected");
+      const fields = [...dialog.querySelectorAll("input[data-lettering]")];
       if (fields.length !== 4) failures.push("save dialog is missing its lettering fields");
       // Prefilled from the live figure, not blank.
       if (!fields.some((input) => input.value.trim())) {

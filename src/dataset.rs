@@ -66,6 +66,10 @@ pub struct VariableSummary {
     pub dtype: String,
     #[serde(skip)]
     source_element_bytes: usize,
+    #[serde(skip)]
+    storage: crate::storage::Layout,
+    #[serde(skip)]
+    packing: Option<Result<Packing, DataError>>,
     pub dimensions: Vec<VariableDimension>,
     pub attributes: Vec<AttributeSummary>,
     pub view_hint: ViewHint,
@@ -171,11 +175,11 @@ fn is_proc_fd_path(path: &Path) -> bool {
         && components.next().is_none()
 }
 
-/// The one read-only NetCDF file owned by this ncx process.
+/// One read-only native handle owns the data and its bounded chunk caches.
 pub struct Dataset {
     metadata: DatasetMetadata,
     connectivity_variables: HashSet<String>,
-    file: Mutex<netcdf::File>,
+    file: Mutex<crate::storage::Reader>,
     pub read_slot: std::sync::Arc<tokio::sync::Semaphore>,
 }
 
@@ -204,6 +208,11 @@ impl Dataset {
             .into_owned();
         let mut metadata = discover_metadata(&file, name)
             .map_err(|error| format!("cannot inspect {}: {error}", display_path.display()))?;
+        let reader = crate::storage::Reader::open(&open_path)?;
+        drop(file);
+        for variable in &mut metadata.variables {
+            variable.storage = reader.layout(&variable.path, variable.dimensions.len())?;
+        }
         let connectivity_variables = cf::add_view_hints(&mut metadata)?;
         crate::reading::bounded_json(&metadata, MAX_METADATA_BYTES)
             .map_err(|error| error.message)?;
@@ -211,7 +220,7 @@ impl Dataset {
         Ok(Self {
             metadata,
             connectivity_variables,
-            file: Mutex::new(file),
+            file: Mutex::new(reader),
             read_slot: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
         })
     }
@@ -245,7 +254,8 @@ impl Dataset {
         }
         let wire = wire.unwrap_or(WireType::F32);
         if !connectivity {
-            selection.contiguous_count = selection.contiguous_plane(summary.source_element_bytes);
+            selection.contiguous_count =
+                selection.contiguous_plane(summary.source_element_bytes, &summary.storage);
         }
         let read_size = selection.check_response_size(
             max_response_bytes,
@@ -258,6 +268,9 @@ impl Dataset {
         )?;
         if !connectivity {
             validate_decode_attributes(summary)?;
+            if let Some(Err(error)) = &summary.packing {
+                return Err(error.clone());
+            }
         }
 
         Ok(ReadPlan {
@@ -280,19 +293,25 @@ impl Dataset {
             ..
         } = plan;
 
-        let file = self.file.lock().map_err(|_| {
+        let mut file = self.file.lock().map_err(|_| {
             DataError::new(500, "dataset_lock_failed", "the NetCDF reader lock failed")
         })?;
-        let variable = file
-            .variable(path.trim_start_matches('/'))
+        let metadata = self
+            .metadata
+            .variables
+            .iter()
+            .find(|v| v.path == path)
             .ok_or_else(|| DataError::new(404, "variable_not_found", "unknown variable path"))?;
-
+        let mut variable = ReadVariable {
+            metadata,
+            reader: &mut file,
+        };
         let (dtype, body) = if connectivity {
-            read_connectivity(&variable, &selection, response_bytes)?
+            read_connectivity(&mut variable, &selection, response_bytes)?
         } else {
             (
                 wire.dtype(),
-                read_display_values(&variable, &selection, wire, response_bytes)?,
+                read_display_values(&mut variable, &selection, wire, response_bytes)?,
             )
         };
 
@@ -360,7 +379,7 @@ pub struct DataResponse {
     pub body: Vec<u8>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct DataError {
     pub status: u16,
     pub code: &'static str,
@@ -549,16 +568,20 @@ fn add_variable(
         collect_attributes(variable.attributes(), &path, &mut metadata.warnings, budget)?;
 
     let variable_type = variable.vartype();
-    metadata.variables.push(VariableSummary {
+    let mut summary = VariableSummary {
         path,
         name,
         dtype: data_type_name(&variable_type),
         source_element_bytes: variable_type.size(),
+        storage: crate::storage::Layout::default(),
+        packing: None,
         dimensions,
         attributes,
         view_hint: ViewHint::Plain,
         capabilities: cf::VariableCapabilities::default(),
-    });
+    };
+    summary.packing = Some(validate_decode_attributes(&summary).and_then(|_| packing(&variable)));
+    metadata.variables.push(summary);
     Ok(())
 }
 
@@ -866,7 +889,11 @@ impl ReadSelection {
 
     // Dense spatial previews are cheaper to gather in memory than through HDF5
     // point selection. Keep sparse probes and multi-frame reads on the direct path.
-    fn contiguous_plane(&self, element_bytes: usize) -> Option<Vec<usize>> {
+    fn contiguous_plane(
+        &self,
+        element_bytes: usize,
+        storage: &crate::storage::Layout,
+    ) -> Option<Vec<usize>> {
         let rank = self.count.len();
         if rank < 2
             || self.elements < 4096
@@ -888,10 +915,21 @@ impl ReadSelection {
         let elements = count
             .iter()
             .try_fold(1usize, |total, &count| total.checked_mul(count))?;
-        if elements > self.elements.checked_mul(16)?
+        if elements
+            > self
+                .elements
+                .checked_mul(if storage.filtered { 64 } else { 16 })?
             || elements.checked_mul(element_bytes)? > 64 * 1024 * 1024
         {
             return None;
+        }
+        if storage.chunks.is_some() {
+            let unit_stride = vec![1; count.len()];
+            let direct_chunks = storage.touched(&self.start, &self.count, &self.stride)?;
+            let gathered_chunks = storage.touched(&self.start, &count, &unit_stride)?;
+            if gathered_chunks > direct_chunks {
+                return None;
+            }
         }
         Some(count)
     }
@@ -1107,43 +1145,75 @@ fn validate_decode_attributes(variable: &VariableSummary) -> Result<(), DataErro
     Ok(())
 }
 
+#[derive(Clone, Debug)]
+struct Packing {
+    missing: AttributeValue,
+    scale: f64,
+    offset: f64,
+}
+
+fn packing(variable: &netcdf::Variable<'_>) -> Result<Packing, DataError> {
+    fn typed<T: PackedNumber>(variable: &netcdf::Variable<'_>) -> Result<Packing, DataError>
+    where
+        AttributeValue: From<Vec<T>>,
+    {
+        Ok(Packing {
+            missing: missing_values::<T>(variable)?.into(),
+            scale: numeric_attribute(variable, "scale_factor")?.unwrap_or(1.0),
+            offset: numeric_attribute(variable, "add_offset")?.unwrap_or(0.0),
+        })
+    }
+    match variable.vartype() {
+        NcVariableType::Int(IntType::U8) => typed::<u8>(variable),
+        NcVariableType::Int(IntType::U16) => typed::<u16>(variable),
+        NcVariableType::Int(IntType::U32) => typed::<u32>(variable),
+        NcVariableType::Int(IntType::U64) => typed::<u64>(variable),
+        NcVariableType::Int(IntType::I8) => typed::<i8>(variable),
+        NcVariableType::Int(IntType::I16) => typed::<i16>(variable),
+        NcVariableType::Int(IntType::I32) => typed::<i32>(variable),
+        NcVariableType::Int(IntType::I64) => typed::<i64>(variable),
+        NcVariableType::Float(FloatType::F32) => typed::<f32>(variable),
+        NcVariableType::Float(FloatType::F64) => typed::<f64>(variable),
+        _ => Err(DataError::new(
+            422,
+            "unsupported_dtype",
+            "only primitive numeric variables can be displayed",
+        )),
+    }
+}
+
+struct ReadVariable<'a> {
+    metadata: &'a VariableSummary,
+    reader: &'a mut crate::storage::Reader,
+}
+
+impl ReadVariable<'_> {
+    fn values<T: NcTypeDescriptor + Copy>(
+        &mut self,
+        extents: (&[usize], &[usize], &[isize]),
+    ) -> Result<Vec<T>, String> {
+        self.reader
+            .read(&self.metadata.storage, extents.0, extents.1, extents.2)
+    }
+}
+
 fn read_display_values(
-    variable: &netcdf::Variable<'_>,
+    variable: &mut ReadVariable<'_>,
     selection: &ReadSelection,
     wire: WireType,
     response_bytes: usize,
 ) -> Result<Vec<u8>, DataError> {
-    match variable.vartype() {
-        NcVariableType::Int(IntType::U8) => {
-            read_numeric::<u8>(variable, selection, wire, response_bytes)
-        }
-        NcVariableType::Int(IntType::U16) => {
-            read_numeric::<u16>(variable, selection, wire, response_bytes)
-        }
-        NcVariableType::Int(IntType::U32) => {
-            read_numeric::<u32>(variable, selection, wire, response_bytes)
-        }
-        NcVariableType::Int(IntType::U64) => {
-            read_numeric::<u64>(variable, selection, wire, response_bytes)
-        }
-        NcVariableType::Int(IntType::I8) => {
-            read_numeric::<i8>(variable, selection, wire, response_bytes)
-        }
-        NcVariableType::Int(IntType::I16) => {
-            read_numeric::<i16>(variable, selection, wire, response_bytes)
-        }
-        NcVariableType::Int(IntType::I32) => {
-            read_numeric::<i32>(variable, selection, wire, response_bytes)
-        }
-        NcVariableType::Int(IntType::I64) => {
-            read_numeric::<i64>(variable, selection, wire, response_bytes)
-        }
-        NcVariableType::Float(FloatType::F32) => {
-            read_numeric::<f32>(variable, selection, wire, response_bytes)
-        }
-        NcVariableType::Float(FloatType::F64) => {
-            read_numeric::<f64>(variable, selection, wire, response_bytes)
-        }
+    match variable.metadata.dtype.as_str() {
+        "u8" => read_numeric::<u8>(variable, selection, wire, response_bytes),
+        "u16" => read_numeric::<u16>(variable, selection, wire, response_bytes),
+        "u32" => read_numeric::<u32>(variable, selection, wire, response_bytes),
+        "u64" => read_numeric::<u64>(variable, selection, wire, response_bytes),
+        "i8" => read_numeric::<i8>(variable, selection, wire, response_bytes),
+        "i16" => read_numeric::<i16>(variable, selection, wire, response_bytes),
+        "i32" => read_numeric::<i32>(variable, selection, wire, response_bytes),
+        "i64" => read_numeric::<i64>(variable, selection, wire, response_bytes),
+        "f32" => read_numeric::<f32>(variable, selection, wire, response_bytes),
+        "f64" => read_numeric::<f64>(variable, selection, wire, response_bytes),
         _ => Err(DataError::new(
             422,
             "unsupported_dtype",
@@ -1153,7 +1223,7 @@ fn read_display_values(
 }
 
 fn read_numeric<T>(
-    variable: &netcdf::Variable<'_>,
+    variable: &mut ReadVariable<'_>,
     selection: &ReadSelection,
     wire: WireType,
     response_bytes: usize,
@@ -1175,7 +1245,7 @@ where
         },
     );
     let mut values = variable
-        .get_values::<T, _>(extents)
+        .values::<T>(extents)
         .map_err(|error| DataError::new(500, "netcdf_read_failed", error.to_string()))?;
     if let Some(count) = &selection.contiguous_count {
         let rank = count.len();
@@ -1188,9 +1258,21 @@ where
         }
         values.truncate(selection.elements);
     }
-    let missing = missing_values::<T>(variable)?;
-    let scale = numeric_attribute(variable, "scale_factor")?.unwrap_or(1.0);
-    let offset = numeric_attribute(variable, "add_offset")?.unwrap_or(0.0);
+    let packing = variable
+        .metadata
+        .packing
+        .as_ref()
+        .ok_or_else(|| DataError::new(422, "invalid_packing", "packing metadata is unavailable"))?
+        .as_ref()
+        .map_err(Clone::clone)?;
+    let missing = T::from_attribute(packing.missing.clone()).ok_or_else(|| {
+        DataError::new(
+            422,
+            "invalid_missing_value",
+            "missing_value does not match the stored type",
+        )
+    })?;
+    let (scale, offset) = (packing.scale, packing.offset);
     if !scale.is_finite() || !offset.is_finite() {
         return Err(DataError::new(
             422,
@@ -1199,28 +1281,43 @@ where
         ));
     }
 
-    let mut bytes = Vec::with_capacity(response_bytes);
-    for value in values {
-        let unpacked = if missing.contains(&value) {
-            f64::NAN
-        } else {
-            let value = value.to_f64() * scale + offset;
-            if value.is_finite() { value } else { f64::NAN }
-        };
-        match wire {
-            WireType::F32 => {
-                let display = unpacked as f32;
-                bytes.extend_from_slice(
-                    &if display.is_finite() {
-                        display
-                    } else {
-                        f32::NAN
-                    }
-                    .to_le_bytes(),
-                );
-            }
-            WireType::F64 => bytes.extend_from_slice(&unpacked.to_le_bytes()),
+    let unpack = |value: T| {
+        if missing.contains(&value) {
+            return f64::NAN;
         }
+        let value = value.to_f64() * scale + offset;
+        if value.is_finite() { value } else { f64::NAN }
+    };
+    if values.len().checked_mul(wire.element_bytes()) != Some(response_bytes) {
+        return Err(DataError::new(
+            500,
+            "invalid_read_size",
+            "Read buffer size differs from its selection",
+        ));
+    }
+    let mut bytes = Vec::with_capacity(response_bytes);
+    let output = &mut bytes.spare_capacity_mut()[..response_bytes];
+    match wire {
+        WireType::F32 => {
+            for (value, output) in values.into_iter().zip(output.chunks_exact_mut(4)) {
+                let value = unpack(value) as f32;
+                let encoded = if value.is_finite() { value } else { f32::NAN }.to_le_bytes();
+                for (slot, byte) in output.iter_mut().zip(encoded) {
+                    slot.write(byte);
+                }
+            }
+        }
+        WireType::F64 => {
+            for (value, output) in values.into_iter().zip(output.chunks_exact_mut(8)) {
+                for (slot, byte) in output.iter_mut().zip(unpack(value).to_le_bytes()) {
+                    slot.write(byte);
+                }
+            }
+        }
+    }
+    // The length check and fixed-width loops initialize every byte before it is exposed.
+    unsafe {
+        bytes.set_len(response_bytes);
     }
     Ok(bytes)
 }
@@ -1418,35 +1515,19 @@ impl PackedNumber for f64 {
 }
 
 fn read_connectivity(
-    variable: &netcdf::Variable<'_>,
+    variable: &mut ReadVariable<'_>,
     selection: &ReadSelection,
     response_bytes: usize,
 ) -> Result<(&'static str, Vec<u8>), DataError> {
-    match variable.vartype() {
-        NcVariableType::Int(IntType::U8) => {
-            read_unsigned_connectivity::<u8>(variable, selection, response_bytes)
-        }
-        NcVariableType::Int(IntType::U16) => {
-            read_unsigned_connectivity::<u16>(variable, selection, response_bytes)
-        }
-        NcVariableType::Int(IntType::U32) => {
-            read_unsigned_connectivity::<u32>(variable, selection, response_bytes)
-        }
-        NcVariableType::Int(IntType::U64) => {
-            read_unsigned_connectivity::<u64>(variable, selection, response_bytes)
-        }
-        NcVariableType::Int(IntType::I8) => {
-            read_signed_connectivity::<i8>(variable, selection, response_bytes)
-        }
-        NcVariableType::Int(IntType::I16) => {
-            read_signed_connectivity::<i16>(variable, selection, response_bytes)
-        }
-        NcVariableType::Int(IntType::I32) => {
-            read_signed_connectivity::<i32>(variable, selection, response_bytes)
-        }
-        NcVariableType::Int(IntType::I64) => {
-            read_signed_connectivity::<i64>(variable, selection, response_bytes)
-        }
+    match variable.metadata.dtype.as_str() {
+        "u8" => read_unsigned_connectivity::<u8>(variable, selection, response_bytes),
+        "u16" => read_unsigned_connectivity::<u16>(variable, selection, response_bytes),
+        "u32" => read_unsigned_connectivity::<u32>(variable, selection, response_bytes),
+        "u64" => read_unsigned_connectivity::<u64>(variable, selection, response_bytes),
+        "i8" => read_signed_connectivity::<i8>(variable, selection, response_bytes),
+        "i16" => read_signed_connectivity::<i16>(variable, selection, response_bytes),
+        "i32" => read_signed_connectivity::<i32>(variable, selection, response_bytes),
+        "i64" => read_signed_connectivity::<i64>(variable, selection, response_bytes),
         _ => Err(DataError::new(
             422,
             "unsupported_connectivity",
@@ -1456,7 +1537,7 @@ fn read_connectivity(
 }
 
 fn read_unsigned_connectivity<T>(
-    variable: &netcdf::Variable<'_>,
+    variable: &mut ReadVariable<'_>,
     selection: &ReadSelection,
     response_bytes: usize,
 ) -> Result<(&'static str, Vec<u8>), DataError>
@@ -1479,7 +1560,7 @@ where
 }
 
 fn read_signed_connectivity<T>(
-    variable: &netcdf::Variable<'_>,
+    variable: &mut ReadVariable<'_>,
     selection: &ReadSelection,
     response_bytes: usize,
 ) -> Result<(&'static str, Vec<u8>), DataError>
@@ -1502,14 +1583,14 @@ where
 }
 
 fn read_values<T>(
-    variable: &netcdf::Variable<'_>,
+    variable: &mut ReadVariable<'_>,
     selection: &ReadSelection,
 ) -> Result<Vec<T>, DataError>
 where
     T: NcTypeDescriptor + Copy,
 {
     variable
-        .get_values::<T, _>((
+        .values::<T>((
             selection.start.as_slice(),
             selection.count.as_slice(),
             selection.stride.as_slice(),
@@ -1553,6 +1634,8 @@ mod tests {
             path: "/temperature".to_owned(),
             name: "temperature".to_owned(),
             dtype: "i16".to_owned(),
+            storage: crate::storage::Layout::default(),
+            packing: None,
             source_element_bytes: 2,
             dimensions: vec![
                 VariableDimension {
@@ -1647,6 +1730,7 @@ mod tests {
             let mut variable = file
                 .add_variable::<i16>("packed", &["time", "y", "x"])
                 .unwrap();
+            variable.set_chunking(&[1, 151, 203]).unwrap();
             variable.put_attribute("_FillValue", -9999_i16).unwrap();
             variable.put_attribute("missing_value", -9998_i16).unwrap();
             variable.put_attribute("scale_factor", 0.25_f64).unwrap();
@@ -1692,12 +1776,86 @@ mod tests {
             dimension.length = 100_000;
         }
         let selection = ReadSelection::parse(&summary, ":,:", "2,2").unwrap();
-        assert!(selection.contiguous_plane(8).is_none());
+        assert!(
+            selection
+                .contiguous_plane(8, &crate::storage::Layout::default())
+                .is_none()
+        );
         summary.dimensions[0].length = 1;
         let selection =
             ReadSelection::parse(&summary, ":,:", &format!("{},2", isize::MAX)).unwrap();
-        assert!(selection.contiguous_plane(8).is_none());
+        assert!(
+            selection
+                .contiguous_plane(8, &crate::storage::Layout::default())
+                .is_none()
+        );
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn storage_plans_preserve_float_planes_across_layouts_and_dimensions() {
+        for layout in ["classic", "contiguous", "chunks", "compressed"] {
+            let path = std::env::temp_dir()
+                .join(format!("ncx-storage-{}-{layout}.nc", std::process::id()));
+            {
+                let options = if layout == "classic" {
+                    netcdf::Options::empty()
+                } else {
+                    netcdf::Options::NETCDF4
+                };
+                let mut file = netcdf::create_with(&path, options).unwrap();
+                for (name, length) in [("member", 2), ("level", 3), ("y", 151), ("x", 203)] {
+                    file.add_dimension(name, length).unwrap();
+                }
+                let mut variable = file
+                    .add_variable::<f64>("field", &["member", "level", "y", "x"])
+                    .unwrap();
+                if matches!(layout, "chunks" | "compressed") {
+                    variable.set_chunking(&[1, 1, 32, 32]).unwrap();
+                }
+                if layout == "compressed" {
+                    variable.set_compression(1, true).unwrap();
+                }
+                file.enddef().unwrap();
+                let mut values = (0..2 * 3 * 151 * 203)
+                    .map(|i| i as f64 * 0.03125 - 100.0)
+                    .collect::<Vec<_>>();
+                values[4 * 151 * 203 + 3 * 203 + 5] = f64::NAN;
+                file.variable_mut("field")
+                    .unwrap()
+                    .put_values(&values, ..)
+                    .unwrap();
+            }
+            let dataset = Dataset::open(&path).unwrap();
+            assert_eq!(
+                dataset.metadata.variables[0].storage.netcdf4,
+                layout != "classic"
+            );
+            for (selection, stride) in [
+                ("1,1,3:150,5:201", "1,1,2,3"),
+                ("1,1,:,:", "1,1,4,4"),
+                ("1,:,3,:", "1,1,1,2"),
+                (":,1,3,5", "1,1,1,1"),
+            ] {
+                for wire in [WireType::F32, WireType::F64] {
+                    let plan = dataset
+                        .plan_read("/field", selection, stride, Some(wire), 4 << 20)
+                        .unwrap();
+                    let planned = dataset.read(plan).unwrap();
+                    let mut direct = dataset
+                        .plan_read("/field", selection, stride, Some(wire), 4 << 20)
+                        .unwrap();
+                    direct.selection.contiguous_count = None;
+                    assert_eq!(
+                        planned.body,
+                        dataset.read(direct).unwrap().body,
+                        "{layout} {selection}"
+                    );
+                }
+            }
+            drop(dataset);
+            std::fs::remove_file(path).unwrap();
+        }
     }
 
     #[test]

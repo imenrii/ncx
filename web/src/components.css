@@ -164,6 +164,48 @@ button, input, select, output { font-size: var(--size-tick); color: inherit; }
 .chip.custom .unit { font-size: var(--size-tick); color: var(--ink-quiet); }
 @media (pointer: coarse) { .chip.custom, .chip.custom input { min-height: 44px; } }
 
+/* --- Text field with trailing controls ------------------------------------
+   One border: the text, then an optional size cell, then optional format
+   marks. Each part is present only when its markup is. The marks sit inline
+   after the unit: quiet at rest, ink on hover; a pressed mark keeps ink and a
+   2 px bar, so the state does not rest on colour alone. Regular clears Bold
+   and Italic; Bold and Italic combine. */
+.text-field { display: flex; align-items: center; min-height: 28px; border: 1px solid var(--line); background: var(--paper); }
+.text-field:hover { border-color: var(--ink-weak); }
+.text-field:focus-within { border-color: var(--ink); }
+.text-field > input { flex: 1; align-self: stretch; min-width: 0; padding: 0 8px; border: 0; background: transparent; color: var(--ink); font-size: var(--size-tick); }
+.text-field input:focus-visible { outline: none; }
+.tf-size { display: flex; align-self: stretch; align-items: center; gap: 4px; padding: 0 4px 0 8px; border-left: 1px solid var(--line); }
+.tf-size:focus-within { box-shadow: inset 0 -2px var(--accent); }
+.tf-size input { width: 5ch; min-width: 0; padding: 0; border: 0; background: transparent; color: var(--ink); font-size: var(--size-tick); text-align: right; }
+.tf-size .unit { font-size: var(--size-micro); color: var(--ink-quiet); }
+.tf-format { display: flex; align-items: center; padding: 0 4px; }
+.tf-format button { position: relative; display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; background: transparent; color: var(--ink-weak); cursor: pointer; }
+.tf-format button:hover { background: var(--dither), transparent; color: var(--ink); }
+.tf-format button[aria-pressed="true"] { color: var(--ink); }
+.tf-format button[aria-pressed="true"]::after { content: ""; position: absolute; left: 5px; right: 5px; bottom: 1px; height: 2px; background: var(--ink); }
+.tf-format button:active { transform: translateY(1px); }
+.tf-format button:focus-visible { outline-offset: -2px; }
+.tf-format svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: square; }
+.tf-format svg .heavy { stroke-width: 2.2; }
+
+/* --- Metrics: joined numeric cells, caption · value · unit ----------------- */
+/* Sized by its cells, also as a grid item. */
+.metrics { display: inline-flex; justify-self: start; align-items: stretch; min-height: 28px; border: 1px solid var(--line); background: var(--paper); }
+.metrics:hover { border-color: var(--ink-weak); }
+.metrics:focus-within { border-color: var(--ink); }
+.metric { display: flex; align-items: center; gap: 4px; padding: 0 8px; border-left: 1px solid var(--line); cursor: text; }
+.metric:first-child { border-left: 0; }
+.metric:focus-within { box-shadow: inset 0 -2px var(--accent); }
+.metric .cap { margin-right: 2px; font-family: var(--label-face); font-feature-settings: normal; word-spacing: normal; font-size: var(--size-micro); letter-spacing: var(--track-caps); text-transform: uppercase; color: var(--ink-quiet); }
+.metric > input { width: 5ch; min-width: 0; padding: 0; border: 0; background: transparent; color: var(--ink); font-size: var(--size-tick); text-align: right; }
+.metric > input:focus-visible { outline: none; }
+.metric .unit { font-size: var(--size-micro); color: var(--ink-quiet); }
+/* A switch cell is the standard tickbox; its caption reads as a label. */
+.metric.tick-label { gap: 6px; min-height: 0; cursor: pointer; }
+.metric.tick-label .cap { margin-right: 0; }
+@media (pointer: coarse) { .text-field, .metrics { min-height: 44px; } .tf-format button { width: 32px; height: 40px; } }
+
 /* --- Structural label and data value ------------------------------------- */
 .key-label {
   font-family: var(--label-face); font-feature-settings: normal; word-spacing: normal;

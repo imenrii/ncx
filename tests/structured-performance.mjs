@@ -128,17 +128,33 @@ try {
   }`;
   await command("browsingContext.navigate", { context, url: `http://${address}/`, wait: "complete" });
   const initial = await evaluate(`(${settled})()`);
+  if (process.env.NCX_DISPLAY_OPEN === "1") {
+    await evaluate("JSON.stringify((() => { document.querySelector('.display-dock > summary').click(); return true; })())");
+    await evaluate(`(${settled})()`);
+  }
   const started = await evaluate(`JSON.stringify((() => { bench.measures=[]; bench.reads=[]; bench.frames=[]; const start=performance.now(); document.querySelector('button[title="Last sample"]').click(); return start; })())`);
   const frame = await evaluate(`(${settled})()`);
   frame.started_ms = started;
   frame.ready_ms -= started;
   assert.deepEqual(initial.errors, []); assert.deepEqual(frame.errors, []);
+  const frameRuns = Number(process.env.NCX_FRAME_RUNS ?? 1);
+  assert.ok(Number.isInteger(frameRuns) && frameRuns >= 1 && frameRuns <= 30);
+  const frames = [frame];
+  for (let run = 1; run < frameRuns; run++) {
+    const title = run % 2 ? "First sample" : "Last sample";
+    const start = await evaluate(`JSON.stringify((() => { bench.measures=[]; bench.reads=[]; bench.frames=[]; const start=performance.now(); document.querySelector('button[title="${title}"]').click(); return start; })())`);
+    const next = await evaluate(`(${settled})()`);
+    next.started_ms = start;
+    next.ready_ms -= start;
+    assert.deepEqual(next.errors, []);
+    frames.push(next);
+  }
   assert.ok(initial.contexts.some(c => c.type === (webgl ? "webgl2" : "2d") && c.ok));
   if (process.env.NCX_SCREENSHOT) {
     const { data } = await command("browsingContext.captureScreenshot", { context, origin: "viewport" });
     await writeFile(process.env.NCX_SCREENSHOT, Buffer.from(data, "base64"));
   }
-  const result = { renderer: webgl ? "webgl" : "canvas", shape: [time, rows, columns], io, initial, frame };
+  const result = { display_open: process.env.NCX_DISPLAY_OPEN === "1", renderer: webgl ? "webgl" : "canvas", shape: [time, rows, columns], io, initial, frame, frames };
   if (process.env.NCX_EXPORT) {
     await evaluate("JSON.stringify((() => { bench.reads=[]; return true; })())");
     for (let step = 0; step < 5; step++) {
@@ -179,6 +195,10 @@ try {
     assert.equal(bytes.subarray(1, 4).toString(), "PNG");
     await writeFile(process.env.NCX_EXPORT, bytes);
     result.export = { ms: exported.ms, width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20), reads: exported.reads };
+  }
+  if (process.platform === "linux") {
+    const status = await readFile(`/proc/${viewer.pid}/status`, "utf8");
+    result.server_peak_rss_kib = Number(/VmHWM:\s+(\d+)/.exec(status)?.[1]);
   }
   if (process.argv[2]) await writeFile(process.argv[2], JSON.stringify(result, null, 2) + "\n");
   console.log(JSON.stringify({ renderer:result.renderer, io, initial_ms:initial.ready_ms, frame_ms:frame.ready_ms,

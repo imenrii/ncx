@@ -1,6 +1,6 @@
 import type { FieldSettings } from "../data/fieldSettings";
 import type { WindComponents } from "../data/wind";
-import { PLOT_STYLE, centreMarkSize } from "./plotStyle";
+import { PLOT_STYLE, centreMarkSize, dataStroke } from "./plotStyle";
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { fetchCoordinate, fetchSlice } from "../data/api";
 import type { Metadata, Variable } from "../data/model";
@@ -13,7 +13,8 @@ import { fieldVectorMarks, gridStride, latticeSpacing } from "./fieldVectors";
 import { loadPressureContours } from "./pressureLoad";
 import {
   projectContours, smoothVisibleContours, contourLabels, contourInterval, projectCentres, centreBox,
-  CONTOUR_WIDTH, CONTOUR_LABEL_SCALE, type ContourBox, type PressureCentre, type PressureContour,
+  smoothMesh, smoothingPasses, pruneContours, drawnContours, projectExtrema, standardLevel, pressureContours,
+  CONTOUR_WIDTH, CONTOUR_LABEL_SCALE, type ContourBox, type ContourMesh, type PressureCentre, type PressureContour,
 } from "./pressureContours";
 
 type Arrow = FieldVector;
@@ -35,7 +36,7 @@ export function FieldOverlays({ metadata, variable, wind = false, pressure, sett
   const maskId = `contour-mask-${id}`;
   const [loadedWind, setLoadedWind] = useState<Loaded>();
   const [loadedPressure, setLoadedPressure] = useState<{
-    key: string; scope: string; contours?: PressureContour[]; extrema?: PressureCentre[]; error?: string;
+    key: string; scope: string; contours?: PressureContour[]; extrema?: PressureCentre[]; mesh?: ContourMesh; error?: string;
   }>();
   const scope = JSON.stringify([metadata.dataset_id, variable.path, variable.view_hint, bounds, spatialDimension]);
   const source = useMemo(() => pressure && pressureVariable(metadata, pressure), [metadata, pressure]);
@@ -81,13 +82,22 @@ export function FieldOverlays({ metadata, variable, wind = false, pressure, sett
   const visiblePressure = pressure && loadedPressure?.scope === pressureScope ? loadedPressure : undefined;
   const view = [bounds.minimumX, bounds.maximumX, bounds.minimumY, bounds.maximumY,
     plot.left, plot.top, plot.width, plot.height];
-  const { contours: candidates, centres } = useMemo(() => {
-    const all = projectContours(visiblePressure?.contours ?? [], bounds, plot);
+  // Display smoothing is a fraction of the glyph spacing, so it follows the
+  // drawn scale; the traced copy is kept until the number of passes changes.
+  const passes = visiblePressure?.mesh
+    ? smoothingPasses(visiblePressure.mesh, bounds, plot, PLOT_STYLE.pressure.smoothing * latticeSpacing(plot)) : 0;
+  const traced = useMemo(() => visiblePressure?.mesh && passes
+    ? pressureContours(smoothMesh(visiblePressure.mesh, passes), settings.pressureInterval)
+    : visiblePressure?.contours ?? [], [visiblePressure, passes, settings.pressureInterval]);
+  const { contours: candidates, centres, extrema, interval } = useMemo(() => {
+    const all = projectContours(traced, bounds, plot);
     const centres = projectCentres(visiblePressure?.extrema ?? [], all, bounds, plot, textSize, markSize);
+    const extrema = projectExtrema(visiblePressure?.extrema ?? [], bounds, plot);
     const interval = contourInterval(all, plot, settings.pressureInterval);
-    const drawn = smoothVisibleContours(all.filter(contour => Math.abs(contour.level / interval - Math.round(contour.level / interval)) < 1e-7), plot);
-    return { contours: drawn, centres };
-  }, [visiblePressure, settings.pressureInterval, textSize, markSize, ...view]);
+    const drawn = pruneContours(smoothVisibleContours(all.filter(contour =>
+      Math.abs(contour.level / interval - Math.round(contour.level / interval)) < 1e-7), plot), textSize, extrema, interval);
+    return { contours: drawn, centres, extrema, interval };
+  }, [traced, visiblePressure, settings.pressureInterval, textSize, markSize, ...view]);
   const centreBoxes = useMemo(() => centres.map(centre => centreBox(centre, textSize, markSize)),
     [centres, textSize, markSize]);
   const reserved = useMemo(() => [...centreBoxes, ...(reserve ? [reserve] : [])],
@@ -98,20 +108,12 @@ export function FieldOverlays({ metadata, variable, wind = false, pressure, sett
   const marks = useMemo(() => fieldVectorMarks(visibleWind?.arrows ?? [], bounds, plot,
     reserved, settings.windStyle, textSize * PLOT_STYLE.wind.labelClearance, visibleWind?.thinned),
     [visibleWind, reserved, settings.windStyle, textSize, ...view]);
-  // Clearance around a label is a property of the type, not of the pane: at one
-  // label font size it stays legible in a small plot without opening a hole.
-  // The lattice is only preferred clear: a line that finds no slot beside it
-  // still takes its label, because an unlabelled line is not drawn at all.
-  const labels = useMemo(() => contourLabels(candidates, plot, textSize, reserved,
-    marks.map(mark => mark.box)),
+  // The wind lattice is complete: labels find gaps in its ink and never move a glyph.
+  const labels = useMemo(() => contourLabels(candidates, plot, textSize, reserved, marks),
     [candidates, reserved, marks, textSize, ...view]);
-  // Each visible run must earn its own label, including disconnected runs at the same level.
-  const contours = useMemo(() => [...new Set(labels.map(label => label.contour))], [labels]);
-  // Only the few glyphs a label had to land on give way.
-  const glyphs = useMemo(() => marks.filter(mark => !labels.some(label =>
-    mark.box.left < label.box.right && mark.box.right > label.box.left &&
-    mark.box.top < label.box.bottom && mark.box.bottom > label.box.top)),
-    [marks, labels]);
+  const contours = useMemo(() => drawnContours(candidates, labels, extrema, interval), [candidates, labels, extrema, interval]);
+  const glyphs = marks;
+  const standard = standardLevel([...new Set(contours.map(contour => contour.level))]);
   const contourPaths = useMemo(() => {
     const levels = new Map<number, string[]>();
     for (const contour of contours) {
@@ -130,14 +132,14 @@ export function FieldOverlays({ metadata, variable, wind = false, pressure, sett
     <defs>
       <clipPath id={id}><rect x={plot.left} y={plot.top} width={plot.width} height={plot.height} /></clipPath>
       {/* The label sits in a break in the line, not under a halo: a halo ring
-          reads as a second, paler contour. */}
+          reads as a second, paler contour. The break follows the digits. */}
       <mask id={maskId} maskUnits="userSpaceOnUse"
         x={plot.left} y={plot.top} width={plot.width} height={plot.height}>
         <rect x={plot.left} y={plot.top} width={plot.width} height={plot.height} fill="white" />
-        {labels.map((label, index) => <rect key={`label-${index}`} fill="black"
-          x={label.x - label.half} y={label.y - (textSize + 2) / 2}
-          width={label.half * 2} height={textSize + 2}
-          transform={`rotate(${label.angle} ${label.x} ${label.y})`} />)}
+        {labels.map((label, index) => <text key={`label-${index}`} className="pressure-contour-knockout"
+          x={label.x} y={label.y} fontSize={textSize} transform={`rotate(${label.angle} ${label.x} ${label.y})`}
+          textAnchor="middle" dominantBaseline="central" fill="black" stroke="black"
+          strokeWidth={PLOT_STYLE.pressure.labelKnockout * 2} strokeLinejoin="round">{label.text}</text>)}
         {centreBoxes.map((box, index) => <rect key={`centre-${index}`} fill="black"
           x={box.left} y={box.top} width={box.right - box.left} height={box.bottom - box.top} />)}
       </mask>
@@ -146,8 +148,8 @@ export function FieldOverlays({ metadata, variable, wind = false, pressure, sett
       {currentPressure?.error && <text className="wind-key pressure-key" x={8} y={plot.top - 20}>Contours unavailable</text>}
       <g clipPath={`url(#${id})`} mask={`url(#${maskId})`} fill="none" strokeLinecap="round" strokeLinejoin="round">
         {contourPaths.map(contour => <path key={contour.level} className="pressure-contour"
-          data-level={contour.level} d={contour.path} strokeDasharray={contour.level < 0 ? "5 3" : undefined}
-          stroke={PLOT_STYLE.ink} strokeWidth={CONTOUR_WIDTH} />)}
+          data-level={contour.level} data-standard={contour.level === standard || undefined} d={contour.path} strokeDasharray={contour.level < 0 ? "5 3" : undefined}
+          stroke={PLOT_STYLE.ink} style={{ strokeWidth: dataStroke(contour.level === standard ? PLOT_STYLE.pressure.standardWidth : CONTOUR_WIDTH) }} />)}
       </g>
     </g>}
     {children}
@@ -160,8 +162,8 @@ export function FieldOverlays({ metadata, variable, wind = false, pressure, sett
         strokeLinecap="round" strokeLinejoin="round">
         <path className={barbs ? undefined : "wind-arrows"} d={windPath}
           fill={barbs ? PLOT_STYLE.ink : "none"} stroke={PLOT_STYLE.ink}
-          strokeWidth={barbs ? PLOT_STYLE.wind.barbWidth : PLOT_STYLE.wind.width} />
-        <path d={calmPath} fill="none" stroke={PLOT_STYLE.ink} strokeWidth={PLOT_STYLE.wind.barbWidth} />
+          style={{ strokeWidth: dataStroke(barbs ? PLOT_STYLE.wind.fieldBarbWidth : PLOT_STYLE.wind.width) }} />
+        <path d={calmPath} fill="none" stroke={PLOT_STYLE.ink} style={{ strokeWidth: dataStroke(PLOT_STYLE.wind.fieldBarbWidth) }} />
       </g>
     </g>}
     <g className="pressure-contour-labels" clipPath={`url(#${id})`}>

@@ -16,6 +16,8 @@
   --plot-panel-gap: 0.7em;
   --stroke-grid: 0.7px;
   --stroke-spine: 1px;
+  --stroke-tick: 1px;
+  --stroke-coast: 0.5px;
   --stroke-reference: 1.25px;
   --stroke-data-minor: 1.25px;
   --stroke-data: 1.75px;

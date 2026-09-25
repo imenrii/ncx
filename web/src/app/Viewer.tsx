@@ -12,7 +12,7 @@ import { convert, displayValue, unitChoice } from "../data/units";
 import { unitAssignments } from "../data/unitAssignments";
 import { windPair, fieldWindReason } from "../data/wind";
 import { selectedPressureVariable, pressureReason } from "../data/pressure";
-import { CollectionBrowser, DatasetBrowser } from "./DatasetBrowser";
+import { CollectionBrowser, DatasetBrowser, WorkspaceGroup } from "./DatasetBrowser";
 import { compatibleCurveAxis, type CurvePresentation, type CurveSeries } from "../plots/curveSeries";
 import { sourceFeed, type ResolvedSource } from "../data/sourceFeed";
 import { fieldComparisonDatasets, locationIdentity, primaryFirst } from "../data/comparison";
@@ -457,8 +457,11 @@ export function Viewer({
   const primaryFrameKey = steering.fieldKey(primaryPanel);
   const primaryEligible = view === "metadata" || steeringIntent.kind === "hidden" || !primaryBinding || eligible(primaryPanel);
   const fieldCount = view === "field" ? appended.length + (primaryEligible ? 1 : 0) : 0;
+  // Log needs a positive range: curves fall back to linear, maps to symlog, which keeps the compression and the negatives.
+  const logUnavailable = useBeaufort || (view === "curve" ? shownRange : colorRange).minimum <= 0;
+  const shownScale: ColorScale = scale === "log" && logUnavailable ? view === "curve" ? "linear" : "symlog" : scale;
   const panelSettings: PanelViewSettings = {
-    page: view === "curve" ? "curve" : "field", timestamp, colormap, scale,
+    page: view === "curve" ? "curve" : "field", timestamp, colormap, scale: shownScale,
     range: view === "field" ? colorRange : shownRange, locked: view === "field" ? rangeLocked : curveLocked,
     targetUnit, timeZone: displayTimeZone, fieldSettings, overlays,
     overlaySource: { metadata, variable: fieldVariable, indices }, pressure: pressureOverlay, mapSource,
@@ -470,11 +473,10 @@ export function Viewer({
   });
   const primarySource = resolvedSources.find(source => source.primary) ?? resolvedSources[0];
   const unitLabel = useBeaufort ? "Bft" : targetUnit?.label ?? displayUnit(variable);
-  const curveLogUnavailable = useBeaufort || shownRange.minimum <= 0;
   const displayProps: DisplayProps | undefined = view === "metadata" ? undefined : {
-    view, colormap, scale: view === "curve" && curveLogUnavailable ? "linear" : scale, unit: unitLabel,
+    view, colormap, scale: shownScale, unit: unitLabel,
     onColormap: next => updateSelection({ type: "palette/selected", colormap: next }),
-    onScale: setScale, logUnavailable: view === "curve" && curveLogUnavailable,
+    onScale: setScale, logUnavailable,
     range: shownRange, locked: shownLocked, values: sampled,
     onRange: view === "curve" ? changeCurveRange : changeFieldRange,
     onLocked: view === "curve" ? setCurveLocked : setRangeLocked,
@@ -482,7 +484,7 @@ export function Viewer({
       // Fields publish native samples; curves publish what they draw.
       toDisplay: sourceUnit && targetUnit ? (value: number) => convert(value, sourceUnit, targetUnit, delta) : undefined,
       colour: (value: number) => colorForValue(sourceUnit && targetUnit ? convert(value, targetUnit, sourceUnit, delta) : value,
-        colorRange, scale, colormap),
+        colorRange, shownScale, colormap),
     } : {
       line: primarySource && {
         label: sources.length > 1 ? "Primary line" : "Line", style: styleFor(primarySource),
@@ -490,6 +492,8 @@ export function Viewer({
       },
     }),
   };
+  const workspace = <WorkspaceGroup names={steering.names} search={search}
+    selectedId={primaryBinding?.expression?.id} onSelect={name => steering.show(name)} />;
   const dock = displayProps && <DisplayDock {...displayProps} open={displayOpen} onOpen={setDisplayOpen} />;
 
   // Sources: the host owns membership when it supplied the list; otherwise the reader does.
@@ -581,6 +585,7 @@ export function Viewer({
         <CollectionBrowser
           plotted={stripSources}
           footer={dock}
+          workspace={workspace}
           datasets={datasets}
           metadata={metadata}
           selectedDataset={selectedDataset}
@@ -593,6 +598,7 @@ export function Viewer({
         <DatasetBrowser
           metadata={metadata}
           footer={dock}
+          workspace={workspace}
           selectedPath={selectedPath}
           search={search}
           onSearch={setSearch}
@@ -798,7 +804,7 @@ export function Viewer({
               indices={indices}
               settled={settled}
               colormap={colormap}
-              scale={scale}
+              scale={shownScale}
               range={colorRange}
               targetUnit={targetUnit}
               rangeLocked={rangeLocked}
@@ -834,7 +840,7 @@ export function Viewer({
                   indices={indices}
                   settled={settled}
                   colormap={colormap}
-                  scale={scale}
+                  scale={shownScale}
                   range={colorRange}
                   targetUnit={targetUnit}
                   rangeLocked={rangeLocked}
@@ -867,7 +873,7 @@ export function Viewer({
                   curveDimension={curveDimension}
                   indices={curveIndices}
                   average={probe?.average}
-                  scale={useBeaufort || shownRange.minimum <= 0 ? "linear" : scale}
+                  scale={shownScale}
                   range={shownRange}
                   rangeLocked={curveLocked}
                   subtitle={curveSubtitle}

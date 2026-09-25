@@ -3,7 +3,8 @@ import test from "node:test";
 import { buildUgridGeometry } from "./mesh.ts";
 import { gridContourMesh, meshContourMesh } from "./pressureGeometry.ts";
 import {
-  centreBox, contourInterval, contourLabels, meshExtrema, pressureContours, projectCentres, projectContours, smoothVisibleContours,
+  centreBox, contourInterval, contourLabels, drawnContours, meshExtrema, pressureContours, projectCentres, projectContours,
+  pruneContours, smoothMesh, smoothingPasses, smoothVisibleContours, standardLevel,
 } from "./pressureContours.ts";
 import { fieldVectorMarks, gridStride } from "./fieldVectors.ts";
 import { PLOT_STYLE } from "./plotStyle.ts";
@@ -55,7 +56,7 @@ test("corner cutting rounds a closed isobar", () => {
 test("the drawn interval doubles while isobars crowd the pane", () => {
   const plot = { left: 0, top: 0, width: 100, height: 100 };
   const across = (count: number) => Array.from({ length: count }, (_, i) => ({
-    level: 1000 + i * 4, points: [{ x: 0, y: i }, { x: 100, y: i }],
+    level: 1000 + i * 4, points: [{ x: 0, y: (i + 0.5) * 100 / count }, { x: 100, y: (i + 0.5) * 100 / count }],
   }));
   assert.equal(contourInterval(across(5), plot), 2);
   assert.equal(contourInterval(across(20), plot), 8);
@@ -147,16 +148,20 @@ test("node and face contours retain native values and do not extrapolate face-ce
 });
 
 test("every level is labelled inside the frame and wind glyphs do not overlap", () => {
-  const world = { minimumX: 0, maximumX: 32, minimumY: 0, maximumY: 4 };
+  const world = { minimumX: 0, maximumX: 8, minimumY: 0, maximumY: 4 };
   const plot = { left: 0, top: 0, width: 960, height: 400 };
-  const lines = projectContours(pressureContours(grid(5, 33, x => 980 + 4 * x)), world, plot);
+  // Isobars 60 px apart: room for each value between its neighbours.
+  const lines = projectContours(pressureContours(grid(5, 9, x => 980 + 4 * x)), world, plot);
   const labels = contourLabels(lines, plot, 14, []);
-  const levels = new Set(lines.map(line => line.level).filter(level => level > 980 && level < 1108));
+  const levels = new Set(lines.map(line => line.level).filter(level => level > 980 && level < 1012));
   assert.deepEqual(new Set(labels.map(label => Number(label.text))), levels);
   for (const label of labels) {
     assert.ok(label.box.left >= 6 && label.box.right <= 954 && label.box.top >= 6 && label.box.bottom <= 394);
   }
   assert.equal(contourLabels(lines, plot, 14, [{ left: 0, right: 960, top: 0, bottom: 400 }]).length, 0);
+  // 15 px apart, any label would sit across two isobars and name neither.
+  const dense = projectContours(pressureContours(grid(5, 33, x => 980 + 4 * x)), { ...world, maximumX: 32 }, plot);
+  assert.equal(contourLabels(dense, plot, 14, []).length, 0);
   const vectors = Array.from({ length: 400 }, (_, i) => ({ longitude: i % 20, latitude: Math.floor(i / 20), u: 1, v: 1 }));
   const marks = fieldVectorMarks(vectors, { ...world, maximumX: 20, maximumY: 20 }, plot);
   assert.ok(marks.length <= 18 * 18);
@@ -237,10 +242,9 @@ test("only individually labelled visible runs survive, even at the same pressure
   assert.ok(labels.every(label => label.contour.points.every(p => p.y === 25)));
   assert.deepEqual(contourLabels([line(25)], plot, 14,
     [{ left: 0, right: 200, top: 0, bottom: 120 }]), []);
-  // Exactly coincident neighbours compete for the only available label slot.
+  // Coincident lines: a label there would name both, so neither is labelled.
   const short = { level: 1004, points: [{ x: 60, y: 40 }, { x: 140, y: 40 }] };
-  const crowded = contourLabels([short, { ...short, level: 1008 }], plot, 14, []);
-  assert.equal(new Set(crowded.map(label => label.contour)).size, 1);
+  assert.equal(contourLabels([short, { ...short, level: 1008 }], plot, 14, []).length, 0);
   // Clipping splits one source path into separately labelled visible runs.
   const split = { level: 1012, points: [
     { x: 10, y: 25 }, { x: 220, y: 25 }, { x: 220, y: 85 }, { x: 10, y: 85 },
@@ -379,18 +383,82 @@ test("a thinned source keeps every sample and the same lattice at any pane size"
   assert.deepEqual(new Set(centres(400)), new Set(centres(600)));
 });
 
-test("a yielding obstacle never costs a line its label", () => {
+test("wind glyphs never give way: labels find gaps in their ink", () => {
   const plot = { left: 0, top: 0, width: 400, height: 400 };
   const lines = [40, 120, 200, 280, 360].map(y => ({ level: 1000 + y, points: [{ x: 10, y }, { x: 390, y }] }));
-  // A lattice dense enough that no label can find a gap between the glyphs.
-  const lattice = [];
-  for (let x = 20; x < 400; x += 26) for (let y = 20; y < 400; y += 26) {
-    lattice.push({ left: x - 13, right: x + 13, top: y - 13, bottom: y + 13 });
+  // Vertical shafts every 60 px leave gaps along every line.
+  const glyph = (x: number, y: number) => ({ box: { left: x - 1, right: x + 1, top: y - 11, bottom: y + 11 },
+    ink: Array.from({ length: 9 }, (_, i) => ({ x, y: y - 11 + i * 2.75 })) });
+  const sparse = [];
+  for (let x = 30; x < 400; x += 60) for (let y = 40; y < 400; y += 80) sparse.push(glyph(x, y));
+  const labels = contourLabels(lines, plot, 11, [], sparse);
+  assert.equal(new Set(labels.map(label => label.text)).size, lines.length);
+  for (const label of labels) for (const mark of sparse) for (const point of mark.ink) {
+    assert.ok(Math.abs(point.x - label.x) > label.half || Math.abs(point.y - label.y) > 6, `label ${label.text} sits on glyph ink`);
   }
-  const free = contourLabels(lines, plot, 11, []);
-  assert.equal(new Set(free.map(label => label.text)).size, lines.length);
-  const crowded = contourLabels(lines, plot, 11, [], lattice);
-  assert.equal(new Set(crowded.map(label => label.text)).size, lines.length);
+  // Where the ink leaves no gap, that line goes unnamed rather than a glyph going.
+  const solid = [];
+  for (let x = 12; x < 400; x += 8) solid.push(glyph(x, 200));
+  assert.ok(!contourLabels(lines, plot, 11, [], solid).some(label => label.text === "1200"));
   // A hard obstacle still wins: it is the plot's own reserved area.
-  assert.equal(contourLabels(lines, plot, 11, [{ left: 0, right: 400, top: 0, bottom: 400 }], lattice).length, 0);
+  assert.equal(contourLabels(lines, plot, 11, [{ left: 0, right: 400, top: 0, bottom: 400 }], sparse).length, 0);
+});
+
+test("a label sits on a straight run", () => {
+  const plot = { left: 0, top: 0, width: 400, height: 400 };
+  // A zigzag with legs shorter than the label: every label span crosses a corner.
+  const zigzag = { level: 1004, points: Array.from({ length: 31 }, (_, i) => ({ x: 20 + i * 12, y: 200 + (i % 2 ? 10 : -10) })) };
+  assert.equal(contourLabels([zigzag], plot, 11, []).length, 0);
+  const bend = { level: 1004, points: [{ x: 20, y: 60 }, { x: 200, y: 60 }, { x: 200, y: 360 }] };
+  for (const label of contourLabels([bend], plot, 11, [])) {
+    assert.ok(Math.abs(label.x - 200) > label.half || Math.abs(label.y - 60) > label.half, "label stands in the corner");
+  }
+});
+
+test("labels spread out instead of clustering", () => {
+  const plot = { left: 0, top: 0, width: 600, height: 400 };
+  const lines = [100, 160, 220, 280].map(y => ({ level: 1000 + y, points: [{ x: 10, y }, { x: 590, y }] }));
+  const labels = contourLabels(lines, plot, 11, []);
+  for (let i = 0; i < labels.length; i += 1) for (const other of labels.slice(i + 1)) {
+    assert.ok(Math.hypot(labels[i].x - other.x, labels[i].y - other.y) >= PLOT_STYLE.pressure.labelSpreadRelaxed * 2 * Math.max(labels[i].half, other.half) - 1e-9);
+  }
+});
+
+test("noise loops go; loops around a real centre and every open line stay", () => {
+  const ring = (x: number, y: number, r: number, level: number) => ({ level, points: Array.from({ length: 33 }, (_, i) =>
+    ({ x: x + r * Math.cos(i / 32 * 2 * Math.PI), y: y + r * Math.sin(i / 32 * 2 * Math.PI) })) });
+  const small = ring(100, 100, 8, 1002), eye = ring(300, 100, 8, 1000), large = ring(200, 300, 90, 1004);
+  const short = { level: 1006, points: [{ x: 10, y: 380 }, { x: 30, y: 380 }] };
+  const long = { level: 1008, points: [{ x: 10, y: 390 }, { x: 390, y: 390 }] };
+  const centres = [{ kind: "L" as const, x: 300, y: 100, value: 995 }, { kind: "L" as const, x: 100, y: 100, value: 1001.5 }];
+  const kept = pruneContours([small, eye, large, short, long], 11, centres, 2);
+  assert.deepEqual(kept, [eye, large, long]);
+  // After labelling, an unnamed closed loop without a centre goes; open lines stay.
+  assert.deepEqual(drawnContours([eye, large, long], [], centres, 2), [eye, long]);
+  assert.deepEqual(drawnContours([eye, large, long], [{ contour: large }], centres, 2), [eye, large, long]);
+});
+
+test("the standard isobar is the drawn level nearest 1013.25 hPa", () => {
+  assert.equal(standardLevel([1008, 1012, 1016]), 1012);
+  assert.equal(standardLevel([1010, 1014]), 1014);
+  assert.equal(standardLevel([]), undefined);
+});
+
+test("display smoothing damps noise, keeps holes, and follows the drawn scale", () => {
+  const noisy = grid(21, 21, (x, y) => 1000 + x + ((x + y) % 2 ? 1 : -1));
+  const smooth = smoothMesh(noisy, 4);
+  const roughness = (values: ArrayLike<number>) => {
+    let sum = 0;
+    for (let y = 1; y < 20; y += 1) for (let x = 1; x < 20; x += 1) {
+      sum += Math.abs(values[y * 21 + x] - (values[y * 21 + x - 1] + values[y * 21 + x + 1]) / 2);
+    }
+    return sum;
+  };
+  assert.ok(roughness(smooth.values) < roughness(noisy.values) / 4);
+  assert.equal(noisy.values[0], 999, "the source values are untouched");
+  const hole = grid(9, 9, (x, y) => x === 4 && y === 4 ? NaN : 1000);
+  assert.ok(Number.isNaN(smoothMesh(hole, 3).values[40]));
+  const bounds = { minimumX: 0, maximumX: 20, minimumY: 0, maximumY: 20 };
+  const passes = (width: number) => smoothingPasses(noisy, bounds, { left: 0, top: 0, width, height: width }, 12);
+  assert.ok(passes(200) > passes(800), "a larger pane needs fewer passes for the same screen width");
 });

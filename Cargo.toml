@@ -9,14 +9,19 @@ license = "GNU GPLv3"
 axum = "0.8.9"
 bytes = "1.12.1"
 chrono = { version = "0.4.42", default-features = false, features = ["std"] }
+flate2 = "1.1"
 getrandom = "0.3.1"
 hyper = { version = "1.11.0", features = ["client", "http1"] }
 hyper-util = { version = "0.1.20", features = ["tokio"] }
 libc = "0.2.177"
 netcdf = { version = "0.12.1", default-features = false }
+netcdf-sys = { version = "0.9.1", default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 tokio = { version = "1.53.1", features = ["io-std", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 
 [dev-dependencies]
 ts-rs = "12"
+
+[build-dependencies]
+flate2 = "1.1"
